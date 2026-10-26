@@ -3,138 +3,138 @@ graphical_culture = AfricanGC
 
 party = {
     name = "AGC_conservative"
-    start_date = 1800.1.1
-    end_date = 2000.1.1
+    start_date = 1803.1.1
+    end_date = 1999.1.1
 
     ideology = conservative
 
-    social_policy = no_position_set
-    economic_policy = laissez_faire
-    trade_policy = free_trade
-    religious_policy = moralism
-    citizenship_policy = residency
-    war_policy = pro_military
-}
-
-party = {
-    name = "AGC_liberal"
-    start_date = 1820.1.1
-    end_date = 1936.1.1
-
-    ideology = liberal
-
-    social_policy = no_position_set
+    social_policy = welfare_state
     economic_policy = interventionism
     trade_policy = protectionism
-    religious_policy = pluralism
-    citizenship_policy = full_citizenship
-    war_policy = pacifism
-}
-
-party = {
-    name = "AGC_reactionary"
-    start_date = 1820.1.1
-    end_date = 2000.1.1
-
-    ideology = reactionary
-
-    social_policy = no_position_set
-    economic_policy = state_capitalism
-    trade_policy = protectionism
-    religious_policy = moralism
-    citizenship_policy = residency
-    war_policy = jingoism
-}
-
-party = {
-    name = "AGC_anarcho_liberal"
-    start_date = 1830.1.1
-    end_date = 2000.1.1
-
-    ideology = anarcho_liberal
-
-    social_policy = no_state_interference
-    economic_policy = laissez_faire
-    trade_policy = free_trade
     religious_policy = pro_atheism
-    citizenship_policy = full_citizenship
-    war_policy = pro_military
-}
-
-party = {
-    name = "AGC_socialist"
-    start_date = 1848.1.1
-    end_date = 2000.1.1
-
-    ideology = socialist
-
-    social_policy = welfare_state
-    economic_policy = planned_economy
-    trade_policy = protectionism
-    religious_policy = secularized
-    citizenship_policy = full_citizenship
+    citizenship_policy = limited_citizenship
     war_policy = anti_military
 }
 
 party = {
-    name = "AGC_communist"
-    start_date = 1848.1.1
-    end_date = 2000.1.1
+    name = "AGC_liberal"
+    start_date = 1823.1.1
+    end_date = 1939.1.1
 
-    ideology = communist
+    ideology = liberal
 
-    social_policy = populist_welfare
-    economic_policy = planned_economy
-    trade_policy = protectionism
-    religious_policy = pro_atheism
-    citizenship_policy = full_citizenship
-    war_policy = pro_military
-}
-
-party = {
-    name = "AGC_fascist"
-    start_date = 1900.1.1
-    end_date = 2000.1.1
-
-    ideology = fascist
-
-    social_policy = populist_welfare
+    social_policy = welfare_state
     economic_policy = state_capitalism
-    trade_policy = protectionism
+    trade_policy = free_trade
     religious_policy = moralism
     citizenship_policy = residency
     war_policy = jingoism
 }
 
+party = {
+    name = "AGC_reactionary"
+    start_date = 1823.1.1
+    end_date = 1999.1.1
+
+    ideology = reactionary
+
+    social_policy = welfare_state
+    economic_policy = planned_economy
+    trade_policy = free_trade
+    religious_policy = pro_atheism
+    citizenship_policy = limited_citizenship
+    war_policy = pro_military
+}
+
+party = {
+    name = "AGC_anarcho_liberal"
+    start_date = 1833.1.1
+    end_date = 1999.1.1
+
+    ideology = anarcho_liberal
+
+    social_policy = no_position_set
+    economic_policy = interventionism
+    trade_policy = protectionism
+    religious_policy = secularized
+    citizenship_policy = residency
+    war_policy = anti_military
+}
+
+party = {
+    name = "AGC_socialist"
+    start_date = 1851.1.1
+    end_date = 1999.1.1
+
+    ideology = socialist
+
+    social_policy = populist_welfare
+    economic_policy = laissez_faire
+    trade_policy = free_trade
+    religious_policy = pluralism
+    citizenship_policy = residency
+    war_policy = pacifism
+}
+
+party = {
+    name = "AGC_communist"
+    start_date = 1851.1.1
+    end_date = 1999.1.1
+
+    ideology = communist
+
+    social_policy = no_state_interference
+    economic_policy = laissez_faire
+    trade_policy = free_trade
+    religious_policy = secularized
+    citizenship_policy = residency
+    war_policy = anti_military
+}
+
+party = {
+    name = "AGC_fascist"
+    start_date = 1903.1.1
+    end_date = 1999.1.1
+
+    ideology = fascist
+
+    social_policy = no_state_interference
+    economic_policy = planned_economy
+    trade_policy = free_trade
+    religious_policy = pro_atheism
+    citizenship_policy = limited_citizenship
+    war_policy = pro_military
+}
+
 unit_names = {
     dreadnought = {
-        "Al Said" Nabhaniyyun "Ahmad ibn Said" "Said ibn Sultan" "Sayf bin Sultan"
+        "Kasobu Denebu" Quyolo "Taruho Mashipe Denebu" "Denebu Mashipe Busiho" "Buzuma Qusima Busiho"
         }
     ironclad = {
-        "Ala al-Din" "Husam al-Din" "Izz al-Din" "Jalal al-Din" "Khayr al-Din" "Majid al-Din" "Nasir al-Din" "Nur al-Din"
-        "Safi al-Din" "Salah al-Din" "Siraj al-Din"
+        "Favoda Kamofa" "Keshima Kamofa" "Quripe Kamofa" "Naruqu Kamofa" "Buwama Kamofa" "Zeyoke Kamofa" "Fayobu Kamofa" "Davota Kamofa"
+        "Daride Kamofa" "Narume Kamofa" "Lowabu Kamofa"
     }
     manowar = {
-        Masqat Suhar Matrah Nizwa Salala Sur Musandam
+        Mawalo Kerilo Tazufa Busize Lorame Busoho Memofa
     }
     cruiser = {
-        "Abd al-Aziz" "Abd al-Hadi" "Abd al-Haqq" "Abd al-Jalil" "Abd al-Latif"
-        "Abd al-Hafiz" "Abd al-Hakim" "Abd al-Nasir" "Abd al-Quddus" "Abd al-Rahim" "Abd al-Malik"
-        "Abd al-Rashid" "Abd al-Rahman" "Abd al-Sami" "Abd al-Wadud" "Abd al-Wahhab"
+        "Tasoze Naruka" "Tasoze Tasoka" "Tasoze Magafa" "Tasoze Loyope" "Tasoze Danepe"
+        "Tasoze Kashime" "Tasoze Buvolo" "Tasoze Qumoma" "Tasoze Kamoqu" "Tasoze Daside" "Tasoze Kemope"
+        "Tasoze Perime" "Tasoze Malibu" "Tasoze Datima" "Tasoze Kagana" "Tasoze Mashika"
     }
     frigate = {
-        Akram Atif Ayman Bahir Fadil Fath Firas Fawwaz Ghalib Hakim Humam Jabbar Jawhar Kamal Khalid
-        Masud Mamun Majid Mufid Mukhtar Muntasir Qudamat Rashad Sa'ad Tahir Thabit Wafiq Yusuf Zahir Zafir
+        Favolo Burufa Tavope Qulide Tatibu Pemona Hotilo Tasike Zeruke Hoshifa Kegana Hotita Datiho Kerafa Buyoma
+        Devolo Kalifa Zeyoke Deshibu Logame Hovode Pewana Perade De'ribu Quzupe Merade Mayobu Mezuze Megafa Tawaka
     }
     monitor = {
-        "Badr al-Din" "Diya al-Din" "Baha al-Din" "Imad al-Din" "Jamal al-Din" "Lutf al-Din" "Najm al-Din" "Sayf al-Din"
+        "Kenequ Kamofa" "Keshida Kamofa" "Kanema Kamofa" "Qushibu Kamofa" "Metifa Kamofa" "Delima Kamofa" "Narufa Kamofa" "Buzuma Kamofa"
         }
     clipper_transport = {
     }
     steam_transport = {
     }
     commerce_raider = {
-        Alif Amin Anwar Ayham Bahir Dhakwan  Falah Faraj Fawzan Ghanim Ghassan Hanbal Haris Hashim Iqbal Jal Junayd
-        Kadar Kazim Khalis Khulus Luay Mashhur Muflih Mulham Munahid Nabhan Nawfal Nazim Numan Ramiz Sharaf Siddiq Tawfiq Yasir Zayn Zubayr
+        Lotina Lorana Zeshiho Dashima Qulide Kawada  Kashize Meraho Qushide Meruka Deruho Deneke Zelide Desita Meshime Butipe Megade
+        Bushita Pesobu Derika Marima Qumota Pewabu Metika Ketita Quwaho Talike Buruda Buvofa Burama Narulo Tazude Mezuna Hogana Burata Memoho Merida
     }
 }
