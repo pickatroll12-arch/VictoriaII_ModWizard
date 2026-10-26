@@ -284,7 +284,7 @@ class Workspace:
                            saved_version=version, diagnostics=diagnostics)
         handle.read_only_reason = self._reason(kind, model, diagnostics)
         self._store.add(handle, len(data))
-        self._evict()
+        self._evict(keep=handle.rel.key)
         return handle
 
     def peek(self, rel: str | VPath) -> DocHandle | None:
@@ -296,8 +296,12 @@ class Workspace:
         self._check()
         return sorted(self._store, key=lambda h: h.rel.key)
 
-    def _evict(self) -> None:
+    def _evict(self, keep: str | None = None) -> None:
+        """Expulsa documentos limpios de la LRU; nunca los de la pila de deshacer, la transacción ni ``keep``
+        (el que se acaba de abrir: quien llamó a ``open`` lo va a usar)."""
         pinned = self._undo.referenced() | {k for f in self._frames for k in f._states}
+        if keep is not None:
+            pinned.add(keep)
         for rel in self._store.evict(pinned):
             self._snap.pop(rel.key, None)
 
@@ -451,10 +455,18 @@ class Workspace:
 
     def _apply(self, rel: VPath, data: bytes | None, deleted: bool, version: int, kind: DocKind | None,
                handle: DocHandle | None = None) -> DocHandle | None:
-        """Pone ``rel`` en un estado guardado (``data=None``: sin documento)."""
+        """Pone ``rel`` en un estado guardado (``data=None``: sin documento).
+
+        «Sin documento» con el archivo ya en el mod (se creó y se guardó) es una
+        lápida: la vista efectiva lo da por borrado y el próximo guardado lo manda a
+        la papelera (I7). Sin archivo en el mod, el documento simplemente se quita.
+        """
         key = rel.key
         live = self._store.get(rel)
         if data is None:
+            entry = self._disk_entry(rel)
+            if entry is not None and entry.layer.kind is LayerKind.MOD:
+                return self._tombstone(rel, entry, version, live or handle or self._ghosts.get(key))
             if live is not None:
                 self._remove(live)
             self._snap.pop(key, None)
@@ -475,6 +487,24 @@ class Workspace:
         target.version = version
         target.read_only_reason = self._reason(target.kind, model, diagnostics)
         self._snap[key] = (version, data)
+        return target
+
+    def _tombstone(self, rel: VPath, entry: FileEntry, version: int, target: DocHandle | None) -> DocHandle:
+        if target is None:
+            data, fingerprint = self._read_entry(entry)
+            kind = kind_for(entry.rel)
+            model, diagnostics = codec_for(kind).load(data, entry.rel)
+            target = DocHandle(entry.rel, kind, model, origin=entry, base=fingerprint,
+                               saved_version=next(self._versions), diagnostics=diagnostics)
+        if target.origin is None or target.origin.layer.kind is not LayerKind.MOD:
+            target.origin = entry
+            target.base = entry.fingerprint
+        if self._store.get(rel) is not target:
+            self._ghosts.pop(rel.key, None)
+            self._store.add(target, entry.fingerprint.size)
+        target.deleted = True
+        target.version = version
+        self._snap.pop(rel.key, None)
         return target
 
     def _revert(self, txn: Txn) -> None:
@@ -951,8 +981,11 @@ class Workspace:
         return (self._autosave_txns >= self.AUTOSAVE_TRANSACTIONS
                 or now - self._autosave_time >= self.AUTOSAVE_SECONDS)
 
-    def write_recovery(self) -> None:
-        """Autoguardado de los sucios en ``recovery/<sesión>/`` (no crea nada si no hay sucios)."""
+    def write_recovery(self, *, final: bool = False) -> None:
+        """Autoguardado de los sucios en ``recovery/<sesión>/`` (no crea nada si no hay sucios).
+
+        ``final``: la sesión termina (``Project.close``); su autoguardado se ofrecerá al reabrir.
+        """
         self._check()
         self._autosave_txns = 0
         self._autosave_time = time.monotonic()
@@ -968,13 +1001,13 @@ class Workspace:
             except (ValueError, LookupError):
                 continue
             signature[handle.rel.key] = handle.version
-        if signature == self._recovery_signature:
+        if signature == self._recovery_signature and not (final and documents):
             return
         root = self._project_dir / journal.RECOVERY_DIR
         if not documents and not (root / self._session_id).exists():
             self._recovery_signature = signature
             return
-        journal.write_recovery(self._vfs.guard, root, self._session_id, documents)
+        journal.write_recovery(self._vfs.guard, root, self._session_id, documents, closed=final)
         self._recovery_signature = signature
 
     def clear_recovery(self) -> None:

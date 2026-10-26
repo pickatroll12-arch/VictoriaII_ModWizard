@@ -142,9 +142,10 @@ def _guarded_rmdirs(guard: WriteGuard, folder: Path, stop_at: Path) -> None:
 
 
 def _guarded_fsync_dirs(guard: WriteGuard, folders: Iterable[Path]) -> None:
+    # fsync no modifica nada: también vale para la carpeta del descriptor (<juego>/mod), que el guard no admite.
     for folder in sorted(set(folders)):
         if os.path.isdir(folder):
-            fileio.fsync_dir(guard.check(folder))
+            fileio.fsync_dir(folder)
 
 
 def _temp_path(target: Path, token: str) -> Path:
@@ -510,12 +511,15 @@ def trash_file(guard: WriteGuard, trash_root: Path, txid: str, rel: VPath, sourc
 
 # --- autoguardado de recuperación ------------------------------------------------------------
 
-def write_recovery(guard: WriteGuard, recovery_root: Path, session: str, documents: Mapping[VPath, bytes]) -> None:
+def write_recovery(guard: WriteGuard, recovery_root: Path, session: str, documents: Mapping[VPath, bytes], *,
+                   closed: bool = False) -> None:
     """Autoguardado: ``recovery/<sesión>/<rel>`` con el ``snapshot()`` de cada documento sucio y un índice JSON.
 
     Los documentos van numerados (``0001.dat``…) para no depender de los nombres;
     el índice dice qué ruta es cada uno y se escribe al final, así que un corte a
     medias deja el autoguardado anterior entero. Sin documentos borra el de la sesión.
+    ``closed``: la sesión terminó con cambios sin guardar (se ofrecerá aunque su
+    proceso siga vivo, p. ej. al reabrir el mod en la misma ventana).
     """
     folder = Path(recovery_root) / session
     if not documents:
@@ -528,7 +532,7 @@ def write_recovery(guard: WriteGuard, recovery_root: Path, session: str, documen
         _guarded_write(guard, folder / name, data)
         entries.append({"rel": str(rel), "file": name, "sha256": sha256_bytes(data)})
     index = {"format": JOURNAL_FORMAT, "session": session, "pid": os.getpid(), "host": socket.gethostname(),
-             "written": _now(), "files": entries}
+             "written": _now(), "closed": closed, "files": entries}
     _guarded_write(guard, folder / RECOVERY_INDEX, (json.dumps(index, ensure_ascii=False, indent=1) + "\n").encode())
     keep = {e["file"] for e in entries} | {RECOVERY_INDEX}
     for name in previous - keep:

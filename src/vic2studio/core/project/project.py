@@ -199,7 +199,7 @@ class Project:
                 if discard or not self.ws.dirty():
                     self.ws.clear_recovery()
                 else:
-                    self.ws.write_recovery()
+                    self.ws.write_recovery(final=True)
         finally:
             self.lock.release()
             self.ws.close()

@@ -180,8 +180,9 @@ def _index(folder: Path) -> dict | None:
 def orphan_sessions(recovery_root: Path, *, alive: set[str] = frozenset()) -> list[str]:
     """Sesiones de autoguardado cuyo proceso ya no existe (y que no están en ``alive``).
 
-    Una sesión de otro equipo cuenta como huérfana (no se puede saber si vive):
-    restaurarla siempre lo confirma el usuario.
+    También las que se cerraron con cambios sin guardar (``closed`` en su índice)
+    aunque su proceso siga vivo. Una sesión de otro equipo cuenta como huérfana (no
+    se puede saber si vive): restaurarla siempre lo confirma el usuario.
     """
     from .lock import pid_alive
 
@@ -198,7 +199,7 @@ def orphan_sessions(recovery_root: Path, *, alive: set[str] = frozenset()) -> li
         if index is None or not index["files"]:
             continue
         pid = index.get("pid")
-        if index.get("host") == host and isinstance(pid, int) and pid_alive(pid):
+        if index.get("closed") is not True and index.get("host") == host and isinstance(pid, int) and pid_alive(pid):
             continue
         orphans.append(name)
     return orphans

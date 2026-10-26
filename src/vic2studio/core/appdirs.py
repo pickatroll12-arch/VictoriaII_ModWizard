@@ -19,11 +19,15 @@ APP_FOLDER = "vic2studio"            # Linux
 APP_FOLDER_WINDOWS = "Vic2Studio"    # Windows, dentro de %LOCALAPPDATA%
 
 
+def _is_windows() -> bool:
+    return os.name == "nt"
+
+
 def _base(env: str, kind: str, xdg: str, fallback: str) -> Path:
     override = os.environ.get(env)
     if override:
         return Path(override)
-    if os.name == "nt":
+    if _is_windows():
         local = os.environ.get("LOCALAPPDATA") or str(Path.home() / "AppData" / "Local")
         return Path(local) / APP_FOLDER_WINDOWS / kind
     root = os.environ.get(xdg) or str(Path.home() / fallback)
