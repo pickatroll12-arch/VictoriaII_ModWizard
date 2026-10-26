@@ -1,9 +1,10 @@
 """Integración del parser Clausewitz y del CSV en la interfaz (offscreen).
 
-Usa el corpus de ``VIC2_CORPUS``: la plantilla (con ``localisation/text.csv``) y
-el mod del usuario ``VSM`` (con dos decisiones a las que les falta la llave de
-cierre de ``political_decisions``). Las pruebas que lo necesitan se omiten si no
-está disponible. Todas fallan ante cualquier aviso de Qt.
+Usa el corpus de ``_corpus.py``: el mod del usuario ``VSM`` (completo o la
+muestra mínima del repositorio, con dos decisiones a las que les falta la llave
+de cierre de ``political_decisions``) y la plantilla del juego base (con
+``localisation/text.csv``). Sin la plantilla se usa una sintética con la misma
+forma. Todas fallan ante cualquier aviso de Qt.
 """
 
 import json
@@ -18,7 +19,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 import _qt  # noqa: E402  (antes de PySide6.QtWidgets: plataforma offscreen y avisos)
-from _corpus import corpus_roots  # noqa: E402
+from _corpus import corpus_roots, is_synthetic, synthetic_template, user_mod_error_files  # noqa: E402
 from PIL import Image  # noqa: E402
 from PySide6.QtCore import QElapsedTimer, Qt, QTimer  # noqa: E402
 from PySide6.QtTest import QTest  # noqa: E402
@@ -55,9 +56,12 @@ def _find(relative: str, exclude: str | None = None) -> Path | None:
 SOMALILAND = _find("decisions/somaliland_shago.txt")
 ZULU = _find("decisions/zulu_expancionshago.txt")
 USER_MOD = SOMALILAND.parents[1] if SOMALILAND else None
-TEXT_CSV = _find("localisation/text.csv", exclude="VSM") or _find("localisation/text.csv")
-TEMPLATE = TEXT_CSV.parents[1] if TEXT_CSV else None
-PROVINCE = TEMPLATE / "history" / "provinces" / "france" / "400 - Dunkirk.txt" if TEMPLATE else None
+TEXT_CSV = (_find("localisation/text.csv", exclude="VSM") or _find("localisation/text.csv")
+            or synthetic_template() / "localisation" / "text.csv")
+TEMPLATE = TEXT_CSV.parents[1]
+PROVINCE = TEMPLATE / "history" / "provinces" / "france" / "400 - Dunkirk.txt"
+# Solo el mod completo trae los ~3 950 archivos (y el diario de desarrollo con errores).
+FULL_USER_MOD = USER_MOD is not None and len(user_mod_error_files(USER_MOD)) > 2
 VSM_DECISIONS_CSV = USER_MOD / "localisation" / "00_VSM_decisions.csv" if USER_MOD else None
 
 
@@ -71,7 +75,7 @@ def double_click(view, index) -> None:
 
 def needs(*paths):
     missing = [p for p in paths if p is None or not Path(p).exists()]
-    return unittest.skipIf(missing, "sin corpus disponible (VIC2_CORPUS)")
+    return unittest.skipIf(missing, "falta el mod del usuario en el corpus (VIC2_CORPUS o tests/fixtures)")
 
 
 class IntegrationCase(unittest.TestCase):
@@ -213,7 +217,7 @@ class ClausewitzPreviewTests(IntegrationCase):
         self.assertEqual(collect_texts(self.window), before)
         self.assertIn("sin cerrar", viewer.tree.topLevelItem(0).text(2))
 
-    @needs(USER_MOD, TEMPLATE)
+    @needs(USER_MOD)
     def test_pseudo_locale_with_everything_open(self):
         """Con archivos abiertos y el mod validado, todo texto visible sigue viniendo del catálogo."""
         self.set_mod(USER_MOD)
@@ -378,24 +382,24 @@ class ValidationTests(IntegrationCase):
         descriptor = USER_MOD.parent / "VSM.mod"
         self.assertEqual(report.files, len(collect_files(USER_MOD)) + int(descriptor.is_file()),
                          "se validan todos los archivos del mod y su descriptor")
-        self.assertGreater(report.files, 3900)
+        if FULL_USER_MOD:
+            self.assertGreater(report.files, 3900)
         unclosed = [i for i in report.issues if i.code == "unclosed_block"]
         self.assertEqual(sorted((i.relative, i.line) for i in unclosed),
                          [("decisions/somaliland_shago.txt", 1), ("decisions/zulu_expancionshago.txt", 1)])
         self.assertTrue(all(i.severity is Severity.ERROR for i in unclosed))
-        # El tercer archivo con errores es el diario de desarrollo en prosa de Paradox.
-        self.assertEqual(report.files_with(Severity.ERROR),
-                         ["decisions/somaliland_shago.txt", "decisions/zulu_expancionshago.txt",
-                          "history/units/v2dd2.txt"])
+        # En el mod completo, el tercer archivo con errores es el diario de desarrollo en prosa de Paradox.
+        error_files = user_mod_error_files(USER_MOD)
+        self.assertEqual(report.files_with(Severity.ERROR), error_files)
         self.assertTrue(progress and progress[-1][0] == progress[-1][1] == report.files)
 
         panel = self.project.validation
         self.assertEqual(panel.model.rowCount(), len(report.issues))
         first = [panel.model.index(r, 1).data() for r in range(2)]
         self.assertEqual(first, ["decisions/somaliland_shago.txt", "decisions/zulu_expancionshago.txt"])
-        self.assertIn("(3)", self.project.left_tabs.tabText(1))
-        panel.severity_combo.setCurrentIndex(1)  # solo errores
-        self.assertEqual(panel.model.rowCount(), 3)
+        self.assertIn(f"({len(error_files)})", self.project.left_tabs.tabText(1))
+        panel.severity_combo.setCurrentIndex(1)  # solo errores (uno por archivo)
+        self.assertEqual(panel.model.rowCount(), len(error_files))
         panel.filter_edit.setText("zulu")
         panel._apply_filter()
         self.assertEqual(panel.model.rowCount(), 1)
@@ -475,7 +479,8 @@ class LocalisationIntegrationTests(IntegrationCase):
         _qt.process_events(50)
         heartbeat.stop()
         stall = max(gaps) / 1000 if gaps else 0.0
-        print(f"\n[ui] text.csv ({TEXT_CSV.stat().st_size / 1e6:.1f} MB, {len(expected.rows)} filas): "
+        synthetic = " sintético" if is_synthetic(TEXT_CSV) else ""
+        print(f"\n[ui] text.csv{synthetic} ({TEXT_CSV.stat().st_size / 1e6:.1f} MB, {len(expected.rows)} filas): "
               f"visible en {elapsed:.2f} s; mayor bloqueo del hilo de la interfaz {stall * 1000:.0f} ms",
               file=sys.stderr)
         self.assertLess(elapsed, CSV_LIMIT_SECONDS)

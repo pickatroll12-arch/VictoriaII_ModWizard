@@ -9,6 +9,32 @@ pausó el **2026-10-25 a las 23:20 (UTC-3)** porque el usuario tenía que apagar
 
 ---
 
+## 0. Actualización 2026-10-26 (sesión en la nube, rama `claude/project-thread-pfuk53`)
+
+- **Corpus real disponible en la nube**: el usuario subió `Plantilla Mod.zip` y `VictoriaShagoMod_for testing`
+  (zip) a la biblioteca del proyecto (`/mnt/project-files/`). Se descomprimen fuera del repo, p. ej. en
+  `/home/user/corpus/Plantilla Mod` y `/home/user/corpus/ShagoMod` (con `VSM.mod` + `VSM/`), y se activan con
+  `VIC2_CORPUS="/home/user/corpus/Plantilla Mod:/home/user/corpus/ShagoMod"`. A la plantilla le faltan las carpetas
+  vanilla `map/`, `events/`, `decisions/`, `units/` e `interface/`; por eso el usuario subió también
+  `VICII_SRC_FOR_MODDING.zip` (los datos completos del juego base, sin ejecutables): se descomprimen solo las
+  carpetas de datos (sin música, sonido ni vídeos) en `/home/user/corpus/vanilla`. El parser hace ida y vuelta byte a
+  byte de sus 4.221 archivos Clausewitz; los únicos con errores son textos en prosa (`history/units/v2dd2.txt`,
+  `interface/credits.txt`, `mod/dummy.txt`). Corpus completo para las pruebas:
+  `VIC2_CORPUS="/home/user/corpus/vanilla:/home/user/corpus/Plantilla Mod:/home/user/corpus/ShagoMod"`.
+  Los datos de Paradox nunca se suben al repositorio. También subió una imagen de
+  referencia con los IDs de provincia (HoD) y un `.mod` de ejemplo (`name = "Dark Age Mod"`, `path = "mod/DAM"`,
+  `user_dir = "DAM"`).
+- **T2 hecha**: sin `VIC2_CORPUS` las pruebas usan la muestra `tests/fixtures/shago_mod_min` y una plantilla
+  sintética (`tests/_corpus.py: synthetic_template`). Pasan sin corpus, con la muestra, con el corpus completo y
+  con un corpus vacío.
+- **Objetivo ampliado del usuario** (además de lo de este documento). El Wizard debe poder: generar el archivo `.mod`;
+  ver/crear/editar países, provincias, unidades terrestres, decisiones, eventos, guerras de inicio, casus belli,
+  bookmarks, nuevos gobiernos, unidades navales, culturas y regiones; una suite de modificación de interfaces; y una
+  suite de creación de mapas nuevos desde cero con sus dependencias. El diseño y el plan de iteraciones para cubrirlo
+  están en `docs/diseno/wizard.md` (cuando exista) y en la hoja de ruta de `ARCHITECTURE.md`.
+
+---
+
 ## 1. Qué es y qué pidió el usuario
 
 - **Victoria II Mod Studio**: aplicación de escritorio (Windows + Linux) para crear y editar mods de

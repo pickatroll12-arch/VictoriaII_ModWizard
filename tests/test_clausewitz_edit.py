@@ -514,7 +514,8 @@ class RandomEditTests(ReparseMixin, unittest.TestCase):
             self.skipTest("sin corpus disponible")
         rng = random.Random(99)
         checked = 0
-        for path in rng.sample(files, min(400, len(files))):
+        sample = rng.sample(files, min(400, len(files)))
+        for path in sample:
             result = parse_file(path)
             original = to_source(result.document)
             candidates = [e for _, e in walk(result.document) if e.key is not None and isinstance(e.value, Scalar)]
@@ -527,7 +528,8 @@ class RandomEditTests(ReparseMixin, unittest.TestCase):
             start = token.offset
             self.assertEqual(new, original[:start] + "zz_new_value" + original[start + len(token.raw):], path)
             checked += 1
-        self.assertGreater(checked, 100)
+        # Con el corpus completo (400 archivos de muestra) al menos 100; con uno pequeño, la mitad.
+        self.assertGreaterEqual(checked, min(100, len(sample) // 2))
 
 
 if __name__ == "__main__":

@@ -1,17 +1,32 @@
 """Localiza carpetas de mods reales para las pruebas de corpus.
 
 ``VIC2_CORPUS`` admite varias rutas separadas por ``os.pathsep``. Si no está
-definida se usa ``../Plantilla Mod`` respecto a la raíz del proyecto, cuando existe.
-Las pruebas de corpus se omiten si no hay ninguna carpeta disponible.
+definida se usa ``../Plantilla Mod`` respecto a la raíz del proyecto, cuando
+existe, y siempre la muestra mínima del mod del usuario incluida en el
+repositorio (``tests/fixtures/shago_mod_min``): así las pruebas del mod del
+usuario corren también sin el corpus completo.
+
+Las pruebas que necesitan archivos que la muestra no trae (``text.csv``, una
+historia de provincia) usan, si el corpus no los tiene, una plantilla sintética
+con la misma forma (``synthetic_template``), y lo indican en su salida.
 """
 
 from __future__ import annotations
 
+import atexit
 import os
+import random
+import shutil
+import tempfile
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+FIXTURE_ROOT = PROJECT_ROOT / "tests" / "fixtures" / "shago_mod_min"
 CLAUSEWITZ_SUFFIXES = {".txt", ".mod", ".gfx", ".gui", ".sfx", ".asset"}
+USER_MOD_NAME = "VSM"
+# Diario de desarrollo en prosa que Paradox dejó en history/units; solo está en el mod completo.
+DEV_DIARY = "history/units/v2dd2.txt"
+USER_BROKEN_FILES = ("decisions/somaliland_shago.txt", "decisions/zulu_expancionshago.txt")
 
 
 def corpus_roots() -> list[Path]:
@@ -19,7 +34,7 @@ def corpus_roots() -> list[Path]:
     if raw:
         candidates = [Path(p) for p in raw.split(os.pathsep) if p]
     else:
-        candidates = [PROJECT_ROOT.parent / "Plantilla Mod"]
+        candidates = [PROJECT_ROOT.parent / "Plantilla Mod", FIXTURE_ROOT]
     return [p for p in candidates if p.is_dir()]
 
 
@@ -28,3 +43,71 @@ def corpus_files(suffixes: set[str]) -> list[Path]:
     for root in corpus_roots():
         files.extend(p for p in root.rglob("*") if p.is_file() and p.suffix.lower() in suffixes)
     return sorted(files)
+
+
+def user_mod() -> Path | None:
+    """Carpeta ``VSM`` del mod del usuario (completo o la muestra mínima), si está en el corpus."""
+    return next((r / USER_MOD_NAME for r in corpus_roots() if (r / USER_MOD_NAME / "decisions").is_dir()), None)
+
+
+def user_mod_error_files(mod: Path) -> list[str]:
+    """Archivos del mod del usuario con errores de sintaxis genuinos, en orden de validación."""
+    return [*USER_BROKEN_FILES, *([DEV_DIARY] if (mod / DEV_DIARY).is_file() else [])]
+
+
+# --- plantilla sintética -------------------------------------------------------------------
+
+SYNTHETIC_TEXT_ROWS = 15_300
+SYNTHETIC_EXTRA_ROWS = 6_000
+# Historia de provincia con la forma de la vanilla «400 - Dunkirk.txt» (solo lo que comprueban las pruebas).
+SYNTHETIC_PROVINCE = (
+    "owner = FRA\ncontroller = FRA\nadd_core = FRA\ntrade_goods = fish\nlife_rating = 35\nnaval_base = 1\n"
+    "1861.1.1 = { railroad = 3 }\n"
+)
+_WORDS = ("Country Pays Land País Military Score militaire Militär Puntuación Industrial industriel Industrie "
+          "Prestige Österreich Großmacht Señorío Città Kraków Zürich Göteborg Nation Reino Imperio").split()
+_synthetic: Path | None = None
+
+
+def _csv_rows(rng: random.Random, prefix: str, count: int) -> list[str]:
+    def text() -> str:
+        return " ".join(rng.choice(_WORDS) for _ in range(rng.randint(3, 10)))
+
+    lines = []
+    for i in range(count):
+        if i % 200 == 199:
+            lines.append(f"#{prefix} sección {i};;;;;;;;;;;;;;x;;;;")
+        elif i % 500 == 0:
+            # Como en vanilla, algunas claves comparten prefijo (para las búsquedas).
+            lines.append(f"LEDGER_COUNTRY_{prefix}{i};{text()};{text()};{text()};;{text()};;;;;;;;;x;;;;")
+        else:
+            lines.append(f"{prefix}_KEY_{i:05d};{text()};{text()};{text()};;{text()};;;;;;;;;x;;;;")
+    return lines
+
+
+def synthetic_template() -> Path:
+    """Plantilla sintética (creada una vez por proceso y borrada al salir) con la forma del juego base.
+
+    ``localisation/text.csv``: ~15 300 filas y ~3,6 MB en Windows-1252 con CRLF,
+    comentarios y los campos vacíos que vanilla deja tras la ``x``;
+    ``localisation/newtext.csv`` completa más de 20 000 claves; y
+    ``history/provinces/france/400 - Dunkirk.txt``.
+    """
+    global _synthetic
+    if _synthetic is None:
+        root = Path(tempfile.mkdtemp(prefix="vic2studio-synthetic-")) / "Plantilla sintética"
+        atexit.register(shutil.rmtree, root.parent, True)
+        rng = random.Random(1836)
+        localisation = root / "localisation"
+        localisation.mkdir(parents=True)
+        for name, prefix, count in (("text.csv", "TXT", SYNTHETIC_TEXT_ROWS), ("newtext.csv", "NEW", SYNTHETIC_EXTRA_ROWS)):
+            (localisation / name).write_bytes(("\r\n".join(_csv_rows(rng, prefix, count)) + "\r\n").encode("cp1252"))
+        province = root / "history" / "provinces" / "france" / "400 - Dunkirk.txt"
+        province.parent.mkdir(parents=True)
+        province.write_bytes(SYNTHETIC_PROVINCE.encode("cp1252"))
+        _synthetic = root
+    return _synthetic
+
+
+def is_synthetic(path: Path | None) -> bool:
+    return path is not None and _synthetic is not None and _synthetic in path.parents
