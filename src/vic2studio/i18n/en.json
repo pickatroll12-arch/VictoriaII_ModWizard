@@ -26,6 +26,8 @@
   "check.mod_unknown": "No mod folders recognised (common/, history/…)",
   "check.no_descriptor": "No `.mod` descriptor next to the folder or inside it",
   "check.not_set": "Not set",
+  "compat.pyside_text": "Victoria II Mod Studio cannot start with PySide6 {pyside} on Python {python}: that combination crashes the application after a while (a PySide6 6.12 bug with Python 3.10 and 3.11).\n\nInstall PySide6 6.11 with pip install \"PySide6>=6.5,<6.12\", or use Python 3.12 or newer.",
+  "compat.pyside_title": "PySide6 incompatible with this Python version",
   "countries.f.color": "RGB colour picker saved to `common/country_colors.txt`.",
   "countries.f.flags": "Image importer that generates the 5 `.tga` flags in `gfx/flags/`: `TAG`, `TAG_monarchy`, `TAG_republic`, `TAG_communist` and `TAG_fascist`.",
   "countries.f.history": "Generation of `history/countries/[TAG] - [Name].txt`.",

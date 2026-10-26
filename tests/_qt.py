@@ -21,6 +21,13 @@ SRC = Path(__file__).resolve().parents[1] / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
+from vic2studio.compat import broken_binding_message, broken_qt_binding  # noqa: E402
+
+# Con PySide6 6.12 en Python 3.10/3.11 la batería abortaría a mitad («none_dealloc»): mejor parar aquí y decir por qué.
+_broken = broken_qt_binding()
+if _broken is not None:
+    raise RuntimeError(broken_binding_message(*_broken))
+
 SETTINGS_DIR = tempfile.mkdtemp(prefix="vic2studio-tests-")
 atexit.register(shutil.rmtree, SETTINGS_DIR, True)
 os.environ["VIC2STUDIO_SETTINGS_DIR"] = SETTINGS_DIR
