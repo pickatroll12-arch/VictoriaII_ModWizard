@@ -121,6 +121,12 @@ class UiTestCase(unittest.TestCase):
         self.assertEqual(sorted(translator().missing_keys() - self.missing_before), [],
                          "claves pedidas en tiempo de ejecución que no existen")
 
+    def enter_context(self, manager):
+        """``TestCase.enterContext``, que no existe hasta Python 3.11."""
+        value = manager.__enter__()
+        self.addCleanup(manager.__exit__, None, None, None)
+        return value
+
     def make_window(self, show: bool = True) -> MainWindow:
         window = MainWindow()
         self.windows.append(window)
@@ -258,7 +264,7 @@ class MainWindowTests(UiTestCase):
     def test_pseudo_locale_covers_all_visible_text(self):
         """Con un catálogo marcado ⟦…⟧, todo texto visible debe venir del catálogo."""
         window = self.make_window()
-        mod = self.enterContext(_temp_mod())
+        mod = self.enter_context(_temp_mod())
         window.page("project").set_mod_path(mod)
         _qt.wait_until(lambda: not window.page("project").is_busy())
         translator().register_catalog(PSEUDO, pseudo_catalog())
@@ -316,7 +322,7 @@ class ProjectPageTests(UiTestCase):
         window = self.make_window()
         window.set_current_page(0)
         project = window.page("project")
-        mod = self.enterContext(_temp_mod())
+        mod = self.enter_context(_temp_mod())
         paths = []
         project.mod_path_changed.connect(paths.append)
         project.set_mod_path(mod)
