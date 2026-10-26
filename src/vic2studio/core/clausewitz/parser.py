@@ -20,6 +20,7 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from ..cancel import CancelCheck, raise_if_cancelled
 from ..encoding import GAME_ENCODING, UTF8_BOM, detect_newline
 from ..fileio import read_text
 from .diagnostics import Diagnostic, Severity
@@ -253,12 +254,18 @@ def _position(text: str, offset: int) -> tuple[int, int]:
     return line, offset - (text.rfind("\n", 0, offset) + 1) + 1
 
 
-def parse(text: str, *, filename: str | os.PathLike | None = None) -> ParseResult:
-    """Analiza texto Clausewitz. Nunca falla por el contenido; los problemas van en ``diagnostics``."""
+def parse(text: str, *, filename: str | os.PathLike | None = None, cancelled: CancelCheck = None) -> ParseResult:
+    """Analiza texto Clausewitz. Nunca falla por el contenido; los problemas van en ``diagnostics``.
+
+    Si ``cancelled()`` devuelve True durante el análisis lanza ``core.cancel.Cancelled``.
+    """
     if not isinstance(text, str):
         raise TypeError(f"parse() espera str, no {type(text).__name__}")
+    raise_if_cancelled(cancelled)
     tokens = tokenize(text)
+    raise_if_cancelled(cancelled)
     doc, diags, unclosed = _build(tokens)
+    raise_if_cancelled(cancelled)
     if unclosed:
         hint = _suspicious_brace(text, unclosed[0][1])
         if hint is not None:
@@ -292,11 +299,12 @@ def _encoding_warning(text: str, encoding: str) -> Diagnostic | None:
     return Diagnostic("non_game_encoding", WARNING, line, column, match.start(), {"encoding": encoding.upper()})
 
 
-def parse_file(path: str | os.PathLike, *, encoding: str | None = None) -> ParseResult:
+def parse_file(path: str | os.PathLike, *, encoding: str | None = None,
+               cancelled: CancelCheck = None) -> ParseResult:
     """Lee y analiza un archivo detectando su codificación (ver ``encoding.decode_bytes``)."""
     path = Path(path)
     decoded = read_text(path, encoding)
-    result = parse(decoded.text, filename=path)
+    result = parse(decoded.text, filename=path, cancelled=cancelled)
     result.encoding = decoded.encoding
     result.document.encoding = decoded.encoding
     warning = _encoding_warning(decoded.text, decoded.encoding)
