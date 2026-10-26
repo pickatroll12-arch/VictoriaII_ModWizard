@@ -121,6 +121,11 @@ SAVE_SOURCE_MISMATCH = "save_source_mismatch"
 SAVE_NO_SPACE = "save_no_space"
 SAVE_READ_ONLY = "save_read_only"            # proyecto bloqueado por otra instancia
 SAVE_CASE_COLLISION = "save_case_collision"
+SAVE_NOT_WRITABLE = "save_not_writable"      # documento sin códec de escritura (binario) o ilegible (UTF-16)
+SAVE_FAILED = "save_failed"                  # el disco falló al confirmar; se revirtió (args: error)
+SAVE_CODES = (SAVE_OUTSIDE_MOD, SAVE_WINDOWS_NAME, SAVE_PATH_TOO_LONG, SAVE_CONFLICT, SAVE_UNENCODABLE,
+              SAVE_SOURCE_MISMATCH, SAVE_NO_SPACE, SAVE_READ_ONLY, SAVE_CASE_COLLISION, SAVE_NOT_WRITABLE,
+              SAVE_FAILED)
 
 
 @dataclass(frozen=True)
@@ -166,10 +171,13 @@ class SaveReport:
 class Snapshot:
     rel: VPath
     before: bytes | None                   # snapshot() del códec comprimido con zlib; None = no existía
-    after: bytes | None = None             # se rellena al cerrar la transacción
+    after: bytes | None = None             # se rellena al cerrar la transacción; None = deja de existir
     before_path: Path | None = None        # instantáneas de más de 8 MB: en disco (recovery/), no en memoria
     before_deleted: bool = False           # estado de la lápida antes y después
     after_deleted: bool = False
+    before_version: int = 0                # DocHandle.version antes y después: deshacer hasta el punto guardado
+    after_version: int = 0                 # deja version == saved_version (limpio)
+    kind: DocKind | None = None            # para volver a crear un documento que deshacer había quitado
 
 
 @dataclass
@@ -250,10 +258,12 @@ class UndoApplied(WorkspaceEvent):
 
 # --- diario y recuperación (§6.5) -------------------------------------------------------------
 
+JOURNAL_STAGING = "staging"            # escrito antes de los temporales: un corte ahí no deja basura sin nombre
 JOURNAL_PREPARED = "prepared"
 JOURNAL_BACKED_UP = "backed_up"
 JOURNAL_COMMITTING = "committing"
 JOURNAL_COMMITTED = "committed"
+JOURNAL_UNREADABLE = "unreadable"      # diario que no se puede leer: no se toca, se informa
 
 
 @dataclass(frozen=True)

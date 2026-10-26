@@ -1375,7 +1375,29 @@ def render_checked(document_or_result, *, encoding: str | None = None, verify: b
     BOM repetidos, y ``UnencodableTextError`` si algún carácter no cabe.
     ``write_file`` pasa a usarla sin cambiar su comportamiento.
     """
-    raise NotImplementedError
+    from .parser import ParseResult, parse
+
+    result = document_or_result if isinstance(document_or_result, ParseResult) else None
+    document = document_or_result if result is None else result.document
+    if not isinstance(document, Document):
+        raise EditTypeError("not_a_document", {"type": type(document).__name__})
+    text = to_source(document)
+    if verify:
+        reread = parse(text)
+        difference = _first_difference(document, reread.document)
+        read = result.diagnostics if result is not None else [] if document._eof is None else None
+        if difference is None and read is not None:
+            error = _new_error(read, reread.diagnostics)
+            if error is not None:
+                difference = _entry_at(reread.document, error.line), error.line
+        if difference is not None:
+            if result is not None:
+                near_errors = any(d.severity is Severity.ERROR and d.code not in ENCODING_CODES for d in read)
+            else:
+                near_errors = bool(document.unclosed_blocks())
+            raise SourceMismatchError(path, *difference, near_errors)
+    codec = encoding or document.encoding or GAME_ENCODING
+    return encode_text(_repeated_boms(document, codec) + text, codec)
 
 
 def write_file(path: str | os.PathLike, document_or_result, *, encoding: str | None = None,
@@ -1400,31 +1422,12 @@ def write_file(path: str | os.PathLike, document_or_result, *, encoding: str | N
     un ``ParseResult`` en su propio archivo, su ``stamp`` pasa a ser el de lo escrito
     (el ``expected`` del guardado siguiente).
     """
-    from .parser import ParseResult, parse
+    from .parser import ParseResult
 
     result = document_or_result if isinstance(document_or_result, ParseResult) else None
-    document = document_or_result if result is None else result.document
-    if not isinstance(document, Document):
-        raise EditTypeError("not_a_document", {"type": type(document).__name__})
-    text = to_source(document)
-    if verify:
-        reread = parse(text)
-        difference = _first_difference(document, reread.document)
-        read = result.diagnostics if result is not None else [] if document._eof is None else None
-        if difference is None and read is not None:
-            error = _new_error(read, reread.diagnostics)
-            if error is not None:
-                difference = _entry_at(reread.document, error.line), error.line
-        if difference is not None:
-            if result is not None:
-                near_errors = any(d.severity is Severity.ERROR and d.code not in ENCODING_CODES for d in read)
-            else:
-                near_errors = bool(document.unclosed_blocks())
-            raise SourceMismatchError(path, *difference, near_errors)
+    data = render_checked(document_or_result, encoding=encoding, verify=verify, path=path)
     target = Path(path)
     session_key = _session_key(target)
-    codec = encoding or document.encoding or GAME_ENCODING
-    data = encode_text(_repeated_boms(document, codec) + text, codec)
     if backup and session_key in _SESSION_BACKUPS:
         atomic_write_bytes(target, data, expected=expected)
         existing = target.with_name(target.name + BACKUP_SUFFIX)

@@ -65,6 +65,21 @@ class Layers:
         self.cleanup()
 
 
+def isolate_appdirs(test) -> Path:
+    """Desvía ``VIC2STUDIO_DATA_DIR`` y ``VIC2STUDIO_CACHE_DIR`` a una carpeta temporal mientras dure ``test``
+    (un ``unittest.TestCase``): los bloqueos y las cachés de las pruebas no tocan las del usuario."""
+    import os
+    from unittest import mock
+
+    folder = Path(tempfile.mkdtemp(prefix="vic2studio-appdirs-"))
+    test.addCleanup(shutil.rmtree, folder, True)
+    patcher = mock.patch.dict(os.environ, {"VIC2STUDIO_DATA_DIR": str(folder / "data"),
+                                           "VIC2STUDIO_CACHE_DIR": str(folder / "cache")})
+    patcher.start()
+    test.addCleanup(patcher.stop)
+    return folder
+
+
 def _write(root: Path, files: Mapping[str, bytes | str]) -> None:
     for rel, data in files.items():
         path = root / rel
