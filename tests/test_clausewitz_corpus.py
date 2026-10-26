@@ -17,6 +17,10 @@ EXPECTED_ERRORS = {
     # history/units del juego base: no es un archivo Clausewitz. "goods.\n<img>" se lee como
     # "goods. < img" y el ">" de la línea 4 queda sin clave.
     "history/units/v2dd2.txt": [("missing_key", 4)],
+    # Juego base completo: textos en prosa que no son scripts (créditos y el marcador de la carpeta mod).
+    # Un "!" suelto al final de una frase no es un token válido; "=^.^=" deja un "=" sin clave ni valor.
+    "interface/credits.txt": [("invalid_character", 294), ("missing_key", 297), ("missing_value", 297)],
+    "mod/dummy.txt": [("invalid_character", 4)],
     # Shago Mod: falta la "}" del bloque political_decisions abierto en la línea 1.
     "decisions/somaliland_shago.txt": [("unclosed_block", 1)],
     "decisions/zulu_expancionshago.txt": [("unclosed_block", 1)],
