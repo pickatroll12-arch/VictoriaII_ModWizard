@@ -6,7 +6,7 @@
 >
 > **Convenciones.** Identificadores en inglés; docstrings y comentarios en español, concisos. Núcleo sin Qt (`vic2studio.core`); interfaz en `vic2studio.ui`. Todo texto visible pasa por `tr()` con paridad ES/EN. Escritura atómica con `.bak`, en cp1252.
 >
-> **[verificar en juego]** marca una regla del motor que los archivos no demuestran. El código la modela como opción o como aviso, nunca como suposición silenciosa, y entra en la lista de comprobación manual que el usuario recibe al cerrar la iteración.
+> **[verificar en juego]** marca una regla del motor que los archivos no demuestran. El código la modela como opción o como aviso, nunca como suposición silenciosa, y entra en la lista de comprobación manual que el usuario recibe al final del proyecto (iteración 10, §24).
 
 ---
 
@@ -661,7 +661,6 @@ class Field:
     aliases: tuple[str, ...] = ()
     visible_if: "Condition | None" = None   # When("election", True)
     advanced: bool = False               # oculto en modo sencillo
-    since: "Expansion" = Expansion.BASE  # BASE | AHD | HOD
     ui: str | None = None                # "slider", "chips", "map_pick", "matrix"
     label: str = ""; help: str = ""      # por defecto "schema.<kind>.<key>" y ".help"
 
@@ -738,7 +737,6 @@ class EntitySchema:
     hall: str | None = None; section: str | None = None; order: int = 100   # dónde aparece en la interfaz
     icon: str = "file_text"; preview: str | None = None   # "event", "decision", "unit_card", "flag"…
     editable: bool = True                   # False: solo se indexa (tecnologías, ideologías, issues…)
-    since: "Expansion" = Expansion.BASE
 ```
 
 ### 10.4 Disposición en archivos (`layouts.py`)
@@ -932,7 +930,7 @@ class Problem:
     code: str; severity: Severity; rel: VPath | None; line: int | None; column: int | None
     ref: RecordRef | None = None; field: tuple[str, ...] = (); args: Mapping = MappingProxyType({})
     inherited: bool = False                     # también ocurre en la capa del juego (I11)
-    fixes: tuple[str, ...] = ()                 # claves de FIXES
+    fixes: tuple[str, ...] = ()                 # claves de FIXES; la primera es el SimpleFix
     def message(self, lang: str) -> str         # core/validate/texts/issues.{es,en}.json
     def fingerprint(self) -> tuple              # (code, rel, field, args sin línea)
 
@@ -951,6 +949,37 @@ FIXES: dict[str, Callable[[Problem, "Project"], None]]          # cada arreglo e
 - Se ejecutan los validadores de cada esquema, las reglas globales de `core/validate/rules/{syntax,files,descriptor,countries,provinces,map,events,decisions,localisation,units,military,interface,history}.py` y la sintaxis actual (`modcheck.check_file` pasa a ser la familia «syntax»).
 - **Línea base.** Las reglas se ejecutan en segundo plano sobre la capa del juego sola, con caché por instalación. En el informe del proyecto se marca `inherited=True` cuando la huella coincide. El panel oculta los heredados por defecto, con el conmutador «Mostrar heredados del juego base (n)».
 - **Integración.** `modcheck.Issue` gana `entity` y `fixes` con valores por defecto (compatible). «Validar mod» (F7) usa el validador global. Doble clic abre el editor de la entidad con el campo enfocado o, si no hay formulario, el código en esa línea.
+
+### 11.1 SimpleFix y explicador de conflicto (decisión del usuario, §24)
+
+Cada problema lleva dos botones: **[Arreglar]** (SimpleFix) y **[¿Por qué?]** (explicador de conflicto).
+
+```python
+@dataclass(frozen=True)
+class FixSpec:
+    key: str; label: str                         # «Registrar SIL en countries.txt»
+    safe: bool                                   # True: solo añade o restaura; False: borra o sustituye
+    plan: Callable[[Problem, "Project"], "ChangePlan"]    # vista previa: archivo · acción · diff
+    apply: Callable[[Problem, "Project"], None]           # una transacción con nombre, deshacible
+
+@dataclass(frozen=True)
+class ExplainStep:
+    layer: str                                   # "game" | "mod" | "replace_path" | "studio (sin guardar)"
+    rel: VPath | None; line: int | None; excerpt: str     # la línea real de cada capa
+    verdict: str                                 # "gana" | "pierde" | "oculto" | "no se carga" | "falta"
+
+@dataclass(frozen=True)
+class Explanation:
+    title: str; steps: tuple[ExplainStep, ...]   # en el orden en que el juego carga las capas
+    outcome: str                                 # qué verá el jugador, en frases ES/EN
+    fixes: tuple[FixSpec, ...]
+
+def explain(problem: Problem, ctx: ValidationContext) -> Explanation   # core/validate/explain.py
+```
+
+- **SimpleFix.** El botón aplica el primer arreglo de `fixes` (el más seguro). Antes muestra su plan de cambios (archivo · acción · diff) y espera confirmación; los demás arreglos van en el desplegable del botón. Nunca se aplica nada solo, ni siquiera al validar. Cada arreglo es una transacción deshacible en un paso. Un arreglo `safe=False` (borrar, sustituir) pide confirmación explícita y manda lo borrado a la papelera.
+- **Explicador de conflicto.** Reconstruye, con `VfsSnapshot.stack()`, el índice de símbolos y `LocalisationDB.source_of/overrides()`, qué capas definen lo mismo y en qué orden las carga el juego: archivo del mod que sustituye al de vanilla con la misma ruta, primera clave de localización que gana por orden alfabético de archivos, `replace_path` que oculta una carpeta, dos historias con el mismo id, TAG detrás de `dynamic_tags`, id de evento repetido… Cada capa se muestra con su línea real y su veredicto, y termina en una frase sobre el efecto en el juego («En partida verás "Capacit?" en francés porque tu text.csv sustituye al del juego») y en los arreglos disponibles.
+- Los problemas heredados (I11) también se explican, para que el modder entienda por qué se ocultan.
 
 Catálogo inicial (las capacidades añaden las suyas):
 
@@ -1175,7 +1204,7 @@ class EntityForm(QWidget):
 
 ### 13.9 Mensajes y arreglos
 
-Ejemplos de tono:
+Cada mensaje de problema lleva [Arreglar] (SimpleFix, con plan de cambios y confirmación) y [¿Por qué?] (explicador de conflicto), según §11.1. Ejemplos de tono:
 
 - «"PRU" ya lo usa Prusia (common/countries.txt, línea 10). Prueba "PRX" o "PRS".» [Usar PRX]
 - «"CON" no sirve: Windows no permite archivos llamados CON (la bandera sería CON.tga).»
@@ -1535,6 +1564,7 @@ class BMFont:                                          # gfx/fonts/*.fnt + .tga 
 
 - El ejecutable busca muchos elementos **por nombre**: borrar uno puede romper el juego. Se ofrece «ocultar» (mover fuera de la pantalla) y la regla `gui_named_element_removed` avisa.
 - No se pueden crear ventanas nuevas con función. Sí se puede mover, redimensionar, cambiar sprites, fuentes y textos, y añadir decoración (iconos y texto estático).
+- **Alcance decidido (§24, decisión 10).** La suite modifica las ventanas existentes (posición, tamaño, anclaje, sprites, fuentes, textos y decoración) y gestiona las imágenes del juego: sprites nuevos, imágenes de eventos y decisiones, banderas, iconos de CB, tecnologías y pantallas de carga. No crea ventanas nuevas, porque el ejecutable no las abriría; en su lugar ofrece «Duplicar como variante» para probar otra disposición sin perder la original, y explica el límite con el explicador (§11.1).
 
 ---
 
@@ -1680,7 +1710,7 @@ Con `VIC2_CORPUS` y/o `VIC2_GAME`:
 - **Interfaz offscreen** (`tests/_qt.py`): cada sala y sección se construyen y se retraducen ES/EN sin claves crudas; Ctrl+1..7, Ctrl+K, Ctrl+S/Z/Y; los asistentes de país, guerra, evento y mapa, de principio a fin sobre el minijuego, crean exactamente los archivos de su plan.
 - **Capturas**: `tools/screenshot.py` admite `--hall`, `--section`, `--entity kind:id`, `--wizard country --step N`, `--map-mode` y `--no-game-art` (por defecto en `docs/capturas`). En cada iteración se revisan en ES y EN a 1100×700 y 1920×1080.
 - **Verificación adversarial**: al cerrar cada iteración, un verificador por componente reproduce cada hallazgo antes de reportarlo, y cada corrección lleva su prueba de regresión.
-- **Lista de comprobación en el juego**: el usuario la recibe en las iteraciones 2, 5, 6, 7 y 9 (por ejemplo: «el país nuevo aparece jugable en 1836», «la guerra está activa en 1836», «el mapa nuevo carga»), junto con las reglas [verificar en juego] pendientes.
+- **Lista de comprobación en el juego**: por decisión del usuario (§24) se entrega una sola vez, al final (iteración 10). Reúne todas las reglas [verificar en juego] y las pruebas de flujo («el país nuevo aparece jugable en 1836», «la guerra está activa en 1836», «el mapa nuevo carga»). Mientras tanto, cada regla dudosa se modela como opción explícita y las pruebas cubren sus dos variantes.
 
 ---
 
@@ -1776,10 +1806,10 @@ Cada iteración sigue el ritmo de §20 (contrato, trabajo en paralelo, integraci
 **Entregables.**
 
 - `core/index/{model,cache,builder,index}.py` con extractores de países, partidos, provincias, mapa, culturas, religiones, gobiernos, ideologías, reformas, tecnologías, invenciones, bienes, edificios, tipos de POP, unidades, CB, eventos, decisiones, bookmarks, guerras, sprites, imágenes y localización. Caché JSON-lines por capa e índice incremental.
-- `core/validate/{model,registry,context,baseline,fixes}.py` y reglas `{syntax,files,descriptor,countries,provinces,localisation,events,decisions}` con los textos `issues.{es,en}.json`. `modcheck.Issue` gana `entity` y `fixes`.
+- `core/validate/{model,registry,context,baseline,fixes,explain}.py` (SimpleFix y explicador de conflicto, §11.1) y reglas `{syntax,files,descriptor,countries,provinces,localisation,events,decisions}` con los textos `issues.{es,en}.json`. `modcheck.Issue` gana `entity` y `fixes`.
 - `core/rules/{game,ids,names,colors}.py`, `core/lua_defines.py` y `core/locsync.py` (política de §8).
-- Arreglos rápidos: registrar el TAG antes de `dynamic_tags`, convertir a cp1252, «Añadir `}` al final» y «Recuperar las filas de vanilla» (`loc_copy_degraded`).
-- Interfaz: sala Textos (modelo editable, añadir clave, filtros «creadas por el Studio», «sin traducir», «sustituye a vanilla» y «degradadas»), Proyecto › Validación (columnas de entidad, conmutador de heredados y [Arreglar]), panel de problemas y paleta Ctrl+K.
+- SimpleFix (§11.1): registrar el TAG antes de `dynamic_tags`, convertir a cp1252, «Añadir `}` al final», «Recuperar las filas de vanilla» (`loc_copy_degraded`) y «Mover a la papelera las copias idénticas» (`mod_shadow_identical`), todos con plan de cambios previo y confirmación. Explicador de conflicto para cada código del catálogo.
+- Interfaz: sala Textos (modelo editable, añadir clave, filtros «creadas por el Studio», «sin traducir», «sustituye a vanilla» y «degradadas»), Proyecto › Validación (columnas de entidad, conmutador de heredados, [Arreglar] y [¿Por qué?] con el panel del explicador), panel de problemas y paleta Ctrl+K.
 
 **Reparto entre los 2 agentes.** Agente A: `core/index/**`, `core/validate/**`, `core/rules/**`, `core/lua_defines.py`, `core/modcheck.py` y `tests/test_{index_*,validate_*,rules_*,lua_defines}.py`. Agente B: `core/locsync.py`, `ui/halls/localisation/**`, `ui/viewers/localisation_editor.py`, `ui/pages/localisation_page.py`, `ui/halls/project/validation.py`, `ui/shell/{command_palette,problems_dock}.py`, `i18n/{es,en}/{localisation,validation,palette}.json` y `tests/test_{locsync,loc_effective,ui_loc_edit,ui_validation,ui_palette}.py`. Contrato: Symbol, SymbolRef, SymbolIndex, Problem y el decorador `rule`. B usa un índice en memoria construido sobre el minijuego.
 
@@ -1789,7 +1819,7 @@ Cada iteración sigue el ritmo de §20 (contrato, trabajo en paralelo, integraci
 2. Construcción en frío del índice de vanilla en segundo plano en menos de 6 s y menos de 1 s desde la caché. Cambiar un archivo reprocesa solo ese archivo (contador de parseos) y subir la versión de un extractor invalida solo su caché.
 3. Validar VSM: los errores no heredados son exactamente `tag_not_registered` (SIL), `nationalvalue_unknown` ×4 (GEL, MAJ, SOM y WRL) y 2 `unclosed_block`. Los avisos incluyen `ruling_party_ideology_not_allowed` (SOM_socialist), `party_unknown_policy` (`social_policy`), `government_election_without_duration` (`absolute_monarchy`) y `loc_copy_degraded` (`text.csv`, 3 429 filas). Cualquier otro aviso se revisa en la verificación adversarial y se clasifica.
 4. Los problemas de vanilla salen como heredados y ocultos por defecto: 13 partidos, 50 `civilized`, 27 colores, 1396/1397, `HAI_oob.txt`, el evento 11108 y `annex`.
-5. «Registrar SIL» inserta la línea justo antes de `dynamic_tags`, delante de los comentarios que lo preceden (diff de 1 línea); revalidar quita el error y Ctrl+Z lo deshace.
+5. «Registrar SIL» inserta la línea justo antes de `dynamic_tags`, delante de los comentarios que lo preceden (diff de 1 línea); revalidar quita el error y Ctrl+Z lo deshace. El explicador de `tag_not_registered` muestra las capas (historia, archivo de país, banderas y dueño en 682–685 frente a `countries.txt`) y el de `loc_copy_degraded` muestra que el `text.csv` del mod sustituye al del juego.
 6. Minijuego con mod vacío: editar una clave cuyo ganador es del juego crea `localisation/00_<P>_overrides.csv` con esa fila y no copia el CSV del juego. En VSM, que tiene su propio `text.csv`, la fila se edita en esa copia con un diff de 1 línea.
 7. Ctrl+K encuentra «549», «Berlín», «PRU» y «north_german» y abre el archivo en su línea (o el editor de la entidad cuando exista).
 8. Capturas ES/EN de Textos, Validación y la paleta; verificación adversarial con hallazgos reproducidos.
@@ -1946,6 +1976,7 @@ Cada iteración sigue el ritmo de §20 (contrato, trabajo en paralelo, integraci
 - Actualización de `packaging/` (PyInstaller e Inno Setup).
 - Recorrido de bienvenida, revisión de ES/EN y accesibilidad con teclado.
 - `docs/usuario/*.md` con los 5 flujos principales; `ARCHITECTURE.md` y `README.md` actualizados.
+- `docs/usuario/comprobacion_en_juego.md`: la lista única de comprobación en el juego (§19.5) con todas las reglas [verificar en juego] acumuladas desde la iteración 2. Las respuestas del usuario fijan el valor por defecto de cada opción.
 
 **Reparto entre los 2 agentes.** Agente A: `core/export.py`, `tools/bench_*.py`, optimizaciones en `core/index/**` y `core/map/**`, `packaging/**`, `tests/test_export.py` y las pruebas de rendimiento. Agente B: pulido de `ui/**` (salvo `ui/map/**`, que solo se toca si A lo pide), `ui/dialogs/export.py`, `i18n/**`, `docs/usuario/**`, `README.md`, `ARCHITECTURE.md` y las capturas.
 
@@ -1988,16 +2019,20 @@ Cada iteración sigue el ritmo de §20 (contrato, trabajo en paralelo, integraci
 
 ---
 
-## 24. Preguntas abiertas para el usuario
+## 24. Decisiones del usuario (26-10-2026)
 
-1. Columnas de texto: tus CSV rellenan inglés y español. ¿Mantengo eso por defecto, o copio también el inglés a francés y alemán (el juego también muestra esos idiomas)?
-2. ¿Te parece bien la carpeta `<mod>/.vic2studio/` dentro del mod (ajustes, diario, papelera, originales)? La exportación la excluye. La alternativa es guardarla en la carpeta de datos de la aplicación.
-3. ¿Conservo los `.bak` junto a cada archivo (convención actual) o prefieres un mod más limpio, con las copias solo en `.vic2studio/`?
-4. Tu mod es una copia completa de vanilla (8 462 archivos idénticos) y su `text.csv` tiene 3 429 filas con `?` en lugar de letras acentuadas. ¿Quieres que el Studio ofrezca recuperar esas filas y limpiar las copias idénticas?
-5. ¿Ofrezco arreglos de un clic para los errores de tu mod (registrar SIL, `nv_tradition`, SOM_socialist, `duration` de `absolute_monarchy`, cerrar las 2 decisiones) o prefieres que solo se señalen?
-6. ¿Estás dispuesto a comprobar en el juego, al cerrar algunas iteraciones, una lista breve de reglas [verificar en juego] (por ejemplo, `replace_path` en subcarpetas)?
-7. Rango de ids de eventos: ¿te vale el bloque libre a partir de 200 000 000, o usas ya un rango propio?
-8. Orden del plan: mapa (5) → países (6) → eventos y decisiones (7). ¿Prefieres adelantar Event Studio?
-9. Mapa nuevo: ¿lo dibujarás fuera (importar un `provinces.bmp`) o quieres generarlo desde una máscara de tierra? ¿Con qué tamaño?
-10. Suite de interfaces: ¿basta con modificar ventanas existentes (mover, redimensionar, cambiar sprites y textos) o necesitas algo más?
-11. ¿Usas solo Heart of Darkness (3.04), o el Studio debe distinguir campos de AHD y de la versión base?
+Respuestas del usuario a las preguntas abiertas del diseño. Mandan sobre cualquier otra parte de este documento.
+
+| # | Pregunta | Decisión | Dónde se aplica |
+|---|---|---|---|
+| 1 | Columnas de idioma de los CSV | Inglés y español rellenos, como hace el usuario; opción `copy_en_to` para copiar el inglés a francés y alemán | §8 (`settings.languages`) |
+| 2 | Carpeta `<mod>/.vic2studio/` | Sí, dentro del mod; la exportación la excluye | §5.4, D16 |
+| 3 | `.bak` | Se mantienen junto a cada archivo | D4 |
+| 4 | Copias idénticas a vanilla y filas con «?» en `text.csv` | Lo decide el Studio: se señalan (`mod_shadow_identical` como info, `loc_copy_degraded` como aviso) y se ofrecen como SimpleFix con vista previa y confirmación, nunca automáticamente. «Recuperar las filas de vanilla» solo restaura las filas degradadas y respeta las editadas de verdad. La limpieza de copias idénticas manda los archivos a la papelera y nunca toca carpetas con `replace_path` | §11, §11.1, iteración 3 |
+| 5 | Arreglos de un clic | Sí: un **SimpleFix** por problema más un **explicador de conflicto** | §11.1, §13.9, iteración 3 |
+| 6 | Comprobación en el juego | Una sola vez, al final del proyecto | §19.5, iteración 10 |
+| 7 | Rango de ids de eventos | El que se considere conveniente: primer bloque libre de 10 000 ids desde 200 000 000, configurable | D15, §6.4 |
+| 8 | Orden del plan | Mapa → países → eventos (se mantiene) | §22 |
+| 9 | Mapa nuevo | Una suite que genera el mapa y sus recursos de forma procedural, al estilo de Azgaar's Fantasy Map Generator, y la opción de importar recursos de mapa para quien sepa trabajar con bitmaps | §14.15, §18, iteración 9 (en rediseño) |
+| 10 | Alcance de la suite de interfaces | La mejor opción posible: modificar las ventanas existentes, sprites e imágenes nuevos y «Duplicar como variante»; sin ventanas nuevas, porque el juego no las abriría | §17.4 |
+| 11 | Versión del juego | Solo Heart of Darkness 3.04: los esquemas no distinguen la versión base ni AHD | §10.2, §10.3 |
