@@ -15,6 +15,14 @@ vertical se ajustan antes de colgarlo, con un documento vacío colgado. Crear en
 la tarea el ``QTextLayout`` de cada bloque la bajaría a ~0,25 s, pero alarga la
 carga ~6 s y ocupa ~350 MB más aunque el código no llegue a mostrarse (20 MB).
 
+Soltar ese documento al cambiar de archivo también para la interfaz: 0,16–0,35 s
+con 1,3 M líneas ya colgadas (sin colgar, ~0,05 s), casi todo por destruir sus
+``QTextLayout``. No hay forma segura de repartirlo ni de evitarlo (NF-DOC-DELETE):
+vaciarlo por trozos con ``QTextCursor`` cuesta 1,4–1,9 s en total, en pasos de
+13–30 ms pero con el GIL tomado; reutilizarlo con ``setPlainText`` suelta lo mismo
+de una vez (0,16–0,31 s), y destruirlo en otro hilo no es seguro, porque los
+bloques maquetados guardan referencias a motores de fuente del hilo de la interfaz.
+
 El resaltado es perezoso: solo se calcula para las líneas que llegan a verse
 (``QTextLayout.setFormats``), así que su coste no depende del tamaño del archivo.
 Las cadenas que abarcan varias líneas se localizan antes, de una pasada
@@ -335,7 +343,7 @@ class TextView(QPlainTextEdit):
         self.setDocument(document)
         blank.deleteLater()
         if owned:
-            old.deleteLater()
+            old.deleteLater()  # con uno grande, lo más caro del cambio: ver el docstring del módulo
         self._document_attached()
 
     def _document_changing(self, document: QTextDocument) -> None:

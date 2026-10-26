@@ -21,7 +21,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 import _qt  # noqa: E402  (antes de PySide6.QtWidgets: plataforma offscreen y avisos)
 from PIL import Image  # noqa: E402
-from PySide6.QtCore import QModelIndex, Qt  # noqa: E402
+from PySide6.QtCore import QModelIndex, QRect, Qt  # noqa: E402
 from PySide6.QtGui import QTextDocument  # noqa: E402
 from PySide6.QtTest import QTest  # noqa: E402
 from PySide6.QtWidgets import QComboBox, QLabel, QProxyStyle, QStyle  # noqa: E402
@@ -30,8 +30,9 @@ APP = _qt.application()
 
 from vic2studio.core.cancel import Cancelled  # noqa: E402
 from vic2studio.core.clausewitz import to_json  # noqa: E402
+from vic2studio.core.encoding import GAME_ENCODING, GAME_UNREADABLE, UTF8, UTF8_BOM, decode_bytes  # noqa: E402
 from vic2studio.i18n import set_language, tr, translator  # noqa: E402
-from vic2studio.ui.main_window import MainWindow  # noqa: E402
+from vic2studio.ui.main_window import MINIMUM_SIZE, MainWindow  # noqa: E402
 from vic2studio.ui.pages import PAGE_KEYS, project_page  # noqa: E402
 from vic2studio.ui.pages.project_page import evaluate_mod, inspect_folder, preview_kind  # noqa: E402
 from vic2studio.ui.tasks import wait_for_tasks  # noqa: E402
@@ -533,6 +534,53 @@ class ExplorerTests(PageCase):
         self.assertEqual(self.project.preview.form_values["entries"].text(), "1 item")
         self.assertNotIn("arrives", note.text())
 
+    def test_utf16_files_say_the_game_cannot_read_them(self):
+        """NF-7: la ficha mostraba «utf-16», «utf-16-be-bom»… tal cual, sin avisar de que el juego no los lee."""
+        self.assertLessEqual({GAME_ENCODING, UTF8, UTF8_BOM} | GAME_UNREADABLE, set(project_page.ENCODING_KEYS),
+                             "una codificación que puede detectarse no tiene etiqueta")
+        self.window.resize(MINIMUM_SIZE)  # el texto más largo tiene que verse entero también así
+        self.set_mod()
+        text = "-- notas\r\nprint('hola')\r\n"
+        files = {"utf-16": b"\xff\xfe" + text.encode("utf-16-le"),
+                 "utf-16-be-bom": b"\xfe\xff" + text.encode("utf-16-be"),
+                 "utf-16-le": text.encode("utf-16-le"), "utf-16-be": text.encode("utf-16-be")}
+        for encoding, data in files.items():
+            path = self.mod / "common" / f"{encoding}.lua"
+            path.write_bytes(data)
+            self.assertEqual(decode_bytes(data).encoding, encoding)
+            self.assertTrue(self.project.reveal_file(path))
+            self.wait(lambda: self.project.preview.facts is not None and self.project.preview.facts.path == path,
+                      f"la ficha de {path.name} no apareció")
+            shown = self.project.preview.form_values["encoding"]
+            for lang, says in (("es", "el juego no puede leerlo"), ("en", "the game cannot read it")):
+                set_language(lang)
+                _qt.process_events(20)
+                self.assertEqual(shown.text(), tr(project_page.ENCODING_KEYS[encoding]), lang)
+                self.assertIn(says, shown.text(), lang)
+                self.assertNotIn(encoding, shown.text(), lang)
+                # Se veía en una sola línea recortada por la derecha: se perdía justo el aviso.
+                room, metrics = shown.contentsRect(), shown.fontMetrics()
+                if shown.wordWrap():
+                    needed = metrics.boundingRect(QRect(0, 0, room.width(), 10 * room.height()),
+                                                  int(shown.alignment()) | Qt.TextFlag.TextWordWrap, shown.text())
+                    fits = needed.width() <= room.width() and shown.height() >= shown.heightForWidth(shown.width()) > 0
+                else:
+                    fits = metrics.horizontalAdvance(shown.text()) <= room.width()
+                self.assertTrue(fits, (lang, encoding, room.width(), room.height()))
+            set_language("es")
+
+    def test_a_long_file_cut_inside_a_character_keeps_its_encoding(self):
+        """De un archivo de más de ``MAX_SCAN_BYTES`` la ficha lee solo el principio; si el corte caía dentro
+        de un carácter UTF-8, dejaba de ser UTF-8 válido y la ficha decía Windows-1252."""
+        line = ("-- " + "Привет мир " * 8 + "\n").encode("utf-8")
+        with mock.patch.object(project_page, "MAX_SCAN_BYTES", 4 * len(line) + 4):  # corta la «П» de la 5.ª línea
+            path = self.mod / "common" / "largo.lua"
+            path.write_bytes(line * 10)
+            facts = project_page.gather_facts(path, self.mod)
+        self.assertTrue(facts.partial)
+        self.assertEqual(facts.encoding, UTF8)
+        self.assertEqual(facts.lines, 5)
+
     def test_opening_a_csv_keeps_its_loading_message_visible(self):
         """FI-8: «Abriendo text.csv…» se sustituía al instante por «Módulo activo…»."""
         self.set_mod()
@@ -702,6 +750,90 @@ class ImageViewerTests(unittest.TestCase):
         self.load(broken)
         self.assertIsNotNone(self.viewer.error())
         self.assertFalse(self.viewer.reload_if_changed(), "Pillow no la entiende: sin cambios no se reintenta")
+
+    def test_retrying_a_read_failure_keeps_it_until_there_is_an_answer(self):
+        """NF-R3-HEADER-BLINK: al reintentar un fallo de lectura se veían un instante el lienzo vacío y
+        «cargando…» antes de volver al fallo. Este sigue a la vista hasta que hay respuesta o pasa el plazo."""
+        viewer = self.viewer
+        path = self.folder / "bandera.png"
+        Image.new("RGB", (8, 6), (255, 0, 0)).save(path)
+        failed = "bandera.png · no se pudo leer"
+        seen = []
+        set_details = viewer.header.set_details
+
+        def record(text: str, *rest) -> None:
+            seen.append((text, viewer.stack.currentWidget() is viewer.failure))
+            set_details(text, *rest)
+
+        denied = PermissionError(errno.EACCES, "Permission denied", str(path))
+        with mock.patch.object(image_viewer_module, "open", side_effect=denied, create=True):
+            self.load(path)
+            with mock.patch.object(viewer.header, "set_details", record):
+                self.assertTrue(viewer.reload_if_changed())
+                self.assertTrue(_qt.wait_until(lambda: not viewer.is_busy(), TIMEOUT_MS))
+                _qt.process_events(2 * image_viewer_module.LOADING_DELAY_MS)
+        self.assertTrue(seen)
+        self.assertEqual(set(seen), {(failed, True)}, "un reintento que vuelve a fallar no parpadea")
+        self.assertFalse(viewer.fit_button.isEnabled())
+        gate = threading.Event()
+        try_load_image = image_viewer_module.try_load_image
+
+        def slow(*args, **kwargs):
+            gate.wait(TIMEOUT_MS / 1000)
+            return try_load_image(*args, **kwargs)
+
+        # Un reintento cancelado (se elige otro archivo) nunca responderá: el fallo sigue, sin «cargando…».
+        with mock.patch.object(image_viewer_module, "try_load_image", slow):
+            self.assertTrue(viewer.reload_if_changed())
+            viewer.cancel()
+            _qt.process_events(2 * image_viewer_module.LOADING_DELAY_MS)
+            gate.set()
+            self.assertTrue(wait_for_tasks(TIMEOUT_MS))  # la tarea cancelada termina sin respuesta
+        _qt.process_events(20)
+        self.assertEqual((viewer.stack.currentWidget(), viewer.header.details.text()), (viewer.failure, failed))
+        self.assertIsNotNone(viewer.error())
+        gate.clear()
+        # Ya se puede leer, pero tarda: el fallo sigue hasta el plazo; luego, «cargando…» en el lienzo.
+        try:
+            with mock.patch.object(image_viewer_module, "try_load_image", slow):
+                self.assertTrue(viewer.reload_if_changed())
+                self.assertIs(viewer.stack.currentWidget(), viewer.failure)
+                self.assertEqual(viewer.header.details.text(), failed)
+                self.assertTrue(_qt.wait_until(lambda: viewer.stack.currentWidget() is viewer.scroll, TIMEOUT_MS))
+                self.assertEqual(viewer.header.details.text(), "bandera.png · cargando…")
+                self.assertIsNone(viewer.error())
+                gate.set()
+                self.assertTrue(_qt.wait_until(lambda: not viewer.is_busy(), TIMEOUT_MS))
+        finally:
+            gate.set()
+        self.assertEqual(self.center_color(), (255, 0, 0))
+        self.assertTrue(viewer.fit_button.isEnabled())
+        # Si responde antes del plazo, la imagen sustituye directamente al fallo.
+        os.utime(path, ns=(time.time_ns(), time.time_ns() + 1_000_000))
+        with mock.patch.object(image_viewer_module, "open", side_effect=denied, create=True):
+            self.assertTrue(viewer.reload_if_changed())
+            self.assertTrue(_qt.wait_until(lambda: not viewer.is_busy(), TIMEOUT_MS))
+        self.assertIs(viewer.stack.currentWidget(), viewer.failure)
+        viewer._loading_timer.setInterval(10 * TIMEOUT_MS)  # que responda antes aunque la máquina vaya lenta
+        self.assertTrue(viewer.reload_if_changed())
+        self.assertTrue(_qt.wait_until(lambda: not viewer.is_busy(), TIMEOUT_MS))
+        self.assertIs(viewer.stack.currentWidget(), viewer.scroll)
+        self.assertTrue(viewer.header.details.text().startswith("bandera.png · PNG · 8 × 6 px · RGB · "))
+        self.assertEqual(self.center_color(), (255, 0, 0))
+
+    def test_a_narrow_header_shortens_the_path_first(self):
+        """Como en el visor de scripts: con poco ancho se acorta la ruta y no el formato o el tamaño."""
+        path = self.folder / "gfx" / "flags" / "bandera_con_un_nombre_bastante_largo.png"
+        path.parent.mkdir(parents=True)
+        Image.new("RGB", (8, 6)).save(path)
+        self.load(path)
+        details = self.viewer.header.details
+        full = details.text()
+        tail = full[full.index(" · PNG · 8 × 6 px · RGB · "):]
+        self.assertEqual(full, "gfx/flags/bandera_con_un_nombre_bastante_largo.png" + tail)
+        details.setFixedWidth(details.fontMetrics().horizontalAdvance(full) // 2)
+        shown = details.displayed_text()
+        self.assertTrue(shown.startswith("gfx") and "…" in shown and shown.endswith(tail), shown)
 
     def test_loading_text_and_reduced_side(self):
         """FI-12: «analizando…» al cargar una imagen y «mostrada a N px» con el ancho y no con el lado mayor."""

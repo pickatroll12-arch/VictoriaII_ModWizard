@@ -336,6 +336,14 @@ class Medallion(QWidget):
         self._fill = fill
         self.setFixedSize(size, size)
 
+    def icon_name(self) -> str:
+        return self._icon_name
+
+    def set_icon(self, icon_name: str) -> None:
+        if icon_name != self._icon_name:
+            self._icon_name = icon_name
+            self.update()
+
     def paintEvent(self, event) -> None:
         p = QPainter(self)
         paint_medallion(p, QRectF(self.rect()), self._icon_name, self._fill)

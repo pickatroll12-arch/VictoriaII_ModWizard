@@ -220,7 +220,11 @@ FILE_ICONS = {
     ".lua": ("file_code", "ink_soft"), ".gui": ("file_code", "ink_soft"), ".gfx": ("file_code", "ink_soft"),
     ".fx": ("file_code", "ink_soft"), ".map": ("file_text", "ink_soft"),
 }
-ENCODING_KEYS = {"cp1252": N_("encoding.cp1252"), "utf-8": N_("encoding.utf8"), "utf-8-sig": N_("encoding.utf8_bom")}
+ENCODING_KEYS = {
+    "cp1252": N_("encoding.cp1252"), "utf-8": N_("encoding.utf8"), "utf-8-sig": N_("encoding.utf8_bom"),
+    "utf-16": N_("encoding.utf16"), "utf-16-be-bom": N_("encoding.utf16_be_bom"), "utf-16-le": N_("encoding.utf16_le"),
+    "utf-16-be": N_("encoding.utf16_be"),
+}
 MAX_SCAN_BYTES = 2 * 1024 * 1024
 EXCERPT_LINES = 160
 
@@ -300,7 +304,8 @@ def gather_facts(path: Path, root: Path | None) -> FileFacts:
         data = handle.read(MAX_SCAN_BYTES)
     facts.partial = stat.st_size > len(data)
     if suffix in TEXT_SUFFIXES or b"\x00" not in data[:4096]:
-        decoded = decode_bytes(data)
+        # De uno más largo solo se lee el principio: un carácter cortado al final no cambia la codificación.
+        decoded = decode_bytes(data, partial=facts.partial)
         facts.encoding = decoded.encoding
         facts.lines = decoded.text.count("\n") + (0 if decoded.text.endswith("\n") or not decoded.text else 1)
         facts.excerpt = "\n".join(decoded.text.splitlines()[:EXCERPT_LINES])
@@ -644,6 +649,7 @@ class FilePreview(QWidget):
             value.setProperty("role", "value")
             value.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
             value.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
+            value.setWordWrap(True)  # «UTF-16 BE con BOM (…) — el juego no puede leerlo» no cabe en una línea
             self.form.addRow(label, value)
             self.form_labels[row_id] = label
             self.form_values[row_id] = value

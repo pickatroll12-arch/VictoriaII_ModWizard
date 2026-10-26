@@ -10,6 +10,7 @@ Todas fallan ante cualquier aviso de Qt.
 
 import codecs
 import errno
+import gc
 import json
 import os
 import re
@@ -34,15 +35,17 @@ APP = _qt.application()
 from test_ui_integration import STALL_LIMIT_SECONDS, IntegrationCase, activate  # noqa: E402
 from vic2studio.core.cancel import Cancelled  # noqa: E402
 from vic2studio.core.clausewitz import Block, Entry, Scalar, parse, parse_file, to_json, to_source  # noqa: E402
+from vic2studio.core.encoding import GAME_UNREADABLE  # noqa: E402
 from vic2studio.i18n import set_language, tr  # noqa: E402
-from vic2studio.ui.tasks import wait_for_tasks  # noqa: E402
+from vic2studio.ui.tasks import POOL_RELEASE, thread_pool, wait_for_tasks  # noqa: E402
 from vic2studio.ui.viewers import clausewitz_viewer  # noqa: E402
 from vic2studio.ui.viewers.clausewitz_viewer import (  # noqa: E402
-    EXPAND_ALL_LIMIT, ROOT_BATCH, TAB_DIAGNOSTICS, TAB_JSON, TAB_SOURCE, TAB_STRUCTURE, TABS, ClausewitzViewer,
-    build_index, json_chunks, json_preview, load_clausewitz,
+    EXPAND_ALL_LIMIT, RELEASE_CHUNK, ROOT_BATCH, TAB_DIAGNOSTICS, TAB_JSON, TAB_SOURCE, TAB_STRUCTURE, TABS,
+    ClausewitzViewer, build_index, dismantle_load, json_chunks, json_preview, load_clausewitz,
 )
 from vic2studio.ui.viewers.code_view import CodeView, build_document, display_text  # noqa: E402
-from vic2studio.ui.viewers.common import format_size  # noqa: E402
+from vic2studio.ui.viewers.common import LOADING_DELAY_MS, ElidedLabel, format_size, severity_icon  # noqa: E402
+from vic2studio.ui.widgets import make_icon, rich  # noqa: E402
 from vic2studio.ui.viewers.diagnostics import (  # noqa: E402
     COL_FILE, COL_LINE, COL_MESSAGE, COL_SEVERITY, FILE_WIDTH, MESSAGE_MIN_WIDTH, DiagnosticRow, DiagnosticsModel,
     DiagnosticsView,
@@ -99,6 +102,12 @@ def decisions_like(count: int) -> str:
 
 def many_roots(count: int) -> str:
     return "".join(f"clave_{n} = {{ valor = {n} }}\n" for n in range(count))
+
+
+def provinces_like(count: int) -> str:
+    """Historia de provincias con un bloque anidado cada una: ~113 bytes por provincia."""
+    return "".join(f"p_{n} = {{\n\towner = ABC\n\tcore = ABC\n\ttrade_goods = grain\n\tlife_rating = {n % 50}\n"
+                   f"\tpos = {{ x = {n}.5 y = {n % 977}.25 }}\n}}\n" for n in range(count))
 
 
 delete_pending = _qt.delete_pending
@@ -326,6 +335,39 @@ class PreparationTests(unittest.TestCase):
         self.assertFalse(any(node is document for node in converted_nodes), "convirtió el árbol entero")
         self.assertLess(len(converted_nodes), 20, "convirtió entradas que no se iban a mostrar")
         self.assertEqual(json_preview(document, limit=len(full)), (full, False))
+
+    def test_dismantling_an_analysis_frees_it_in_small_steps(self):
+        """NF-TREE-RELEASE: soltar de una vez el árbol del parser libera millones de objetos en una sola cascada
+        que no cede el GIL. Desmontado por pasos, ninguno suelta más que unos pocos miles de entradas, también
+        con un único bloque raíz (decisiones) o con muchas raíces."""
+        for name, text in (("decisiones", decisions_like(3000)), ("posiciones", positions_like(800)),
+                           ("raíces", many_roots(30_000))):
+            with tempfile.TemporaryDirectory() as tmp:
+                path = Path(tmp) / f"{name}.txt"
+                path.write_bytes((text + "suelta = {\n").encode("cp1252"))  # y un diagnóstico, con su fila
+                load = load_clausewitz(path)
+            self.assertTrue(load.rows and load.marks, name)
+            entries = len(load.index)
+            enabled = gc.isenabled()
+            gc.collect()
+            gc.disable()  # solo el recuento de referencias libera: lo que suelta cada paso es suyo
+            try:
+                before = sys.getallocatedblocks()
+                freed = []
+                for _ in dismantle_load(load):
+                    now = sys.getallocatedblocks()
+                    freed.append(before - now)
+                    before = now
+                del load
+                rest = before - sys.getallocatedblocks()
+            finally:
+                if enabled:
+                    gc.enable()
+            total = sum(freed) + rest
+            self.assertGreater(total, 8 * entries, f"{name}: el análisis no se soltó")
+            self.assertLess(max(freed), 16 * RELEASE_CHUNK, f"{name}: un paso soltó demasiado de una vez")
+            self.assertLess(rest, 1000, f"{name}: quedó casi todo para el final")
+            self.assertGreater(len(freed), entries // RELEASE_CHUNK, name)
 
     def test_cancelled_load_stops(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -798,6 +840,235 @@ class ViewerTests(WidgetCase):
         self.assertTrue(viewer.reload_if_changed())
         self.assertTrue(_qt.wait_until(lambda: viewer.current_load() is not None and not viewer.is_busy(),
                                        LOAD_TIMEOUT_MS))
+
+    def test_retrying_a_read_failure_keeps_it_until_there_is_an_answer(self):
+        """NF-R3-HEADER-BLINK: al reintentar un fallo de lectura la cabecera pasaba un instante por
+        «analizando…» antes de volver a «no se pudo leer». El fallo sigue a la vista hasta que hay respuesta
+        o pasan ``LOADING_DELAY_MS``: si el archivo ya se lee pero tarda, entonces sí dice que analiza."""
+        viewer = self.viewer
+        path = self.folder / "bloqueado.txt"
+        path.write_bytes(b"a = 1\n")
+        failed = tr("viewer.details_failed", path=path.name)
+        seen = []
+        set_details = viewer.header.set_details
+
+        def record(text: str, *rest) -> None:
+            seen.append((text, viewer.stack.currentWidget() is viewer.failure))
+            set_details(text, *rest)
+
+        denied = PermissionError(errno.EACCES, os.strerror(errno.EACCES), os.fspath(path))
+        with mock.patch.object(clausewitz_viewer, "parse_file", side_effect=denied):
+            viewer.load(path, root=self.folder)
+            self.assertTrue(_qt.wait_until(lambda: not viewer.is_busy(), LOAD_TIMEOUT_MS))
+            with mock.patch.object(viewer.header, "set_details", record):
+                self.assertTrue(viewer.reload_if_changed())
+                self.assertEqual(viewer.failure_text(), tr("file_error.permission"), "mientras se reintenta")
+                self.assertTrue(_qt.wait_until(lambda: not viewer.is_busy(), LOAD_TIMEOUT_MS))
+                _qt.process_events(2 * LOADING_DELAY_MS)
+        self.assertTrue(seen)
+        self.assertEqual(set(seen), {(failed, True)}, "un reintento que vuelve a fallar no parpadea")
+        # Ya se puede leer, pero tarda: el fallo sigue hasta el plazo; luego, la página de carga.
+        gate = threading.Event()
+        parse_file = clausewitz_viewer.parse_file
+
+        def slow(*args, **kwargs):
+            gate.wait(LOAD_TIMEOUT_MS / 1000)
+            return parse_file(*args, **kwargs)
+
+        try:
+            with mock.patch.object(clausewitz_viewer, "parse_file", slow):
+                self.assertTrue(viewer.reload_if_changed())
+                self.assertIs(viewer.stack.currentWidget(), viewer.failure)
+                self.assertEqual(viewer.header.details.text(), failed)
+                self.assertTrue(_qt.wait_until(lambda: viewer.stack.currentWidget() is viewer.loading,
+                                               LOAD_TIMEOUT_MS))
+                self.assertEqual(viewer.header.details.text(), tr("viewer.details_loading", path=path.name))
+                self.assertEqual(viewer.failure_text(), "")
+                gate.set()
+                self.assertTrue(_qt.wait_until(lambda: viewer.current_load() is not None and not viewer.is_busy(),
+                                               LOAD_TIMEOUT_MS))
+        finally:
+            gate.set()
+        loaded = tr("viewer.details_one", path=path.name, encoding="Windows-1252", lines="1", size=format_size(6))
+        self.assertIs(viewer.stack.currentWidget(), viewer.tabs)
+        self.assertEqual(viewer.header.details.text(), loaded)
+        # Si responde antes del plazo, el análisis sustituye directamente al fallo.
+        with mock.patch.object(clausewitz_viewer, "parse_file", side_effect=denied):
+            viewer.load(self.folder / "otro.txt", root=self.folder)  # sin crear: falla
+            self.assertTrue(_qt.wait_until(lambda: not viewer.is_busy(), LOAD_TIMEOUT_MS))
+            viewer.load(path, root=self.folder)
+            self.assertTrue(_qt.wait_until(lambda: not viewer.is_busy(), LOAD_TIMEOUT_MS))
+        self.assertEqual(viewer.header.details.text(), failed)
+        viewer._loading_timer.setInterval(10 * LOAD_TIMEOUT_MS)  # que responda antes aunque la máquina vaya lenta
+        self.assertTrue(viewer.reload_if_changed())
+        self.assertTrue(_qt.wait_until(lambda: not viewer.is_busy(), LOAD_TIMEOUT_MS))
+        self.assertIs(viewer.stack.currentWidget(), viewer.tabs)
+        self.assertEqual(viewer.header.details.text(), loaded)
+        self.assertEqual(viewer.failure_text(), "")
+
+    def record_releases(self) -> tuple[list, list]:
+        """``(entregas, pasos)``: lo que se ve de cada análisis al soltarlo y en qué hilo corre cada paso.
+
+        Cada entrega es ``(visto, ruta)`` con ``visto`` lo que de ese análisis seguía en las vistas en ese
+        momento; cada paso, ``(hilo, inicio, fin)`` (``time.perf_counter``).
+        """
+        viewer, handed, steps = self.viewer, [], []
+        original_release, original_dismantle = clausewitz_viewer.release_in_background, dismantle_load
+
+        def release(load, dismantle):
+            rows = {id(row) for row in load.rows}
+            seen = [what for what, used in (
+                ("estructura", viewer.structure_model._index is load.index),
+                ("diagnósticos", any(id(row) in rows for row in viewer.diagnostics_model.all_rows())),
+                ("JSON", viewer._json_for is load), ("visor", viewer._load is load),
+                ("documento", load.document is not None)) if used]
+            handed.append((seen, load.path.name))
+            original_release(load, dismantle)
+
+        def dismantle(load):
+            iterator = original_dismantle(load)
+            while True:
+                clock = time.perf_counter()
+                try:
+                    next(iterator)
+                except StopIteration:
+                    return
+                finally:
+                    steps.append((threading.get_ident(), clock, time.perf_counter()))
+                yield
+
+        for name, value in (("release_in_background", release), ("dismantle_load", dismantle)):
+            patcher = mock.patch.object(clausewitz_viewer, name, value)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+        return handed, steps
+
+    def test_an_analysis_no_longer_shown_is_released_off_the_interface_thread(self):
+        """NF-TREE-RELEASE: al cambiar de archivo, al fallar la lectura y al vaciar el visor, el análisis
+        anterior se suelta por pasos en el hilo de una tarea, y solo cuando ya no lo usa ninguna vista."""
+        viewer = self.viewer
+        handed, steps = self.record_releases()
+        for name in ("a.txt", "b.txt", "c.txt"):
+            (self.folder / name).write_bytes(b"a = {\n\tb = 1\n")  # con un diagnóstico
+        viewer.select_tab(TAB_JSON)
+        self.open("a.txt", "a = {\n\tb = 1\n")
+        self.wait_json()
+        self.load(self.folder / "b.txt")  # cambiar de archivo
+        locked = self.folder / "c.txt"
+        denied = PermissionError(errno.EACCES, os.strerror(errno.EACCES), os.fspath(locked))
+        with mock.patch.object(clausewitz_viewer, "parse_file", side_effect=denied):
+            viewer.load(locked)  # no se puede leer
+            self.assertTrue(_qt.wait_until(lambda: not viewer.is_busy(), LOAD_TIMEOUT_MS))
+        self.assertEqual((viewer.structure_model.rowCount(), viewer.diagnostics_model.all_rows()), (0, []),
+                         "con el fallo a la vista no queda nada del análisis anterior")
+        self.load(self.folder / "a.txt")
+        viewer.clear()  # vaciar el visor
+        self.assertTrue(wait_for_tasks(LOAD_TIMEOUT_MS))
+        self.assertEqual(handed, [([], "a.txt"), ([], "b.txt"), ([], "a.txt")])
+        self.assertTrue(steps)
+        self.assertNotIn(threading.get_ident(), {step[0] for step in steps}, "se soltó en el hilo de la interfaz")
+
+    def test_switching_away_from_a_large_file_does_not_stall_the_interface(self):
+        """NF-TREE-RELEASE: al pasar de un archivo de 20 MB a uno pequeño, soltar el árbol del primero paraba
+        la interfaz ~0,9 s. Con ~5 MB: el mayor hueco del latido no llega a la mitad de lo que tarda en soltarse."""
+        viewer = self.viewer
+        _, steps = self.record_releases()
+        big = self.folder / "grande.txt"
+        big.write_bytes(provinces_like(46_000).encode("cp1252"))
+        viewer.load(big)
+        self.assertTrue(_qt.wait_until(lambda: viewer.current_load() is not None and not viewer.is_busy(),
+                                       6 * LOAD_TIMEOUT_MS), "el archivo grande no terminó de cargar")
+        _qt.process_events(50)
+        small = self.folder / "pequeño.txt"
+        small.write_bytes(b"a = 1\n")
+        with Heartbeat() as beat:
+            viewer.load(small)
+            self.assertTrue(_qt.wait_until(lambda: viewer.current_load() is not None
+                                           and viewer.current_load().path == small, LOAD_TIMEOUT_MS))
+            # Sin bloquear el bucle de eventos (``wait_for_tasks`` lo haría): hasta que termine de soltarlo.
+            self.assertTrue(_qt.wait_until(lambda: thread_pool(POOL_RELEASE).activeThreadCount() == 0,
+                                           LOAD_TIMEOUT_MS))
+        self.assertGreater(len(steps), 100)
+        took = steps[-1][2] - steps[0][1]  # en el hilo que lo suelte: el de la interfaz, si se congela
+        print(f"\n[ui] soltar {big.stat().st_size / 1e6:.1f} MB: {took * 1000:.0f} ms en {len(steps)} pasos; "
+              f"mayor hueco del bucle de eventos {beat.worst * 1000:.0f} ms", file=sys.stderr)
+        self.assertNotIn(threading.get_ident(), {step[0] for step in steps})
+        self.assertLess(beat.worst, took / 2, "soltar el archivo grande congeló la interfaz")
+        self.assertLess(beat.worst, STALL_LIMIT_SECONDS)
+
+    def test_a_file_the_game_cannot_read_says_so_in_the_header(self):
+        """NF-7: la cabecera mostraba «utf-16», «utf-16-be-bom»… tal cual y, sin avisos, «Sin errores»; y la
+        pestaña Diagnósticos, con la cabecera ya en rojo, seguía con la marca verde de «Sin diagnósticos».
+        Desde que parse_file da ``unreadable_encoding``, esa pestaña muestra el error en la tabla."""
+        known = GAME_UNREADABLE | {"cp1252", "utf-8", "utf-8-sig"}
+        self.assertLessEqual(known, set(clausewitz_viewer.ENCODING_NAMES))
+        viewer = self.viewer
+        empty, tab = viewer.diagnostics_empty, clausewitz_viewer.TABS.index(clausewitz_viewer.TAB_DIAGNOSTICS)
+
+        def diagnostics_tab():
+            return (viewer.tabs.tabIcon(tab).cacheKey(), viewer.diagnostics_stack.currentWidget() is empty,
+                    empty.medallion.icon_name(), empty.title.text(), empty.text.text())
+
+        text = "a = { b = 1 }\n"  # solo ASCII: el único diagnóstico es el de la codificación
+        files = {"utf-16": b"\xff\xfe" + text.encode("utf-16-le"),
+                 "utf-16-be-bom": b"\xfe\xff" + text.encode("utf-16-be"),
+                 "utf-16-le": text.encode("utf-16-le"), "utf-16-be": text.encode("utf-16-be")}
+        for encoding, data in files.items():
+            path = self.folder / f"{encoding}.txt"
+            path.write_bytes(data)
+            load = self.load(path, root=self.folder)
+            self.assertEqual(load.result.encoding, encoding)
+            self.assertEqual([(row.severity, row.code, row.line, row.column) for row in load.rows],
+                             [("error", "unreadable_encoding", 1, 1)])
+            name = clausewitz_viewer.ENCODING_NAMES[encoding]
+            for lang in ("es", "en"):
+                set_language(lang)
+                viewer.retranslate()
+                self.assertEqual(viewer.header.details.text(), tr(
+                    "viewer.details_one", path=path.name, encoding=tr("viewer.encoding_unreadable", encoding=name),
+                    lines="1", size=format_size(len(data))), lang)
+                self.assertEqual((viewer.header.badge.level, viewer.header.badge.label.text()),
+                                 ("error", tr("viewer.summary_unreadable")), lang)
+                self.assertEqual(diagnostics_tab()[:2], (severity_icon("error").cacheKey(), False), lang)
+            set_language("es")
+        # Con algo que no es ASCII el parser avisa de la codificación; la pestaña sigue diciendo error.
+        path = self.folder / "utf-16-acentos.txt"
+        path.write_bytes(b"\xff\xfe" + 'a = { b = "Ñandú" }\n'.encode("utf-16-le"))
+        self.assertTrue(self.load(path, root=self.folder).rows)
+        self.assertEqual(viewer.tabs.tabIcon(tab).cacheKey(), severity_icon("error").cacheKey())
+        self.open("ansi.txt", text + "c = 2\n")
+        self.assertIn(" · Windows-1252 · 2 líneas · ", viewer.header.details.text())
+        self.assertEqual(viewer.header.badge.level, "ok")
+        self.assertEqual(diagnostics_tab(), (make_icon("check", "success").cacheKey(), True, "check",
+                                             tr("viewer.no_diagnostics_title"), rich(tr("viewer.no_diagnostics_text"))))
+
+    def test_a_narrow_header_shortens_the_path_first(self):
+        """Con la ventana al mínimo, el recorte en medio de la cabecera se comía la codificación
+        («decisions/somaliland_sha…52 · 2 líneas»): ahora se acorta antes la ruta, y si ni así cabe, el final."""
+        details = self.viewer.header.details
+        path = self.folder / "decisions" / "somaliland_shago_con_un_nombre_largo.txt"
+        path.parent.mkdir()
+        path.write_bytes(b"a = 1\nb = 2\n")
+        self.load(path, root=self.folder)
+        tail = f" · Windows-1252 · 2 líneas · {format_size(12)}"
+        full = "decisions/somaliland_shago_con_un_nombre_largo.txt" + tail
+        self.assertEqual((details.text(), details.toolTip(), details.displayed_text()), (full, full, full))
+        metrics = details.fontMetrics()
+        for room in (metrics.horizontalAdvance(full) // 2, metrics.horizontalAdvance("dec…txt" + tail) + 4):
+            details.setFixedWidth(room)
+            shown = details.displayed_text()
+            self.assertTrue(shown.endswith(tail) and "…" in shown and shown[0] == "d", (room, shown))
+            self.assertLessEqual(metrics.horizontalAdvance(shown), room)
+        details.setFixedWidth(metrics.horizontalAdvance("… · Windows-1252 · 2 lí"))
+        shown = details.displayed_text()
+        self.assertTrue(shown.startswith("… · Windows-1252 · ") and shown.endswith("…"), shown)
+        # Fuera de la cabecera (p. ej. el archivo de «Localización») se recorta como siempre.
+        label = ElidedLabel(mode=Qt.TextElideMode.ElideRight)
+        self.addCleanup(label.deleteLater)
+        label.setText(full)
+        label.setFixedWidth(metrics.horizontalAdvance(full) // 2)
+        self.assertEqual(label.displayed_text(), label.fontMetrics().elidedText(full, Qt.TextElideMode.ElideRight,
+                                                                              label.contentsRect().width()))
 
     def test_header_uses_the_latest_root(self):
         """NEW-2: con el mismo archivo, la cabecera seguía con la ruta relativa a la raíz de la carga anterior."""

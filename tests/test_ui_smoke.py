@@ -1,9 +1,11 @@
+import math
 import re
 import shutil
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
@@ -11,7 +13,7 @@ import _qt  # noqa: E402  (antes de PySide6.QtWidgets: plataforma offscreen y av
 from _corpus import corpus_roots  # noqa: E402
 from PIL import Image  # noqa: E402
 from PySide6.QtCore import QSize, Qt, QTimer  # noqa: E402
-from PySide6.QtGui import QAction, QGuiApplication, QImage  # noqa: E402
+from PySide6.QtGui import QAction, QFontMetricsF, QGuiApplication, QImage  # noqa: E402
 from PySide6.QtTest import QTest  # noqa: E402
 from PySide6.QtWidgets import (  # noqa: E402
     QAbstractButton,
@@ -30,7 +32,7 @@ APP = _qt.application()
 
 from vic2studio.i18n import language, set_language, translator  # noqa: E402
 from vic2studio.ui import theme  # noqa: E402
-from vic2studio.ui.main_window import MainWindow  # noqa: E402
+from vic2studio.ui.main_window import MINIMUM_SIZE, MainWindow  # noqa: E402
 from vic2studio.ui.pages import PAGE_KEYS, ProjectPage  # noqa: E402
 from vic2studio.ui.pages.project_page import (  # noqa: E402
     evaluate_game,
@@ -190,6 +192,40 @@ class MainWindowTests(UiTestCase):
         QTest.keyClick(window.focusWidget(), Qt.Key.Key_Left)
         _qt.process_events()
         self.assertEqual(window.current_page_index(), 0)
+
+    def test_module_names_are_not_cut_at_the_minimum_size(self):
+        """Con la ventana al mínimo y en español se recortaban los cinco: «Editor de …», «Creador de P…».
+        Si no caben en una línea se parten en dos, sin dejar una palabra corta al final de la primera."""
+        window = self.make_window()
+        window.resize(MINIMUM_SIZE)
+        _qt.process_events(50)
+        for lang in ("en", "es"):
+            set_language(lang)
+            _qt.process_events(20)
+            for button in window.nav.buttons:
+                shown = button.label_text()
+                self.assertEqual(shown.replace("\n", " "), button.text(), lang)
+                lines = shown.split("\n")
+                self.assertLessEqual(len(lines), 2, shown)
+                self.assertTrue(len(lines) == 1 or len(lines[0].split()[-1]) > 2, shown)
+        window.resize(1440, 900)
+        _qt.process_events(50)
+        self.assertEqual([button.label_text() for button in window.nav.buttons],
+                         [button.text() for button in window.nav.buttons], "con sitio, en una línea")
+        # Con un ancho en el que no cabe en una línea, sea cual sea la fuente del sistema.
+        button = window.nav.buttons[1]
+        metrics = QFontMetricsF(button.font())
+        lines = ("Editor", "de Mapa")
+        room = max(metrics.horizontalAdvance(line) for line in lines) + 2
+        self.assertGreater(metrics.horizontalAdvance(button.text()), room)
+        button.setFixedWidth(math.ceil(room) + 81)  # 81: icono, número y márgenes de ``NavButton.label_text``
+        self.assertEqual(button.label_text(), "\n".join(lines))
+        painted, label_text = [], type(button).label_text
+        with mock.patch.object(type(button), "label_text", lambda self: painted.append(self) or label_text(self)):
+            button.grab()
+        self.assertIn(button, painted, "se pinta lo que devuelve label_text()")
+        button.setFixedWidth(math.ceil(metrics.horizontalAdvance("Editor") / 2) + 81)
+        self.assertTrue(button.label_text().endswith("…"), "si ni en dos líneas cabe, se recorta")
 
     def test_language_combo_switches_language(self):
         window = self.make_window()
