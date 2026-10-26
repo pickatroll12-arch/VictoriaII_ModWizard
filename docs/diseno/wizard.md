@@ -58,7 +58,7 @@ Medidos con el parser actual sobre el corpus local (`VIC2_CORPUS`: vanilla, `Pla
 | # | Hecho (ruta y dato) | Consecuencia |
 |---|---|---|
 | H1 | **Orientación.** `map/provinces.bmp` (5616×2160, 24 bits) leído con Pillow da la `y` del motor en la fila del array: el centroide de Berlín (549) cae en la fila 1675,6 y `positions.txt` da `y=1676`; Londres (300), fila 1661 frente a `y=1663`. Visto tal cual, el mapa sale con el norte abajo. | El ráster se guarda en coordenadas del juego y hay una sola función de conversión para la vista (`to_display_row`). Al importar imágenes con el norte arriba se voltean. Una prueba con un fixture asimétrico fija la orientación. |
-| H2 | **Saltos solo CR.** 11 archivos (10 historias de `south america/` y `usa/`, más `map/region_sea.txt`). Fallo latente: el lexer termina los comentarios solo en `\n` (`_TRIVIA` y `_COMMENT_SCAN_RE`), así que `parse("a = 1 # c\rb = 2\r")` da solo `a`. Además todas las líneas cuentan como 1 y `detect_newline` devuelve `"\n"`. Hoy ninguno de los 11 tiene comentarios; el fallo aparecería al añadir uno o con un mod en CR. | Se corrige antes de cualquier edición: ya está en curso entre las correcciones de la iteración 1 y, si no llega, entra en la iteración 2 (`#[^\r\n]*`, líneas por `\r\n\|\r\|\n`, `detect_newline` → `"\r"`), con regresión y manteniendo la ida y vuelta del corpus. |
+| H2 | **Saltos solo CR.** 11 archivos (10 historias de `south america/` y `usa/`, más `map/region_sea.txt`). Fallo latente, ya corregido: el lexer terminaba los comentarios solo en `\n` (`_TRIVIA` y `_COMMENT_SCAN_RE`), así que `parse("a = 1 # c\rb = 2\r")` daba solo `a`. Además todas las líneas contaban como 1 y `detect_newline` devolvía `"\n"`. Ninguno de los 11 tiene comentarios; el fallo habría aparecido al añadir uno o con un mod en CR. | **Hecho en la iteración 1**, antes de cualquier edición (`#[^\r\n]*`, líneas por `\r\n\|\r\|\n`, `detect_newline` → `"\r"`): ahora da `a` y `b` en las líneas 1 y 2. Lo fijan las pruebas `LineBreakTests.test_cr_only_files` y `EncodingTests.test_cr_only_newlines`, y la ida y vuelta del corpus la vigila `test_clausewitz_corpus`; la iteración 2 solo comprueba la regresión. |
 | H3 | **Saltos y codificación.** De 4 220 `.txt/.gui/.gfx`: 3 397 CRLF, 347 mixtos, 444 LF, 11 CR y 21 sin salto. Por codificación: 4 038 ASCII, 181 cp1252 y 1 UTF-8 (`history/units/1861/HAI_oob.txt`). | Los archivos nuevos se escriben en cp1252 con CRLF. Un archivo editado conserva su salto predominante. `non_game_encoding` entra en la línea base. |
 | H4 | **`definition.csv`.** Cabecera `province;red;green;blue;x;x`, ids 1–3248, 56 filas sin id al final y la fila 1826 `1825;208;17;223.;Zouar;x`. El BMP tiene 3 275 colores: 27 sin id (8 834 px; el mayor, (1,222,200), ocupa 8 345). Todo id tiene píxeles y no hay colores repetidos. | Tabla `;` tolerante y sin pérdidas (`core/tablecsv.py`). `223.` se lee al estilo `atoi` y se conserva tal cual. Los colores sin id son un aviso heredado. |
 | H5 | **`default.map`.** `max_provinces = 3249`. `sea_starts` tiene 546 valores y 545 distintos (2800 está dos veces): 2703–3248 **salvo 3246** (Jan Mayen, de tierra, añadida en HoD después de los ids de mar). Hay 2 703 provincias de tierra y 545 de mar. Nombra `definition.csv`, `provinces.bmp`, `positions.txt`, `terrain.bmp`, `rivers.bmp`, `terrain.txt`, `trees.txt`, `continent.txt`, `adjacencies.csv`, `region.txt`, `region_sea.txt` y `province_flag_sprites`; además trae `border_heights`, `terrain_sheet_heights`, `tree` y `border_cutoff`. | Los nombres de archivo se leen de `default.map`. «Primero tierra y después mar» es una convención del generador, no una invariante: el validador acepta 3246. |
@@ -140,7 +140,7 @@ Reglas de dependencia (las comprueban pruebas de arquitectura):
 ```text
 src/vic2studio/
 ├── core/
-│   ├── encoding.py            CAMBIA  detect_newline reconoce "\r"
+│   ├── encoding.py            EXISTE  detect_newline ya reconoce "\r" (hecho en la iteración 1)
 │   ├── cancel.py              EXISTE  CancelCheck, Cancelled y raise_if_cancelled (cancelación cooperativa)
 │   ├── fileio.py              CAMBIA  stage_bytes, commit_staged, fsync_dir (atomic_write_bytes encima, misma firma)
 │   ├── appdirs.py             NUEVO   cache_dir(), data_dir() sin Qt (VIC2STUDIO_CACHE_DIR / VIC2STUDIO_DATA_DIR)
@@ -149,7 +149,7 @@ src/vic2studio/
 │   ├── tablecsv.py            NUEVO   tablas ';' sin pérdidas (definition.csv, adjacencies.csv)
 │   ├── modfile.py             CAMBIA  DescriptorSpec, render_descriptor, descriptor_problems, create_mod_skeleton
 │   ├── modcheck.py            CAMBIA  Issue(+entity, +fixes) compatible; check_mod pasa a ser la familia «syntax»
-│   ├── clausewitz/            CAMBIA  lexer (CR), nodes (index_of, insert_before), serializer (render_checked)
+│   ├── clausewitz/            CAMBIA  serializer (render_checked); lexer (CR) y nodes (insert_before) ya están (iteración 1, §21)
 │   ├── csvloc/                CAMBIA  render_csv_checked, LocalisationDB.from_entries
 │   ├── vfs/        paths.py model.py rules.py guard.py vfs.py
 │   ├── project/    model.py documents.py codecs.py workspace.py undo.py journal.py recovery.py lock.py
@@ -1251,7 +1251,7 @@ Se reutilizan `ParchmentCard`, `OrnateFrame`, `RibbonBadge`, `StatusBadge`, `Med
 
 ### 14.1 Generar el archivo `.mod`
 
-- **Archivos y formato.** `<juego>/mod/<Carpeta>.mod`, en cp1252 con CRLF, junto a la carpeta del mod. Ejemplo real (`VSM.mod`): `name = "Shago Mod"`, `path = "mod/VSM"`, `user_dir = "VSM"`. Admite `replace_path` (repetible) y, si existe, se conserva `dependencies` como clave desconocida.
+- **Archivos y formato.** `<juego>/mod/<Carpeta>.mod`, en cp1252 con CRLF, junto a la carpeta del mod. Ejemplo real (`VSM.mod`): `name = "Shago Mod"`, `path = "mod/VSM"`, `user_dir = "VSM"`. Admite `replace_path` (repetible) y `dependencies`, un bloque con los nombres de otros mods: `modfile.ModDescriptor.dependencies` ya lo lee y `write_descriptor` ya lo escribe (cambia el bloque solo si la lista difiere). Las claves que el descriptor no conoce se conservan.
 - **Ver, crear y editar.** Proyecto › Descriptor .mod es un formulario. «Nuevo mod» crea `<juego>/mod/<Carpeta>/` con `common/`, `history/` y `localisation/`, más el descriptor, en una transacción; no copia vanilla, porque la herencia lo hace innecesario. Una opción importa una plantilla (una carpeta como `Plantilla Mod`). Editar un `.mod` existente edita su CST, así que conserva los comentarios.
 - **Controles.** Sugerencia de carpeta a partir del nombre (`sanitize_folder`: «Dark Age Mod» → `DAM` o `Dark_Age_Mod`). Selector de `replace_path` entre las carpetas existentes, con el efecto explicado («el juego dejará de cargar 2 705 archivos de vanilla en history/provinces»). Ayuda: `user_dir` separa partidas y caché de las de vanilla.
 - **API.**
@@ -2152,7 +2152,7 @@ Familia `core/validate/rules/mapforge.py`, más las de §16.6 sobre el resultado
 
 ## 19. Pruebas y fixtures
 
-El repositorio **no contiene datos de Paradox**. Las pruebas del repositorio usan fixtures sintéticos generados por código con la forma real y la muestra del usuario (`tests/fixtures/shago_mod_min`, solo archivos creados por él). El corpus completo se usa en local mediante variables de entorno.
+El repositorio **no contiene archivos de Paradox**, salvo lo que muestran dos capturas antiguas (`docs/capturas/03_estructura_provincia.png` y `04_localizacion_text_csv.png` enseñan archivos de vanilla), que se sustituyen en T5. Las pruebas del repositorio usan fixtures sintéticos generados por código con la forma real y la muestra del usuario (`tests/fixtures/shago_mod_min`: archivos creados por él, salvo los 6 de `common/countries/`, que desde el 26-10-2026 son versiones sintéticas de los suyos, por decisión del usuario, porque repetían bloques de partidos y listas `unit_names` de vanilla; las políticas, las fechas de los partidos y los `unit_names` son inventados). El corpus completo se usa en local mediante variables de entorno.
 
 ### 19.1 Fixtures
 
@@ -2208,7 +2208,7 @@ Con `VIC2_CORPUS` y/o `VIC2_GAME`:
 ### 19.5 Arquitectura, interfaz y capturas
 
 - **Arquitectura**: `core` no carga PySide6; sintaxis 3.10 (`ast.parse(..., feature_version=(3, 10))`); lista blanca de escrituras; cada `Field.label`/`help` y cada entrada del catálogo tiene ES y EN; fragmentos i18n sin claves duplicadas y con paridad.
-- **Sin datos de Paradox**: `tests/fixtures/` solo admite rutas permitidas (la muestra del usuario). Con corpus, ninguna línea de 40 o más caracteres de los archivos de vanilla aparece en `src/`, `tests/` ni `docs/`.
+- **Sin datos de Paradox**: `tests/fixtures/` solo admite rutas permitidas (la muestra del usuario, con sus archivos de país sintéticos). Con corpus, ninguna línea de 40 o más caracteres de los archivos de vanilla aparece en `src/`, `tests/` ni `docs/`. La comparación debe ignorar las asignaciones simples «clave = palabra» del vocabulario del juego (p. ej. `citizenship_policy = limited_citizenship`, que sale en cualquier archivo de país): sin eso la prueba daría falsos positivos con la muestra sintética.
 - **Interfaz offscreen** (`tests/_qt.py`): cada sala y sección se construyen y se retraducen ES/EN sin claves crudas; Ctrl+1..7, Ctrl+K, Ctrl+S/Z/Y; los asistentes de país, guerra, evento y mapa, de principio a fin sobre el minijuego, crean exactamente los archivos de su plan.
 - **Capturas**: `tools/screenshot.py` admite `--hall`, `--section`, `--entity kind:id`, `--wizard country --step N`, `--map-mode` y `--no-game-art` (por defecto en `docs/capturas`). En cada iteración se revisan en ES y EN a 1100×700 y 1920×1080.
 - **Verificación adversarial**: al cerrar cada iteración, un verificador por componente reproduce cada hallazgo antes de reportarlo, y cada corrección lleva su prueba de regresión.
@@ -2346,13 +2346,13 @@ Forman parte de la lista única de la iteración 10 (§19.5). Cada una cubre una
 
 | Archivo | Cambio |
 |---|---|
-| `core/encoding.py` | `detect_newline` devuelve `"\r"` si solo hay CR (H2). |
-| `core/clausewitz/lexer.py` | Comentarios hasta `\r` o `\n` en `_TRIVIA` y `_COMMENT_SCAN_RE`; líneas contadas con `\r\n`, `\r` y `\n`; `newline_split` y `last_line_indent` aceptan `\r`. |
-| `core/clausewitz/nodes.py` | `Block.index_of(entry)` y `Block.insert_before(key, new_key, value)`, o sus equivalentes si la API de edición que se está ampliando en la iteración 1 ya los trae. La búsqueda sin mayúsculas ya existe (`ignore_case`). |
+| `core/encoding.py` | `detect_newline` devuelve `"\r"` si solo hay CR (H2). **Hecho en la iteración 1**, con la firma `detect_newline(text, *, lone_cr=True)`: con `lone_cr=False` un CR suelto no cuenta (el CSV del juego solo parte filas en LF). |
+| `core/clausewitz/lexer.py` | Comentarios hasta `\r` o `\n` en `_TRIVIA` y `_COMMENT_SCAN_RE`; líneas contadas con `\r\n`, `\r` y `\n`; `newline_split` y `last_line_indent` aceptan `\r`. **Hecho en la iteración 1**: los dos patrones usan `#[^\r\n]*`, `LINE_BREAK_RE` es `\r\n?\|\n` y las dos funciones buscan los saltos con `first_break` y `last_break_end`, que tratan `\r`. |
+| `core/clausewitz/nodes.py` | `Block.index_of(entry)` y `Block.insert_before(key, new_key, value)`, o sus equivalentes si la API de edición que se está ampliando en la iteración 1 ya los trae. **La iteración 1 trajo los equivalentes, con otra firma**: `Block.insert_before(entry, key, value, op="=")` e `insert_after(...)` reciben la entrada vecina, no su clave (se busca antes con `find`); `index_of` no es pública (el índice lo dan `block.entries.index(entry)`, que compara por identidad, y `remove_entry`). La búsqueda sin mayúsculas ya existe (`ignore_case`). |
 | `core/clausewitz/serializer.py` | Se extrae `render_checked(document_or_result, *, encoding=None) -> bytes`; `write_file` la usa sin cambiar su comportamiento. |
 | `core/csvloc/serialization.py`, `db.py` | `render_csv_checked(file) -> bytes`; `LocalisationDB.from_entries(entries)` para alimentarla desde la VFS con los documentos sucios. Se corrige el docstring que atribuye a vanilla los `?` (vienen de la copia del usuario, H15). |
 | `core/fileio.py` | `stage_bytes`, `commit_staged`, `fsync_dir`; `atomic_write_bytes` se reimplementa encima con la misma firma. |
-| `core/modfile.py` | Escritor del descriptor (§14.1). `read_descriptor` y `find_descriptor` no cambian. |
+| `core/modfile.py` | Escritor del descriptor (§14.1). `read_descriptor` y `find_descriptor` no cambian. **Ya hay un escritor desde la iteración 1, con otra firma**: `write_descriptor(file, descriptor: ModDescriptor, *, backup=True)` edita un `.mod` existente cambiando solo los campos que difieren (conserva comentarios, claves desconocidas, formato y codificación, salvo UTF-16, que pasa a cp1252) o crea uno canónico en cp1252 con CRLF. Falta la API de §14.1 (`DescriptorSpec`, `render_descriptor`, `descriptor_problems`, `create_mod_skeleton` y `sanitize_folder`). |
 | `core/modcheck.py` | `Issue` gana `entity` y `fixes` con valores por defecto; `check_file` alimenta la familia «syntax» del validador. |
 | `i18n/__init__.py` | `load_catalog(code)` combina `es.json` con `es/*.json` y los textos del núcleo, y lanza un error ante claves duplicadas. |
 | `ui/pages/project_page.py` | Pasa a ser la sección «Archivos» de la sala Proyecto, con insignias de capa J (juego), M (mod) y M⊃J (sustituye). `inspect_folder`, `evaluate_*`, `same_folder` y `_is_under` se mudan a `core/vfs/guard.py`. Las rutas del juego y del mod pasan a Inicio. |
@@ -2389,12 +2389,12 @@ La 9b depende de la receta `new_country` de la iteración 6.
 
 ### Iteración 2 — Cimientos: VFS, proyecto transaccional, generador .mod, arreglo CR y armazón de 7 salas
 
-**Objetivo.** Abrir o crear un mod sobre vanilla y recorrer las 7 salas con tres garantías probadas: nada se escribe fuera del mod, todo cambio se deshace y un guardado de varios archivos es todo o nada. Entrega la capacidad 1 (archivo .mod) y corrige el fallo latente de los saltos de línea solo CR.
+**Objetivo.** Abrir o crear un mod sobre vanilla y recorrer las 7 salas con tres garantías probadas: nada se escribe fuera del mod, todo cambio se deshace y un guardado de varios archivos es todo o nada. Entrega la capacidad 1 (archivo .mod) y comprueba que sigue corregido el fallo latente de los saltos de línea solo CR, que se arregló en la iteración 1.
 
 **Entregables.**
 
 - Commit de contrato (paso 0): `core/vfs/model.py`, `core/project/model.py` (DocKind, DocHandle, PlannedWrite, SaveReport, UndoStep), señales de `ui/session.py` y `ui/halls/registry.py` (SectionSpec).
-- Arreglo CR en `core/encoding.py` y `core/clausewitz/lexer.py` (comentarios hasta `\r` o `\n`, líneas por `\r\n|\r|\n`, `detect_newline` → `"\r"`), con prueba de regresión. Si ya llegó con las correcciones de la iteración 1, solo se comprueba la regresión.
+- Arreglo CR en `core/encoding.py` y `core/clausewitz/lexer.py` (comentarios hasta `\r` o `\n`, líneas por `\r\n|\r|\n`, `detect_newline` → `"\r"`): llegó con las correcciones de la iteración 1, así que aquí solo se comprueba la regresión.
 - `core/vfs/{paths,rules,guard,vfs}.py`: VPath, LOAD_RULES, WriteGuard por realpath y VirtualFS (resolve, stack, mod_target, replace_path, snapshot, refresh). `evaluate_*`, `inspect_folder`, `same_folder` y `_is_under` se mudan de `ui/pages/project_page.py` a `core/vfs/guard.py`.
 - `core/fileio.py` (stage_bytes, commit_staged, fsync_dir), `serializer.render_checked` y `csvloc.render_csv_checked`.
 - `core/project/{documents,codecs,workspace,undo,journal,recovery,lock,settings,diffing,project}.py`: documentos con códecs, transacciones con nombre, deshacer por instantáneas, guardado con diario, recuperación, bloqueo, cambios externos, autoguardado y `project.json`.
@@ -2746,7 +2746,7 @@ Cubre la capacidad 15 (mundo y mapa existente) y reutiliza la receta `new_countr
 | Escribir en el juego base (el mod vive dentro de `<juego>/mod`) | `WriteGuard` por realpath, el diario como única vía de escritura dentro del mod y `test_arch_writes`. |
 | Guardado interrumpido que deja el mod incoherente (p. ej. `countries.txt` con el TAG pero sin historia) | Diario en dos fases con temporales en la misma carpeta, `.bak` como reversión, reintentos ante `PermissionError` y recuperación idempotente probada con fallos inyectados y `os._exit`. |
 | Deshacer inexacto o referencias obsoletas tras deshacer | Instantáneas que se reparsean (exactas por la ida y vuelta byte a byte); la interfaz solo guarda `RecordRef` y re-enlaza al cambiar `version`; prueba de propiedad. |
-| Fallo latente del lexer con saltos solo CR | Arreglo y regresión antes de cualquier edición (en curso en la iteración 1; si no llega, en la 2). |
+| Fallo latente del lexer con saltos solo CR | Arreglo y regresión antes de cualquier edición. Hecho en la iteración 1, con las pruebas `test_clausewitz_parser.LineBreakTests.test_cr_only_files` y `test_encoding.EncodingTests.test_cr_only_newlines`; la iteración 2 solo comprueba que siguen pasando. |
 | TAG detrás de `dynamic_tags`, copias mal colocadas que duplican ids, `text.csv` copiado entero | `Registry(before=…)`, tabla `LOAD_RULES` (copia a la misma ruta y mayúscula), `00_<P>_overrides.csv` y `test_placement`. |
 | Orientación del mapa (sur arriba) y coordenadas de `positions.txt` y de la cámara | Ráster en coordenadas del juego, volteo solo en la vista, una única función de conversión y fixture asimétrico. |
 | Romper las invariantes del mapa al editar regiones o crear provincias | Ediciones compuestas que mantienen la invariante tras cada paso, `PairedKeys` para `climate.txt` y prueba de propiedad. |

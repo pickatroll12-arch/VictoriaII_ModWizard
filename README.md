@@ -16,18 +16,19 @@ puede usar en **español o inglés**, cambiando de idioma en tiempo real.
 > Proyecto independiente, sin relación con Paradox Interactive. La aplicación
 > trabaja sobre la copia de Victoria II que tenga instalada cada usuario y no
 > incluye gráficos ni fuentes del juego. El repositorio sí contiene algo de
-> contenido de vanilla en la muestra de las pruebas y en dos capturas antiguas
-> (ver [Licencias y datos](#licencias-y-datos)).
+> contenido de vanilla en dos capturas antiguas (ver
+> [Licencias y datos](#licencias-y-datos)).
 
 ## Estado del proyecto
 
-Versión **0.1.0**, pre-alfa. La **iteración 1 está en su recta final**. Además
-del núcleo y la ventana principal, se revisó la integración del parser y la
-localización con la interfaz, las pruebas dejaron de depender del corpus
+Versión **0.1.0**, pre-alfa. La **iteración 1 está cerrada salvo dos tareas**.
+Además del núcleo y la ventana principal, se revisó la integración del parser y
+la localización con la interfaz, las pruebas dejaron de depender del corpus
 completo, cada componente pasó una verificación adversarial y los hallazgos se
 corrigieron con pruebas de regresión y una segunda ronda de verificación
-(tareas T1–T4 del [documento de traspaso](CONTINUAR_EN_CLAUDE_CODE.md)). Falta
-integrar la última ronda de T4 (ver más abajo) y queda T5, el informe final al
+(tareas T1–T4 del [documento de traspaso](CONTINUAR_EN_CLAUDE_CODE.md)),
+incluida la última ronda de T4. Quedan la segunda revisión adversarial de la
+última ronda de la interfaz, que está en curso, y T5, el informe final al
 usuario con capturas nuevas.
 
 ### Qué funciona hoy
@@ -39,7 +40,9 @@ La aplicación tiene cinco módulos en la barra de navegación (Ctrl+1 … Ctrl+
   filtro. La vista previa elige visor según el archivo:
   - scripts Clausewitz (`.txt`, `.mod`, `.gfx`, `.gui`, `.sfx`, `.asset`,
     `.map`): pestañas Estructura, Código fuente, Diagnósticos y JSON, con
-    buscador; doble clic en un diagnóstico salta a su línea y a su nodo;
+    buscador; doble clic en un diagnóstico salta a su línea y a su nodo; un
+    archivo en UTF-16, que el juego no puede leer, sale en rojo («Ilegible
+    para el juego»);
   - imágenes (`.tga`, `.dds`, `.bmp`, `.png`, `.jpg`, `.jpeg`, `.gif`),
     decodificadas con Pillow;
   - los `.csv` de `localisation/` se abren en Localización.
@@ -49,16 +52,16 @@ La aplicación tiene cinco módulos en la barra de navegación (Ctrl+1 … Ctrl+
 - **Localización (CSV)**: tabla de solo lectura con una columna por idioma,
   buscador, conmutadores para mostrar comentarios y todas las columnas, y los
   diagnósticos del lint traducidos.
-- **Mapa, Países y Eventos**: tarjetas con lo planificado. Estas tarjetas y el
-  aviso de solo lectura de Localización usan la numeración de la hoja de ruta
-  antigua (mapa en la iteración 3, países en la 4, eventos en la 5 y edición
-  de la localización en la 2); el plan vigente es el de
-  [wizard.md](docs/diseno/wizard.md), que las pone en la 5, la 6, la 7 y la 3.
+- **Mapa, Países y Eventos**: tarjetas con lo planificado y la hoja de ruta de
+  [wizard.md §22](docs/diseno/wizard.md#22-plan-de-iteraciones), con sus 10
+  hitos: el mapa llega en la iteración 5, los países en la 6 y los eventos en
+  la 7. El aviso de solo lectura de Localización anuncia la edición para la 3.
 
 El análisis, las imágenes y la validación corren en segundo plano, en grupos
 de hilos propios (`ui/tasks.py`): la interfaz sigue respondiendo con archivos de
-varios MB, abrir otro archivo cancela el análisis anterior y la validación
-tiene un botón «Cancelar». La aplicación todavía no modifica archivos del juego
+varios MB, abrir otro archivo cancela el análisis anterior (y suelta su
+memoria por trozos en un hilo aparte) y la validación tiene un botón
+«Cancelar». La aplicación todavía no modifica archivos del juego
 ni del mod: la escritura existe en el núcleo y en la CLI `fromjson`, y la
 edición desde la interfaz empieza en la iteración 2.
 
@@ -70,7 +73,10 @@ terminal:
   codec propio `utf-16-be-bom`) o sin él, y BOM repetidos; escritura atómica con
   copia `.bak` y `FileChangedError` si el archivo cambió fuera de la aplicación.
 - `clausewitz`: parser tolerante a errores con árbol sintáctico concreto
-  (`to_source` devuelve el texto exacto), diagnósticos en ES/EN, API de edición
+  (`to_source` devuelve el texto exacto), diagnósticos en ES/EN (también de la
+  codificación: error con UTF-16, aviso con UTF-8 o con un BOM UTF-8 delante de
+  Windows-1252), BOM repetidos en `Document.extra_boms`, posiciones finales
+  públicas (`Entry.value_end`, `Block.close_position`), API de edición
   que conserva el formato (`set`, `remove`, `move`, `insert_before`,
   `insert_after`, `clone`, `close`, `find_path`, `from_pairs`, comentarios con
   `line_comment`, `open_comment` y `trailing_comments`), errores `EditError`
@@ -86,13 +92,6 @@ terminal:
   uno nuevo en cp1252 con CRLF) y `modcheck` (validación de un mod completo).
 - `cancel`: cancelación cooperativa; las funciones largas aceptan
   `cancelled=` y lanzan `Cancelled`.
-
-**Última ronda de T4** (ya integrada; este README aún no la detalla, ver
-`CONTINUAR_EN_CLAUDE_CODE.md`): los avisos de UTF-16 en `clausewitz check`, el
-BOM repetido en `parse_file`, una API pública para que el visor sepa dónde
-termina cada nodo del árbol, liberar la memoria del árbol de un archivo grande
-fuera del hilo de la interfaz y las etiquetas de las codificaciones UTF-16 en
-la interfaz.
 
 ### Qué viene
 
@@ -139,10 +138,17 @@ el empaquetado final. Los prototipos del taller de mapas están en
   que ser anterior a la 6.12: la 6.12.0 suelta referencias de más a `None`,
   `True` y `False`, y en esas versiones de Python el programa aborta al rato
   («Fatal Python error: none_dealloc»). Desde Python 3.12 no pasa.
-  `requirements.txt` y `pyproject.toml` ya lo tienen en cuenta.
+  `requirements.txt` y `pyproject.toml` ya lo tienen en cuenta. Si esa
+  combinación ya está instalada, la aplicación lo avisa al arrancar, antes de
+  abrir la ventana, con un mensaje que dice cómo arreglarlo, y sale con el
+  código 1; las pruebas que usan Qt fallan al importar `tests/_qt.py` con el
+  mismo mensaje. `VIC2STUDIO_ALLOW_BROKEN_PYSIDE=1` desactiva la comprobación
+  (para probar una PySide6 posterior que quizá lo corrija).
 
-Las pruebas de esta versión se pasaron con Python 3.13 y PySide6 6.12, y con
-Python 3.10 y PySide6 6.11.3 (numpy 2, Pillow 12).
+Sin corpus, la batería entera se pasó con Python 3.13.17 y PySide6 6.12.0; con
+Python 3.10.20 y PySide6 6.11.3, las 593 pruebas anteriores al aviso y a la
+nueva hoja de ruta y, aparte, las 16 que llegaron con ellos (numpy 2,
+Pillow 12).
 
 En Linux las dependencias pueden venir del gestor de paquetes (en Fedora:
 `python3-pyside6`, `python3-numpy`, `python3-pillow`) o de pip:
@@ -222,9 +228,11 @@ pruebas que necesitan archivos que la muestra no tiene (un `text.csv` grande,
 una historia de provincia) usan una plantilla sintética generada por código
 (`tests/_corpus.py`).
 
-Resultado actual: **561 pruebas OK** con el corpus completo, y **561 OK con 3
-omitidas** sin `VIC2_CORPUS`. Con el corpus, el parser recorre 12 054 archivos
-Clausewitz (27,4 MB) con ida y vuelta byte a byte.
+Resultado actual: **609 pruebas** en 24 archivos, **todas OK con 3 omitidas**
+sin `VIC2_CORPUS`. Con el corpus completo, la última ejecución fue con 593
+pruebas, antes de `test_compat.py`, `test_ui_roadmap.py` y los archivos de país
+sintéticos de la muestra, y pasaron todas. Con el corpus, el parser recorre
+12 054 archivos Clausewitz (27,4 MB) con ida y vuelta byte a byte.
 
 Algunas pruebas miden las pausas de la interfaz: en una máquina cargada (por
 ejemplo, con dos baterías a la vez) pueden fallar. Repítelas antes de darlas
@@ -260,7 +268,8 @@ tests/fixtures/shago_mod_min/VSM/decisions/zulu_expancionshago.txt:155:1: info: 
 17 archivo(s), 2 error(es), 0 aviso(s)
 ```
 
-Sobre el mod completo del usuario (3927 archivos) salen 3 errores y 1 aviso:
+Sobre el mod completo del usuario (3927 archivos; medido en una sesión con el
+corpus, que no está en el repositorio) salen 3 errores y 1 aviso:
 los dos bloques sin cerrar de arriba, que pasan fácilmente desapercibidos en el
 juego, y dos problemas heredados de vanilla, que el mod copia tal cual:
 `history/units/v2dd2.txt` es un diario de desarrollo en prosa que el juego base
@@ -297,7 +306,7 @@ igual) o no se puede leer.
 | `multiline_string` | aviso | Una cadena que sigue en otra línea (¿falta una comilla?). |
 | `control_character` | aviso | Caracteres de control invisibles en el archivo. |
 | `invisible_character` | aviso | Una palabra con un carácter invisible (espacio duro, ancho cero…). |
-| `non_game_encoding` | aviso | Un archivo con BOM UTF-8, o en UTF-8 o UTF-16 con caracteres no ASCII. |
+| `non_game_encoding` | aviso | Un archivo en UTF-8: con BOM, o sin él y con caracteres no ASCII. |
 | `suspicious_close_brace` | info | La `}` con menos sangría que su apertura: pista de dónde falta una `}`. |
 
 Un archivo en UTF-16, que el juego no puede leer, sale con el error
@@ -366,11 +375,11 @@ se pudo leer o escribir un archivo o el JSON no es válido.
 | `non_game_encoding` | aviso o error | Un archivo en UTF-8 (con o sin BOM) o con un BOM UTF-8 perdido delante de Windows-1252; error si está en UTF-16, que el juego no puede leer. |
 | `header_row` | info | Una fila de cabecera (`key;English;…`): el juego la carga como una clave más. |
 
-«Validar mod» usa estos diagnósticos y los del parser, y añade los suyos:
-`unreadable_encoding` (script en UTF-16, error), `stray_bom` (BOM UTF-8 perdido
-en un script, aviso), `no_game_folders` (la carpeta no parece la raíz de un
-mod, aviso), `read_error`, `folder_error` y `check_failed` (errores al leer o
-analizar) y los `descriptor_*`, que revisan los campos del `.mod`.
+«Validar mod» usa estos diagnósticos y los del parser (también
+`unreadable_encoding` y `stray_bom`), y añade los suyos: `no_game_folders` (la
+carpeta no parece la raíz de un mod, aviso), `read_error`, `folder_error` y
+`check_failed` (errores al leer o analizar) y los `descriptor_*`, que revisan
+los campos del `.mod`.
 
 ## Capturas de pantalla
 
@@ -452,6 +461,7 @@ src/vic2studio/
 │   ├── theme.py       tema procedural (con style.qss)
 │   └── main_window.py ventana principal
 ├── app.py             punto de entrada de la aplicación
+├── compat.py          aviso de PySide6 incompatible con la versión de Python
 ├── settings.py        preferencias (QSettings en formato INI)
 └── __main__.py        python -m vic2studio
 tests/                 pruebas unittest, muestra del mod del usuario en fixtures/
@@ -471,12 +481,14 @@ El árbol detallado y la arquitectura están en [ARCHITECTURE.md](ARCHITECTURE.m
 - **Paradox.** La aplicación, las pruebas de corpus y los prototipos leen los
   archivos del juego de la instalación del usuario en tiempo de ejecución, y la
   estética es 100 % procedural: el código no incluye gráficos ni fuentes del
-  juego. El repositorio sí contiene algo de contenido de vanilla en dos sitios:
-  - La muestra `tests/fixtures/shago_mod_min` es del mod del usuario, y sus
-    seis archivos de `common/countries/` parten de archivos de países de
-    vanilla: de ahí vienen sus definiciones de partidos y sus listas de nombres
-    de unidades. Falta decidir si esas listas se sustituyen por nombres
-    sintéticos.
+  juego. Sobre el contenido de vanilla del repositorio:
+  - La muestra `tests/fixtures/shago_mod_min` es del mod del usuario. Sus seis
+    archivos de `common/countries/` repetían bloques de partidos y listas
+    `unit_names` de vanilla, y por decisión del usuario (26-10-2026) son ahora
+    versiones sintéticas: las políticas, las fechas de los partidos y los
+    `unit_names` son inventados. Conservan los nombres de partido, las
+    ideologías, los colores, `graphical_culture`, el `social_policy` de 5 de
+    los 6 países, los partidos `MAJ_*` de Warsangali y las rarezas de formato.
   - Dos de las capturas antiguas de `docs/capturas/`
     (`03_estructura_provincia.png` y `04_localizacion_text_csv.png`) muestran
     archivos de vanilla. Se sustituirán en T5 (ver
@@ -503,27 +515,28 @@ Interactive: the app works on each user's own copy of the game and ships no
 game graphics or fonts (see the licence notes below for the vanilla content
 that the repository still holds).
 
-**Status**: version 0.1.0, pre-alpha. Iteration 1 is nearly done: tasks T1–T4
-are done (integration review, corpus-independent tests, adversarial
-verification and fixes with a second verification round); the last T4 round
-(below) and T5, the final report with new screenshots, are pending. Today the
+**Status**: version 0.1.0, pre-alpha. Iteration 1 is done except for two
+tasks: tasks T1–T4 are done (integration review, corpus-independent tests,
+adversarial verification and fixes with a second verification round,
+including the last T4 round); the second adversarial review of the last UI
+round is in progress, and T5, the final report with new screenshots, is
+pending. Today the
 app has a project page (paths, file explorer, Clausewitz viewer with
 structure, source, diagnostics and JSON tabs, image preview, `.mod`
 descriptor check and a background "Validate mod" with progress and
 cancellation), a read-only localisation table with search and lint, and
-placeholder pages for the map, countries and events; these pages and the
-localisation read-only notice still use the old roadmap's iteration numbers.
-Long tasks run in background thread pools. The app does not modify game or
+placeholder pages for the map, countries and events with the roadmap of
+wizard.md §22 (map in iteration 5, countries in 6, events in 7; localisation
+editing in 3). Long tasks run in background thread pools, and a large file's
+analysis is freed in chunks off the UI thread. The app does not modify game or
 mod files yet; writing exists in the core and in the `csvloc fromjson` CLI,
 and editing from the UI starts in iteration 2. The Qt-free core provides
 lossless encoding detection (cp1252, UTF-8, UTF-16 with or without BOM,
 repeated BOMs), a lossless Clausewitz parser with a format-preserving edit API,
-a lossless CSV model with lint and a localisation database that merges folders
-the way the game does, `.mod` descriptor handling, whole-mod validation and
-cooperative cancellation. Still to come in the last T4 round: UTF-16 warnings
-in `clausewitz check`, repeated BOMs in `parse_file`, a public API that tells
-the viewer where each tree node ends, freeing a large file's tree off the UI
-thread and UTF-16 labels in the UI.
+encoding diagnostics (an error for UTF-16, which the game cannot read) and
+public end positions for tree nodes, a lossless CSV model with lint and a
+localisation database that merges folders the way the game does, `.mod`
+descriptor handling, whole-mod validation and cooperative cancellation.
 
 **Roadmap**: iterations 2 to 10 in
 [docs/diseno/wizard.md](docs/diseno/wizard.md) (Spanish), which replaces the
@@ -539,15 +552,20 @@ bitmap import).
 Python 3.10 and 3.11, PySide6 must be older than 6.12: 6.12.0 releases extra
 references to `None`, `True` and `False`, which crashes those Python versions
 ("Fatal Python error: none_dealloc"); `requirements.txt` and `pyproject.toml`
-already pin it. Tested with Python 3.13 + PySide6 6.12 and Python 3.10 +
-PySide6 6.11.3.
+already pin it. If that combination is already installed, the app says so at
+startup, before opening the window, and exits with 1, and the tests that use
+Qt fail when importing `tests/_qt.py` with the same message;
+`VIC2STUDIO_ALLOW_BROKEN_PYSIDE=1` skips the check. Without a corpus, the whole
+suite was run with Python 3.13.17 + PySide6 6.12.0; with Python 3.10.20 +
+PySide6 6.11.3,
+the 593 earlier tests and, separately, the 16 new ones.
 
 ```bash
 PYTHONPATH=src python3 -m vic2studio                    # run from source
 pip install -e . && vic2studio                          # or install, then run
 QT_QPA_PLATFORM=offscreen VIC2STUDIO_SETTINGS_DIR="$(mktemp -d)" \
-    python3 -m unittest discover -s tests               # 561 tests, 3 skipped without a corpus
-VIC2_CORPUS="/path/to/vanilla:/path/to/mod" ...         # enable real-corpus tests (561 OK)
+    python3 -m unittest discover -s tests               # 609 tests, 3 skipped without a corpus
+VIC2_CORPUS="/path/to/vanilla:/path/to/mod" ...         # enable real-corpus tests (last run: 593 of 593 OK)
 PYTHONPATH=src python3 -m vic2studio.core.clausewitz check /path/to/mod --lang en
 PYTHONPATH=src python3 -m vic2studio.core.csvloc check /path/to/mod/localisation
 python3 tools/screenshot.py --out capturas --lang all   # offscreen screenshots
@@ -559,11 +577,11 @@ errors; `csvloc check` exits with 1 on errors (or warnings with `--strict`)
 and 2 when a path cannot be read.
 
 **Licences and data**: the app and the corpus tests read game files from the
-user's installation at runtime. The repository still holds some vanilla
-content: the six `common/countries/` files of the test sample
-(`tests/fixtures/shago_mod_min`, from the user's mod) are based on vanilla
-country files (party definitions and unit name lists), and two of the old
-screenshots in `docs/capturas/` show vanilla files; the screenshots will be
+user's installation at runtime. The six `common/countries/` files of the test
+sample (`tests/fixtures/shago_mod_min`, from the user's mod) repeated vanilla
+party blocks and unit name lists; at the user's request (26 October 2026) they
+are now synthetic (invented policies, party dates and unit names). Two of the
+old screenshots in `docs/capturas/` still show vanilla files; they will be
 replaced in T5. The project's own code has no licence yet. See
 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for the MIT licence of
 Azgaar's Fantasy Map Generator and [ARCHITECTURE.md](ARCHITECTURE.md)
