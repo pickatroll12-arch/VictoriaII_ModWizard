@@ -8,6 +8,7 @@ from PySide6.QtCore import QPointF, QRectF, QSize, Qt
 from PySide6.QtGui import (
     QColor,
     QFont,
+    QFontMetricsF,
     QLinearGradient,
     QPainter,
     QPainterPath,
@@ -173,6 +174,10 @@ def paint_medallion(p: QPainter, rect: QRectF, icon_name: str | None = None, fil
     elif text:
         f = QFont(text_font) if text_font else theme.font("numeral")
         f.setPixelSize(max(6, round(inner * 0.95)))
+        # Los numerales largos («VIII») se encogen para no salirse del disco.
+        width, limit = QFontMetricsF(f).horizontalAdvance(text), inner * 1.55
+        if width > limit:
+            f.setPixelSize(max(6, int(f.pixelSize() * limit / width)))
         p.setFont(f)
         p.setPen(C(icon_color))
         p.drawText(QRectF(c.x() - inner, c.y() - inner, inner * 2, inner * 2), Qt.AlignmentFlag.AlignCenter, text)

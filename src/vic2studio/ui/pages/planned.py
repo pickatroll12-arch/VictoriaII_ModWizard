@@ -23,8 +23,10 @@ from ..widgets import Medallion, NumeralBadge, ParchmentCard, RibbonBadge, Roadm
 from .base import BasePage
 
 CURRENT_ITERATION = 1
+# Plan de docs/diseno/wizard.md §22; el hito 9 reúne las iteraciones 9a y 9b del taller de mapas.
 ROADMAP_KEYS = (
     N_("roadmap.it1"), N_("roadmap.it2"), N_("roadmap.it3"), N_("roadmap.it4"), N_("roadmap.it5"),
+    N_("roadmap.it6"), N_("roadmap.it7"), N_("roadmap.it8"), N_("roadmap.it9"), N_("roadmap.it10"),
 )
 
 

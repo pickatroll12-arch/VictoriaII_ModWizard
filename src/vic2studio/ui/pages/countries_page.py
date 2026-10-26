@@ -1,4 +1,4 @@
-"""Creador de Países (iteración 4): asistente paso a paso planificado."""
+"""Creador de Países (iteración 6): asistente paso a paso planificado."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ class CountriesPage(PlannedModulePage):
     title_key = N_("nav.countries")
     subtitle_key = N_("page.countries.subtitle")
     icon_name = "countries"
-    iteration = 4
+    iteration = 6
     intro_key = N_("countries.intro")
     numbered = True
     groups = (

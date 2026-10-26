@@ -1,4 +1,4 @@
-"""Editor de Mapa (iteración 3): de momento, tarjeta de funcionalidades planificadas."""
+"""Editor de Mapa (iteración 5): de momento, tarjeta de funcionalidades planificadas."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ class MapPage(PlannedModulePage):
     title_key = N_("nav.map")
     subtitle_key = N_("page.map.subtitle")
     icon_name = "map"
-    iteration = 3
+    iteration = 5
     intro_key = N_("map.intro")
     groups = (
         FeatureGroup(N_("map.group.canvas"), (N_("map.f.canvas"), N_("map.f.modes"), N_("map.f.live")), "map"),

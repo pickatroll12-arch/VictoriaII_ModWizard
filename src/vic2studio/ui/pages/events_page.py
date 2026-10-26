@@ -1,4 +1,4 @@
-"""Estudio de Eventos (iteración 5): constructor visual planificado."""
+"""Estudio de Eventos (iteración 7): constructor visual planificado."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ class EventsPage(PlannedModulePage):
     title_key = N_("nav.events")
     subtitle_key = N_("page.events.subtitle")
     icon_name = "events"
-    iteration = 5
+    iteration = 7
     intro_key = N_("events.intro")
     groups = (
         FeatureGroup(N_("events.group.types"), (N_("events.f.types"), N_("events.f.vanilla")), "events"),
