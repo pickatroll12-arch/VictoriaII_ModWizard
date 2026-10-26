@@ -45,6 +45,7 @@ from .lexer import (
     OPEN_STRING,
     WORD,
     Token,
+    end_position,
     head_comments,
     scalar_text,
     tail_comment,
@@ -598,6 +599,25 @@ class Entry:
         return None if token is None else token.column
 
     @property
+    def value_end(self) -> tuple[int, int] | None:
+        """``(línea, columna)`` del último carácter del valor leído, como ``line``/``column``.
+
+        Es el de su token o, en un bloque, su ``}`` (``Block.close_position``). Una cadena
+        puede acabar en otra línea (ver ``lexer.end_position``). None si el valor lo creó o
+        lo cambió el código, si es un bloque nuevo o que no se cerraba, o si la entrada es
+        nueva (``line`` None), aunque su bloque se haya leído en otro sitio.
+        """
+        value = self._value
+        token = self._vtok
+        if value.__class__ is not Scalar:
+            if token.__class__ is _Replaced or first_token(self) is None:
+                return None
+            return value.close_position
+        if token is None or token.raw is None:
+            return None
+        return end_position(token)
+
+    @property
     def comments(self) -> list[str]:
         """Comentarios de las líneas propias de encima de la entrada (``["# ..."]``).
 
@@ -884,6 +904,16 @@ class Block:
         return None if self._open is None else self._open.column
 
     @property
+    def close_position(self) -> tuple[int, int] | None:
+        """``(línea, columna)`` de la ``}`` leída que lo cierra, como ``line``/``column``.
+
+        None si el bloque es nuevo o no se cerraba al leerlo (aunque ``close()`` le
+        añada la llave).
+        """
+        close = self._close
+        return None if close is None else (close.line, close.column)
+
+    @property
     def is_closed(self) -> bool:
         """False si el bloque se leyó de un archivo y le falta la llave de cierre (ver ``close``)."""
         return not self._unclosed
@@ -1044,14 +1074,21 @@ class Block:
 
 
 class Document(Block):
-    """Bloque raíz de un archivo. ``newline`` se usa para el texto generado."""
+    """Bloque raíz de un archivo. ``newline`` se usa para el texto generado.
 
-    __slots__ = ("newline", "encoding", "_eof", "_indent_unit")
+    ``extra_boms`` cuenta los BOM repetidos tras el de ``encoding`` que ``parse_file``
+    quita del texto (``encoding.split_extra_boms``). Como el de la codificación, no
+    están en ``to_source`` ni cuentan en las posiciones: ``write_file`` los vuelve a
+    poner delante si se guarda en esa misma codificación con BOM.
+    """
 
-    def __init__(self, entries=None, *, newline: str = "\n", encoding: str | None = None):
+    __slots__ = ("newline", "encoding", "extra_boms", "_eof", "_indent_unit")
+
+    def __init__(self, entries=None, *, newline: str = "\n", encoding: str | None = None, extra_boms: int = 0):
         super().__init__(entries)
         self.newline = newline
         self.encoding = encoding
+        self.extra_boms = extra_boms
         self._eof = None
         self._indent_unit = "\t"
 

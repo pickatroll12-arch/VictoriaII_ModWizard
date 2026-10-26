@@ -3,14 +3,14 @@
 Recorre las carpetas del mod que lee el juego (más archivos extra, como el
 descriptor ``.mod`` de la carpeta superior), analiza cada archivo con
 ``core.clausewitz`` o ``core.csvloc`` y reúne sus diagnósticos en un informe
-ordenado por gravedad. De los scripts comprueba además que el juego pueda leer
-su codificación y de los descriptores ``.mod``, sus campos (``check_descriptor``).
+ordenado por gravedad (los de los scripts incluyen si el juego puede leer su
+codificación, que lo dice el parser). De los descriptores ``.mod`` revisa además
+sus campos (``check_descriptor``).
 Sin Qt: la interfaz lo ejecuta en un hilo y le pasa ``progress`` y ``cancelled``.
 """
 
 from __future__ import annotations
 
-import codecs
 import os
 import re
 import time
@@ -19,12 +19,10 @@ from pathlib import Path, PureWindowsPath
 from typing import Callable, Iterable
 
 from .cancel import CancelCheck, Cancelled, raise_if_cancelled
-from .clausewitz import Severity, parse_file
+from .clausewitz import CLAUSEWITZ_SUFFIXES, Severity, parse_file
 from .csvloc import is_localisation_csv, read_csv_file
-from .encoding import GAME_ENCODING, GAME_UNREADABLE
 from .modfile import DESCRIPTOR_SUFFIX, ModDescriptor, descriptor_from_result
 
-CLAUSEWITZ_SUFFIXES = frozenset({".txt", ".mod", ".gfx", ".gui", ".sfx", ".asset", ".map"})
 CSV_SUFFIXES = frozenset({".csv"})
 KIND_CLAUSEWITZ = "clausewitz"
 KIND_CSV = "csv"
@@ -43,13 +41,11 @@ SCAN_PROGRESS_INTERVAL = 0.1
 # Diagnósticos convertidos en ``Issue`` entre dos consultas a ``cancelled``.
 CANCEL_EVERY = 0x1000
 
-# Aviso del parser para una codificación que no es la del juego (supone que el juego la lee como cp1252).
-_PARSER_ENCODING_WARNING = "non_game_encoding"
-
 READ_ERROR = "read_error"
 CHECK_FAILED = "check_failed"
 FOLDER_ERROR = "folder_error"
 NO_GAME_FOLDERS = "no_game_folders"
+# Diagnósticos de la codificación de un script: los da ``clausewitz.parse_file`` (también a la CLI y al visor).
 UNREADABLE_ENCODING = "unreadable_encoding"
 STRAY_BOM = "stray_bom"
 DESCRIPTOR_NO_NAME = "descriptor_no_name"
@@ -68,14 +64,6 @@ MESSAGES = {
             "«{folder}» no parece la carpeta raíz de un mod: no tiene ninguna de las carpetas que lee el juego "
             "(common, decisions, events, history...) ni un descriptor .mod, así que no se ha validado ningún "
             "archivo suyo."
-        ),
-        UNREADABLE_ENCODING: (
-            "El archivo está codificado en {encoding} (Unicode de 16 bits): Victoria II no puede leerlo en "
-            "absoluto. Guárdalo en Windows-1252 (ANSI)."
-        ),
-        STRAY_BOM: (
-            "El archivo empieza por el BOM de UTF-8 pero el resto está en Windows-1252: el juego pega los bytes "
-            "'ï»¿' a la primera clave y no la reconoce. Vuelve a guardarlo en ANSI sin el BOM."
         ),
         DESCRIPTOR_NO_NAME: "El descriptor no tiene «name»: el lanzador no sabrá qué nombre mostrar.",
         DESCRIPTOR_NO_PATH: "El descriptor no tiene «path»: el juego no sabrá dónde está el mod.",
@@ -99,14 +87,6 @@ MESSAGES = {
         NO_GAME_FOLDERS: (
             "“{folder}” does not look like the root folder of a mod: it has none of the folders the game reads "
             "(common, decisions, events, history...) and no .mod descriptor, so none of its files were checked."
-        ),
-        UNREADABLE_ENCODING: (
-            "The file is encoded as {encoding} (16-bit Unicode): Victoria II cannot read it at all. "
-            "Save it as Windows-1252 (ANSI)."
-        ),
-        STRAY_BOM: (
-            "The file starts with a UTF-8 BOM but the rest is in Windows-1252: the game glues the bytes "
-            "'ï»¿' to the first key and does not recognise it. Save it again as ANSI without the BOM."
         ),
         DESCRIPTOR_NO_NAME: "The descriptor has no “name”: the launcher will not know what name to show.",
         DESCRIPTOR_NO_PATH: "The descriptor has no “path”: the game will not know where the mod is.",
@@ -319,21 +299,14 @@ def check_descriptor(descriptor: ModDescriptor, *, mod_dir: str | os.PathLike | 
     return issues
 
 
-def _starts_with_stray_bom(path: Path) -> bool:
-    """True si el archivo empieza por los bytes de un BOM UTF-8 (``encoding.STRAY_BOM`` si se lee como cp1252)."""
-    with path.open("rb") as file:
-        return file.read(len(codecs.BOM_UTF8)) == codecs.BOM_UTF8
-
-
 def check_file(path: str | os.PathLike, root: str | os.PathLike | None = None, *,
                cancelled: CancelCheck = None) -> list[Issue]:
     """Diagnósticos de un archivo; los fallos se devuelven como ``Issue``.
 
     Un ``.csv`` se analiza como localización aunque no esté en ``localisation/``
-    (quien lo pide sabrá por qué). De un script se comprueba además que el juego
-    pueda leerlo: UTF-16 da ``unreadable_encoding`` (en lugar del aviso
-    ``non_game_encoding`` del parser) y un BOM UTF-8 delante de texto cp1252,
-    ``stray_bom``. Un descriptor ``.mod`` se revisa también con
+    (quien lo pide sabrá por qué). Que el juego pueda leer la codificación de un
+    script lo dice el parser (``unreadable_encoding`` con UTF-16 y ``stray_bom``
+    con un BOM UTF-8 delante de texto cp1252). Un descriptor ``.mod`` se revisa también con
     ``check_descriptor``, contra la carpeta ``root`` si se indica. Solo lanza
     ``core.cancel.Cancelled``, si ``cancelled()`` devuelve True a mitad del archivo.
     """
@@ -346,7 +319,6 @@ def check_file(path: str | os.PathLike, root: str | os.PathLike | None = None, *
                 **args) -> Issue:
         return Issue(path, relative, kind, code, severity, line, column, None, args)
 
-    before: list[Issue] = []
     after: list[Issue] = []
     try:
         if kind == KIND_CSV:
@@ -354,11 +326,6 @@ def check_file(path: str | os.PathLike, root: str | os.PathLike | None = None, *
         else:
             result = parse_file(path, cancelled=cancelled)
             diagnostics = result.diagnostics
-            if result.encoding in GAME_UNREADABLE:
-                diagnostics = [d for d in diagnostics if d.code != _PARSER_ENCODING_WARNING]
-                before.append(problem(UNREADABLE_ENCODING, Severity.ERROR, encoding=result.encoding.upper()))
-            elif result.encoding == GAME_ENCODING and _starts_with_stray_bom(path):
-                before.append(problem(STRAY_BOM, Severity.WARNING, 1, 1))
             if suffix == DESCRIPTOR_SUFFIX:
                 after = check_descriptor(descriptor_from_result(path, result), mod_dir=root, root=root)
     except Cancelled:
@@ -367,7 +334,7 @@ def check_file(path: str | os.PathLike, root: str | os.PathLike | None = None, *
         return [problem(READ_ERROR, Severity.ERROR, error=exc.strerror or str(exc))]
     except Exception as exc:  # noqa: BLE001 - un fallo interno no debe abortar la validación
         return [problem(CHECK_FAILED, Severity.ERROR, error=f"{type(exc).__name__}: {exc}")]
-    issues = before
+    issues: list[Issue] = []
     # Un archivo enorme puede dar cientos de miles de diagnósticos: convertirlos también se puede cancelar.
     for start in range(0, len(diagnostics), CANCEL_EVERY):
         raise_if_cancelled(cancelled)

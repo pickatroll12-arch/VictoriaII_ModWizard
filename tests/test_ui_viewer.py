@@ -8,9 +8,11 @@ carpetas temporales (salvo la muestra del mod del usuario de ``tests/fixtures``)
 Todas fallan ante cualquier aviso de Qt.
 """
 
+import codecs
 import errno
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -21,7 +23,7 @@ from pathlib import Path
 from unittest import mock
 
 import _qt
-from _corpus import FIXTURE_ROOT
+from _corpus import CLAUSEWITZ_SUFFIXES, FIXTURE_ROOT, corpus_files
 from PySide6.QtCore import QElapsedTimer, QEvent, QModelIndex, QObject, QPoint, QPointF, Qt, QTimer
 from PySide6.QtGui import QFont, QFontMetrics, QHelpEvent, QHoverEvent, QTextCursor
 from PySide6.QtTest import QTest
@@ -31,7 +33,7 @@ APP = _qt.application()
 
 from test_ui_integration import STALL_LIMIT_SECONDS, IntegrationCase, activate  # noqa: E402
 from vic2studio.core.cancel import Cancelled  # noqa: E402
-from vic2studio.core.clausewitz import parse, to_json, to_source  # noqa: E402
+from vic2studio.core.clausewitz import Block, Entry, Scalar, parse, parse_file, to_json, to_source  # noqa: E402
 from vic2studio.i18n import set_language, tr  # noqa: E402
 from vic2studio.ui.tasks import wait_for_tasks  # noqa: E402
 from vic2studio.ui.viewers import clausewitz_viewer  # noqa: E402
@@ -175,6 +177,89 @@ class StructureIndexTests(unittest.TestCase):
         self.assertEqual(self.owner(text, 2, 4), ("c",))
         self.assertEqual(self.owner(text, 2), ("c",))  # sin columna: la entrada que empieza en la línea
         self.assertEqual(self.owner('name = "a\r\nb\rcd"\r\nz = 1\r\n', 3, 3), ("name",))  # CRLF y CR suelto
+
+    def test_unterminated_string_ends_on_its_last_line(self):
+        # La cadena sin cerrar llega al final del archivo con su salto de línea, que está en la línea 2:
+        # la línea 3, vacía, ya no es suya (antes, el final era la columna 0 de la línea 3).
+        for text in ('x = 1\nname = "Mod\n', 'x = 1\nname = "Mod\r\n', 'x = 1\nname = "Mod\r'):
+            with self.subTest(text=text):
+                self.assertEqual(self.owner(text, 2, 12), ("name",))
+                self.assertIsNone(self.owner(text, 2, 13))
+                self.assertIsNone(self.owner(text, 3))
+                self.assertIsNone(self.owner(text, 3, 1))
+        self.assertEqual(self.owner('x = 1\nname = "Mod\nb = 2\n', 3, 5), ("name",))  # se traga «b = 2»
+
+    def test_index_uses_the_public_end_positions(self):
+        """VIEW-NF-4: los finales salen de ``Entry.value_end`` y ``Block.close_position``, no del lexer."""
+        document = parse("a = { b = 1 }\nc = 2\n").document
+        with mock.patch.object(Entry, "value_end", new_callable=mock.PropertyMock, return_value=(1, 40)), \
+                mock.patch.object(Block, "close_position", new_callable=mock.PropertyMock, return_value=(2, 30)):
+            index = build_index(document)
+        self.assertEqual([(end >> 32, end & 0xFFFFFFFF) for end in index.ends], [(2, 30), (1, 40), (1, 40)])
+        document.get("a").set("b", 5)  # un valor cambiado por código acaba donde empieza su entrada
+        index = build_index(document)
+        self.assertEqual([(end >> 32, end & 0xFFFFFFFF) for end in index.ends], [(1, 13), (1, 7), (2, 5)])
+        self.assertEqual(index.ends[1], index.starts[1])
+
+    def test_positions_match_the_shown_text_with_a_repeated_bom(self):
+        """REG-VIEW-BOM-COL: con el BOM repetido, el texto que muestra el visor (``to_source``) llevaba delante
+        los U+FEFF sobrantes, que las posiciones no cuentan: en la línea 1 todo se señalaba un carácter antes."""
+        body = "country_event = { id = 2 }\nb = 3\n"
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "a.txt"
+            for raw in (codecs.BOM_UTF8 * 3 + body.encode("utf-8"),
+                        codecs.BOM_UTF16_LE * 2 + body.encode("utf-16-le")):
+                with self.subTest(raw=raw[:4]):
+                    path.write_bytes(raw)
+                    load = load_clausewitz(path)
+                    self.assertEqual(load.text, body)
+                    lines = load.text.split("\n")
+                    index = load.index
+                    at = [lines[(p >> 32) - 1][(p & 0xFFFFFFFF) - 1] for p in (index.starts[0], index.ends[0])]
+                    self.assertEqual(at, ["c", "}"])
+                    self.assertTrue(all((row.line, row.column) == (1, 1) for row in load.rows))
+
+    def test_ends_point_at_the_last_character_in_corpus(self):
+        """VIEW-NF-4: en todo el corpus, el final de cada entrada es el último carácter de su valor en el texto
+        leído: el escalar tal como se escribe o la «}» de su bloque, detrás de todo lo de dentro y antes de la
+        entrada siguiente; solo los bloques sin cerrar llegan al final del archivo."""
+        files = corpus_files(CLAUSEWITZ_SUFFIXES)
+        if not files:
+            self.skipTest("no hay corpus")
+        unbounded = clausewitz_viewer._UNBOUNDED
+        checked, wrong = 0, []
+        for path in files:
+            document = parse_file(path).document
+            text = to_source(document)
+            line_starts = [0] + [m.end() for m in re.finditer(r"\r\n|\r|\n", text)]
+            index = build_index(document)
+            starts, ends, children = index.starts, index.ends, index.children
+            last = list(range(len(index)))  # último descendiente en preorden
+            for node in reversed(range(len(index))):
+                if children[node]:
+                    last[node] = last[children[node][-1]]
+            for node, entry in enumerate(index.entries):
+                checked += 1
+                end = ends[node]
+                value = entry.value
+                if end == unbounded:
+                    ok = not value.is_closed
+                elif starts[node] > end or (last[node] + 1 < len(index) and end >= starts[last[node] + 1]):
+                    ok = False
+                else:
+                    at = line_starts[(end >> 32) - 1] + (end & 0xFFFFFFFF) - 1
+                    if value.__class__ is Scalar:
+                        written = f'"{value.text}"' if value.quoted else value.text
+                        ok = text[at - len(written) + 1:at + 1] == written or (
+                            value.quoted and at == len(text) - 1  # cadena sin cerrar al final del archivo
+                            and text[at - len(value.text):] == '"' + value.text)
+                    else:
+                        ok = value.is_closed and text[at] == "}" and (
+                            not children[node] or max(ends[child] for child in children[node]) < end)
+                if not ok:
+                    wrong.append((str(path), index.key_path(node), end >> 32, end & 0xFFFFFFFF))
+        self.assertGreater(checked, 0)
+        self.assertEqual(wrong[:20], [])
 
     def test_entries_sharing_a_line(self):
         text = "a = { c = { x = 1 } d = 2 }\n"

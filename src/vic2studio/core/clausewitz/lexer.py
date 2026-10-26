@@ -156,6 +156,24 @@ def _relocate(tokens: list[Token], text: str, cancelled: CancelCheck) -> None:
             raise_if_cancelled(cancelled)
 
 
+def end_position(token: Token) -> tuple[int, int]:
+    """Línea y columna (1-based) del último carácter de ``token``, con la regla de saltos de ``tokenize``.
+
+    Una cadena puede abarcar varias líneas. Un salto de línea final (una cadena sin
+    cerrar al final del archivo) cuenta en su línea, en la columna donde empieza.
+    """
+    raw = token.raw
+    if "\n" not in raw and "\r" not in raw:
+        return token.line, token.column + len(raw) - 1
+    breaks = list(LINE_BREAK_RE.finditer(raw))
+    last = breaks[-1]
+    if last.end() < len(raw):
+        return token.line + len(breaks), len(raw) - last.end()
+    if len(breaks) == 1:
+        return token.line, token.column + last.start()
+    return token.line + len(breaks) - 1, last.start() - breaks[-2].end() + 1
+
+
 def scalar_text(kind: int, raw: str) -> str:
     """Texto de un escalar leído (``WORD``, ``STRING`` u ``OPEN_STRING``), sin sus comillas."""
     return raw if kind == WORD else raw[1:-1] if kind == STRING else raw[1:]

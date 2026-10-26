@@ -383,6 +383,33 @@ class EntryEditTests(ReparseMixin, unittest.TestCase):
         stray.insert(1, "n", 0)
         self.assertEqual(to_source(stray), "a = 1 }\nn = 0\nb = 2\n")
 
+    def test_new_text_is_not_glued_to_discarded_text_before_a_closer(self):
+        # NF-5: el texto descartado ("k =", sin valor) va en la trivia de la "}", del final del archivo o de
+        # la "}" que añade close(); lo nuevo escrito justo antes se le pegaba ("1k =", "5k =") y cambiaba el
+        # árbol y los errores al releer.
+        cases = [
+            ('x = "q"k =', lambda d: d.append("y", 1), 'x = "q"\ny = 1 k ='),
+            ('x = { a = "q"k = }', lambda d: d.get("x").append("y", 1), 'x = { a = "q" y = 1 k = }'),
+            ('x = { a = "q"k = }', lambda d: d.get("x").set("a", 5), 'x = { a = 5 k = }'),
+            ('x = { a = "q"k = }', lambda d: d.get("x").set("a", "r"), 'x = { a = "r"k = }'),
+            ('x = { a = "q"k =\n', lambda d: (d.get("x").append("y", 1), d.get("x").close()),
+             'x = { a = "q"\n\ty = 1 k =\n}\n'),
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "a.txt"
+            for text, action, expected in cases:
+                with self.subTest(text=text, expected=expected):
+                    path.write_text(text, encoding="cp1252", newline="")
+                    result = parse_file(path)
+                    action(result.document)
+                    self.assertEqual(to_source(result.document), expected)
+                    reparsed = parse(expected)
+                    self.assertEqual([(d.code, d.args.get("key")) for d in reparsed.diagnostics],
+                                     [("missing_value", "k")])
+                    self.assertEqual(to_json(reparsed.document), to_json(result.document))
+                    write_file(path, result, backup=False)
+                    self.assertEqual(path.read_bytes(), expected.encode("cp1252"))
+
     def test_unclosed_block_is_not_silently_fixed(self):
         text = "political_decisions = {\n\tdecision = {\n\t\tpotential = { tag = GEL }\n\t}\n"
         result = parse(text)
@@ -1065,6 +1092,55 @@ class ErrorMessageTests(unittest.TestCase):
                 self.assertIn("'x > [1]'", error.message(lang))
                 self.assertTrue(error.message(lang).startswith(str(path) + ": "))
 
+    def test_source_mismatch_next_to_syntax_errors_says_so(self):
+        # NF-5: lo editado junto a un error de sintaxis puede no releerse igual (es la causa habitual del
+        # rechazo); el mensaje lo dice y pide corregir antes esos errores. Sin errores leídos (o solo los de
+        # la codificación), el mensaje de siempre.
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "a.txt"
+            original = b"x = {\n\ta = 1\n\t= b\n}\n"
+            path.write_bytes(original)
+            result = parse_file(path)
+            result.document.get("x").insert(1, None, 5)
+            with self.assertRaises(SourceMismatchError) as ctx:
+                write_file(path, result)
+            error = ctx.exception
+            self.assertEqual((error.code, error.params["entry"], error.params["near_errors"]),
+                             ("source_mismatch", "x > [1]", True))
+            self.assertIn("errores de sintaxis", error.message("es"))
+            self.assertIn("syntax errors", error.message("en"))
+            for lang in ("es", "en"):
+                self.assertIn("'x > [1]'", error.message(lang))
+                self.assertNotIn("{", error.message(lang))
+            # Un documento sin su ParseResult: lo delatan sus bloques sin cerrar.
+            unclosed = parse("x = {\n\ta = 1\n").document
+            unclosed.append("b", 2)
+            with self.assertRaises(SourceMismatchError) as ctx:
+                write_file(path, unclosed)
+            self.assertEqual((ctx.exception.params["entry"], ctx.exception.params["near_errors"]), ("x > b", True))
+            self.assertIn("errores de sintaxis", str(ctx.exception))
+            self.assertEqual(path.read_bytes(), original)
+            # Sin errores de sintaxis leídos (los avisos no cuentan): el mensaje general.
+            utf16 = Path(tmp) / "utf16.txt"
+            utf16.write_bytes("army = { leader = none }\n".encode("utf-16"))
+            read_utf16 = parse_file(utf16)
+            self.assertEqual([d.code for d in read_utf16.errors], ["unreadable_encoding"])
+            warned = parse('army = { leader = "no\nne" }\n')
+            self.assertEqual(([d.code for d in warned.warnings], warned.errors), (["multiline_string"], []))
+            fresh = Document()
+            fresh.set("army", {"leader": "none"})
+            for document in (read_utf16, warned, fresh, parse("army = { leader = none }\n").document):
+                with mock.patch("vic2studio.core.clausewitz.serializer.to_source",
+                                return_value="army = { leader = none # }\n"), \
+                        self.assertRaises(SourceMismatchError) as ctx:
+                    write_file(path, document, backup=False)
+                self.assertFalse(ctx.exception.params["near_errors"])
+                self.assertIn("no se vuelve a leer igual", ctx.exception.message("es"))
+                self.assertIn("does not read back", ctx.exception.message("en"))
+                self.assertNotIn("syntax", ctx.exception.message("en"))
+            self.assertEqual(path.read_bytes(), original)
+
+
 
 class CloneTests(ReparseMixin, unittest.TestCase):
     """``clone()`` copia nodos a otro archivo con el formato del destino (PE-11)."""
@@ -1365,6 +1441,40 @@ class SerializerCostTests(unittest.TestCase):
         # Un cambio al final de "a" deshace lo que se había copiado de él; "b" se vuelve a copiar entero.
         doc.get("a").set("e", "x")
         self.assertEqual(self.calls("_open_frame", lambda: to_source(doc)), (self.TEXT.replace('"f"', '"x"'), 1))
+
+    @staticmethod
+    def _comment_and_append(doc):
+        entry = doc.get("e").find("m")
+        entry.line_comment = "nota"
+        entry.value.append("k", 3)
+
+    def test_comments_unfold_one_line_blocks_without_rewriting_them(self):
+        """R4: un comentario puesto a una entrada de un bloque de una línea se veía al escribir la entrada
+        siguiente y obligaba a volver a escribir el bloque desde su "{" (_restart): con 36 000 en un archivo de
+        4 MB, to_source tardaba 1.4 s. Ahora el bloque se despliega antes de escribir nada dentro."""
+        cases = [
+            ("x = { a = 1 b = 2 }\n", lambda d: setattr(d.get("x").find("a"), "line_comment", "nota"),
+             "x = {\n\ta = 1 # nota\n\tb = 2\n}\n", 0),
+            ("x = { a = 1 b = 2 }\n", lambda d: setattr(d.get("x").find("b"), "comments", ["sobre b"]),
+             "x = {\n\ta = 1\n\t# sobre b\n\tb = 2\n}\n", 0),
+            ("g = {\n\tx = { a = 1 b = 2 }\n\ty = { a = 3 }\n}\n",
+             lambda d: setattr(d.get("g").get("y").find("a"), "line_comment", "nota"),
+             "g = {\n\tx = { a = 1 b = 2 }\n\ty = {\n\t\ta = 3 # nota\n\t}\n}\n", 0),
+            # Dentro de otro bloque de una línea: se vuelve a escribir una vez, desde la "{" más externa.
+            ("a = { b = { c = 1 } }\n", lambda d: setattr(d.get("a").get("b").find("c"), "line_comment", "nota"),
+             "a = {\n\tb = {\n\t\tc = 1 # nota\n\t}\n}\n", 1),
+            # REG-R4-FORMAT: el exterior se despliega antes de escribir el interior, que se mide en su línea nueva:
+            # si lo añadido cabe en ella, sigue en una línea. Antes se medía contra la línea larga original (luego
+            # se volvía a escribir todo desde la "{" exterior) y se desplegaba también.
+            ("a = 1 " * 11 + 'e = { m = { q = yes k = "q" } n = b }\n', self._comment_and_append,
+             "a = 1 " * 11 + 'e = {\n\tm = { q = yes k = "q" k = 3 } # nota\n\tn = b\n}\n', 0),
+        ]
+        for text, action, expected, restarts in cases:
+            with self.subTest(text=text):
+                doc = parse(text).document
+                action(doc)
+                self.assertEqual(self.calls("_restart", lambda document=doc: to_source(document)), (expected, restarts))
+                self.assertEqual(to_json(parse(expected).document), to_json(doc))
 
     def test_canonical_indents_without_rescanning_lines(self):
         doc = parse(self.TEXT).document

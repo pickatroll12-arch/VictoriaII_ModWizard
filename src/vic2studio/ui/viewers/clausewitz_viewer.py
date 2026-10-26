@@ -43,7 +43,6 @@ from PySide6.QtWidgets import (
 
 from ...core.cancel import CancelCheck, raise_if_cancelled
 from ...core.clausewitz import Block, ParseResult, Scalar, iter_json, parse_file, to_json, to_source
-from ...core.clausewitz.lexer import LINE_BREAK_RE, Token
 from ...core.modcheck import CLAUSEWITZ_SUFFIXES
 from ...i18n import N_, tr
 from ...settings import app_settings
@@ -83,20 +82,6 @@ _UNBOUNDED = (1 << 63) - 1      # fin de un bloque sin cerrar: llega hasta el fi
 def _position(line: int, column: int) -> int:
     """(línea, columna) como un entero que se ordena igual."""
     return (line << 32) | column
-
-
-def _token_end(token: Token | None, start: int) -> int:
-    """Posición del último carácter de ``token``; una cadena puede abarcar varias líneas.
-
-    Un valor creado o cambiado por código no tiene posición propia: acaba donde empieza la entrada.
-    """
-    raw = None if token is None else token.raw
-    if raw is None:
-        return start
-    if "\n" not in raw and "\r" not in raw:
-        return _position(token.line, token.column + len(raw) - 1)
-    last = max(raw.rfind("\n"), raw.rfind("\r"))
-    return _position(token.line + len(LINE_BREAK_RE.findall(raw)), len(raw) - last - 1)
 
 
 def _scalar_display(scalar: Scalar) -> str:
@@ -215,7 +200,9 @@ def build_index(block: Block, cancelled: CancelCheck = None) -> StructureIndex:
             if isinstance(value, Scalar):
                 shown = _scalar_display(value)
                 children.append(None)
-                ends.append(_token_end(entry._vtok, start))  # token del valor: el CST aún no expone dónde acaba
+                # Un valor creado o cambiado por código no tiene posición propia: acaba donde empieza la entrada.
+                end = entry.value_end
+                ends.append(start if end is None else _position(*end))
             else:
                 shown = ""
                 if value.entries and all(e.key is None and isinstance(e.value, Scalar) for e in value.entries):
@@ -223,8 +210,8 @@ def build_index(block: Block, cancelled: CancelCheck = None) -> StructureIndex:
                     if len(inline) <= INLINE_LIST_LIMIT:
                         shown = "{ " + inline + " }"
                 children.append([])
-                close = value._close  # token de la «}»: el CST aún no expone su posición
-                ends.append(_UNBOUNDED if close is None else _position(close.line, close.column))
+                close = value.close_position
+                ends.append(_UNBOUNDED if close is None else _position(*close))
             index.keys.append(key)
             index.values.append(shown)
             index.haystack.append(f"{key}\x00{shown}".casefold())

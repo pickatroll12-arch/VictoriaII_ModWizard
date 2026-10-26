@@ -15,10 +15,11 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
+from _corpus import CLAUSEWITZ_SUFFIXES as CORPUS_SUFFIXES  # noqa: E402
 from _corpus import DEV_DIARY, corpus_roots, user_mod, user_mod_error_files  # noqa: E402
 from vic2studio.core import modcheck  # noqa: E402
 from vic2studio.core.cancel import Cancelled  # noqa: E402
-from vic2studio.core.clausewitz import Severity, parse_file, to_source, write_file  # noqa: E402
+from vic2studio.core.clausewitz import CLAUSEWITZ_SUFFIXES, Severity, parse_file, to_source, write_file  # noqa: E402
 from vic2studio.core.csvloc import read_csv_file  # noqa: E402
 from vic2studio.core.modcheck import (  # noqa: E402
     CHECK_FAILED,
@@ -337,7 +338,8 @@ class ModCheckTests(unittest.TestCase):
 
     def test_encodings_the_game_cannot_read(self):
         """P3, R1: un script en UTF-16 (si era ASCII, sin ningún aviso) o con un BOM UTF-8 delante de cp1252
-        pasaba «Validar mod» limpio o con un aviso falso («lo lee como Windows-1252»)."""
+        pasaba «Validar mod» limpio o con un aviso falso («lo lee como Windows-1252»). Los diagnósticos
+        son del parser (los mismos que da la CLI), en 1:1."""
         def script(title: str) -> str:
             return f'country_event = {{\r\n\tid = 2\r\n\ttitle = "{title}"\r\n}}\r\n'
 
@@ -356,16 +358,16 @@ class ModCheckTests(unittest.TestCase):
         found = {(i.relative, i.code, i.severity, i.line) for i in report.issues
                  if i.relative in files or i.relative == "../Mod.mod"}
         self.assertEqual({i for i in found if i[0] != "events/utf8_bom.txt"}, {
-            ("events/notepad.txt", UNREADABLE_ENCODING, Severity.ERROR, None),
-            ("events/no_bom.txt", UNREADABLE_ENCODING, Severity.ERROR, None),
-            ("events/big_endian.txt", UNREADABLE_ENCODING, Severity.ERROR, None),
-            ("../Mod.mod", UNREADABLE_ENCODING, Severity.ERROR, None),
+            ("events/notepad.txt", UNREADABLE_ENCODING, Severity.ERROR, 1),
+            ("events/no_bom.txt", UNREADABLE_ENCODING, Severity.ERROR, 1),
+            ("events/big_endian.txt", UNREADABLE_ENCODING, Severity.ERROR, 1),
+            ("../Mod.mod", UNREADABLE_ENCODING, Severity.ERROR, 1),
             ("events/stray_bom.txt", STRAY_BOM, Severity.WARNING, 1),
         })
         self.assertFalse({code for relative, code, _, _ in found if relative == "events/utf8_bom.txt"}
                          & {UNREADABLE_ENCODING, STRAY_BOM}, "un UTF-8 con BOM de verdad no es un BOM perdido")
         big_endian = next(i for i in report.issues if i.relative == "events/big_endian.txt")
-        self.assertEqual(big_endian.args, {"encoding": "UTF-16-BE-BOM"})
+        self.assertEqual(big_endian.diagnostic.args, {"encoding": "UTF-16-BE-BOM"})
         self.assertIn("no puede leerlo", big_endian.message("es"))
         self.assertIn("cannot read it", big_endian.message("en"))
         stray = next(i for i in report.issues if i.code == STRAY_BOM)
@@ -373,6 +375,12 @@ class ModCheckTests(unittest.TestCase):
         self.assertNotEqual(stray.message("es"), stray.message("en"))
         self.assertEqual([(i.code, i.severity) for i in check_file(descriptor, self.root)],
                          [(UNREADABLE_ENCODING, Severity.ERROR)], "sus campos se leen: solo falla la codificación")
+
+    def test_clausewitz_suffixes_have_one_definition(self):
+        """NF-6: la lista de extensiones Clausewitz estaba copiada aquí y en tests/_corpus.py."""
+        self.assertIs(modcheck.CLAUSEWITZ_SUFFIXES, CLAUSEWITZ_SUFFIXES)
+        self.assertIs(CORPUS_SUFFIXES, CLAUSEWITZ_SUFFIXES)
+        self.assertIn(".map", CLAUSEWITZ_SUFFIXES)
 
     def test_missing_or_unreadable_folders_are_reported(self):
         """VAL-9: validar una carpeta que ya no existe daba «Sin problemas — Archivos analizados: 0»."""

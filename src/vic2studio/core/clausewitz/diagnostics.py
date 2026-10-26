@@ -21,6 +21,9 @@ SEVERITY_LABELS = {
     "en": {Severity.ERROR: "error", Severity.WARNING: "warning", Severity.INFO: "info"},
 }
 
+# Diagnósticos de la codificación del archivo (``parse_file``), no del texto.
+ENCODING_CODES = frozenset({"non_game_encoding", "unreadable_encoding", "stray_bom"})
+
 # Plantillas para str.format; la variante "_anonymous" se usa cuando args["key"] es None.
 MESSAGES = {
     "es": {
@@ -40,6 +43,14 @@ MESSAGES = {
         "non_game_encoding": (
             "El archivo está en {encoding}; Victoria II lo lee como Windows-1252 "
             "y mostrará mal los caracteres no ASCII"
+        ),
+        "unreadable_encoding": (
+            "El archivo está codificado en {encoding} (Unicode de 16 bits): Victoria II no puede leerlo en "
+            "absoluto. Guárdalo en Windows-1252 (ANSI)."
+        ),
+        "stray_bom": (
+            "El archivo empieza por el BOM de UTF-8 pero el resto está en Windows-1252: el juego pega los bytes "
+            "'ï»¿' a la primera clave y no la reconoce. Vuelve a guardarlo en ANSI sin el BOM."
         ),
         "suspicious_close_brace": (
             "Esta '}}' cierra '{key}' (línea {open_line}) pero tiene menos sangría que esa línea: "
@@ -69,6 +80,14 @@ MESSAGES = {
         "non_game_encoding": (
             "The file is encoded as {encoding}; Victoria II reads it as Windows-1252 "
             "and will garble non-ASCII characters"
+        ),
+        "unreadable_encoding": (
+            "The file is encoded as {encoding} (16-bit Unicode): Victoria II cannot read it at all. "
+            "Save it as Windows-1252 (ANSI)."
+        ),
+        "stray_bom": (
+            "The file starts with a UTF-8 BOM but the rest is in Windows-1252: the game glues the bytes "
+            "'ï»¿' to the first key and does not recognise it. Save it again as ANSI without the BOM."
         ),
         "suspicious_close_brace": (
             "This '}}' closes '{key}' (line {open_line}) but is less indented than that line: "
@@ -122,6 +141,11 @@ EDIT_MESSAGES = {
             "El texto generado no se vuelve a leer igual que el documento editado (primera diferencia en "
             "'{entry}', línea {line} del texto generado); no se ha escrito el archivo"
         ),
+        "source_mismatch_near_errors": (
+            "El archivo tiene errores de sintaxis y lo editado junto a ellos no se volvería a leer igual "
+            "(primera diferencia en '{entry}', línea {line} del texto generado): corrige antes esos errores "
+            "(o cierra los bloques sin cerrar) y vuelve a guardar; no se ha escrito el archivo"
+        ),
         "json_expected_block": "se esperaba un bloque {{'type': 'block', 'entries': [...]}}",
         "json_expected_list": "se esperaba una lista",
         "json_expected_object": "se esperaba un objeto",
@@ -166,6 +190,11 @@ EDIT_MESSAGES = {
         "source_mismatch": (
             "The generated text does not read back as the edited document (first difference at "
             "'{entry}', line {line} of the generated text); the file was not written"
+        ),
+        "source_mismatch_near_errors": (
+            "The file has syntax errors and what was edited next to them would not read back the same "
+            "(first difference at '{entry}', line {line} of the generated text): fix those errors first "
+            "(or close the unclosed blocks) and save again; the file was not written"
         ),
         "json_expected_block": "expected a block {{'type': 'block', 'entries': [...]}}",
         "json_expected_list": "expected a list",
@@ -260,11 +289,15 @@ class EditError(ValueError):
         self.params = dict(params or {})
         super().__init__(self.message("es"))
 
+    def _template(self) -> str:
+        """Clave del mensaje en ``EDIT_MESSAGES``: el código o una variante suya."""
+        return self.code
+
     def message(self, lang: str = DEFAULT_LANG) -> str:
         """Mensaje en una línea; "where" (archivo o ruta JSON) va entero, porque lo que localiza está al final."""
         params = dict(self.params)
         where = params.pop("where", None)
-        text = _render(EDIT_MESSAGES.get(lang, EDIT_MESSAGES[DEFAULT_LANG]), self.code, params)
+        text = _render(EDIT_MESSAGES.get(lang, EDIT_MESSAGES[DEFAULT_LANG]), self._template(), params)
         if text is None:
             text = f"{self.code} {params}" if params else self.code
         return text if where is None else f"{_escaped(str(where))}: {text}"

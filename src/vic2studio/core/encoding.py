@@ -26,13 +26,16 @@ Codificaciones que puede devolver la detección:
 
 Con una codificación explícita se usa ese codec tal cual: ``utf-8``,
 ``utf-16-le`` y ``utf-16-be`` dejan un BOM en el texto como U+FEFF
-(``split_bom`` lo pasa a la codificación). Un BOM repetido queda en el texto
-como U+FEFF tras el primero (``split_extra_boms`` los separa).
+(``split_bom`` lo pasa a la codificación), y las que lo quitan no dicen si lo
+había ni en qué orden de bytes (``match_bom`` lo mira en los bytes). Un BOM
+repetido queda en el texto como U+FEFF tras el primero (``split_extra_boms``
+los separa).
 """
 
 from __future__ import annotations
 
 import codecs
+import sys
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -216,6 +219,28 @@ def split_bom(text: str, encoding: str) -> tuple[str, str]:
     if text.startswith(BOM) and name in _WITH_BOM:
         return text[1:], _WITH_BOM[name]
     return text, name
+
+
+def match_bom(data: bytes, encoding: str) -> str:
+    """Codificación de la familia de ``encoding`` que vuelve a escribir el BOM tal como está en ``data``.
+
+    Las que quitan el BOM al leer no dejan rastro de él en el texto: ``utf-8-sig``
+    sin BOM pasa a ``utf-8`` y ``utf-16-be-bom`` sin BOM, a ``utf-16-be``; ``utf-16``
+    con BOM FE FF (big-endian) pasa a ``utf-16-be-bom`` y sin BOM, a la de esta
+    máquina, que es la que usa el codec (``utf-16-le`` casi siempre). Las demás no
+    cambian (la codificación sale normalizada): las que dejan el BOM en el texto
+    las arregla ``split_bom``.
+    """
+    name = normalize_encoding(encoding)
+    if name == UTF8_BOM and not data.startswith(codecs.BOM_UTF8):
+        return UTF8
+    if name == UTF16_BE_BOM and not data.startswith(codecs.BOM_UTF16_BE):
+        return UTF16_BE
+    if name == UTF16 and not data.startswith(codecs.BOM_UTF16_LE):
+        if data.startswith(codecs.BOM_UTF16_BE):
+            return UTF16_BE_BOM
+        return UTF16_LE if sys.byteorder == "little" else UTF16_BE
+    return name
 
 
 def split_extra_boms(text: str, encoding: str) -> tuple[str, int]:
