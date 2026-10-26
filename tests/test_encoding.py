@@ -25,6 +25,7 @@ from vic2studio.core.encoding import (  # noqa: E402
     UnencodableTextError,
     decode_bytes,
     detect_newline,
+    display_name,
     encode_text,
     find_unencodable,
     has_stray_bom,
@@ -76,6 +77,19 @@ class EncodingTests(unittest.TestCase):
         self.assertEqual(detect_newline("a\r\nb\r\nc\n"), "\r\n")
         self.assertEqual(detect_newline("a\nb\n"), "\n")
         self.assertEqual(detect_newline(""), "\n")
+
+    def test_display_names(self):
+        """Un solo mapa de nombres para el visor, los diagnósticos del parser y el lint del CSV: con el orden de
+        bytes y el BOM explícitos, y aceptando alias (antes el parser mostraba «UTF-16-BE-BOM»)."""
+        expected = {GAME_ENCODING: "Windows-1252", UTF8: "UTF-8", UTF8_BOM: "UTF-8 BOM", UTF16: "UTF-16 LE BOM",
+                    UTF16_BE_BOM: "UTF-16 BE BOM", UTF16_LE: "UTF-16 LE", UTF16_BE: "UTF-16 BE"}
+        for encoding, name in expected.items():
+            self.assertEqual(display_name(encoding), name, encoding)
+        for alias, name in (("windows-1252", "Windows-1252"), ("UTF-16-BE-BOM", "UTF-16 BE BOM"),
+                            ("utf_8_sig", "UTF-8 BOM"), ("UTF16", "UTF-16 LE BOM")):
+            self.assertEqual(display_name(alias), name, alias)
+        self.assertEqual(display_name("latin-1"), "LATIN-1")      # sin nombre propio: en mayúsculas
+        self.assertEqual(display_name("no-existe"), "NO-EXISTE")
 
     def test_cr_only_newlines(self):
         """H2-CR: los archivos vanilla solo con CR (map/region_sea.txt) daban "\\n"."""

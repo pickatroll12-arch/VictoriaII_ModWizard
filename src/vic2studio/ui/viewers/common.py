@@ -83,7 +83,8 @@ def summary_status(errors: int, warnings: int, infos: int = 0) -> tuple[str, str
 
 
 def format_size(size: int) -> str:
-    return translator().locale().formattedDataSize(size)
+    """«1,5 KiB», «12 bytes»… y «1 byte» (``formattedDataSize`` no tiene singular)."""
+    return tr("size.one_byte") if size == 1 else translator().locale().formattedDataSize(size)
 
 
 def format_number(value: int) -> str:
@@ -135,7 +136,11 @@ class ElidedLabel(QLabel):
 
 
 class ViewerHeader(QWidget):
-    """Icono, nombre del archivo, línea de detalles y resumen de diagnósticos."""
+    """Icono, nombre del archivo con el resumen de diagnósticos a su derecha y, debajo, la línea de detalles.
+
+    La insignia solo comparte fila con el nombre: la línea de detalles (ruta, codificación, líneas, tamaño)
+    tiene todo el ancho. El nombre se recorta por el medio si no cabe, en vez de ensanchar la vista previa.
+    """
 
     def __init__(self, icon_name: str, parent: QWidget | None = None):
         super().__init__(parent)
@@ -146,26 +151,31 @@ class ViewerHeader(QWidget):
         row.addWidget(self.icon, 0, Qt.AlignmentFlag.AlignTop)
         texts = QVBoxLayout()
         texts.setSpacing(0)
-        self.name = mark_data(QLabel())
+        self.name = mark_data(ElidedLabel())
         self.name.setObjectName("viewerName")
         self.name.setFont(theme.font("body_bold", 12.5))
         self.name.setProperty("role", "title")
-        self.name.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         self.details = ElidedLabel()
         self.details.setObjectName("viewerDetails")
         self.details.setProperty("role", "caption")
         self.details.setFont(theme.font("caption"))
-        texts.addWidget(self.name)
-        texts.addWidget(self.details)
-        row.addLayout(texts, 1)
         self.badge = StatusBadge()
         self.badge.setObjectName("viewerSummary")
         self.badge.label.setWordWrap(False)
         self.badge.setVisible(False)
-        row.addWidget(self.badge, 0, Qt.AlignmentFlag.AlignTop)
+        top = QHBoxLayout()
+        top.setSpacing(10)
+        top.addWidget(self.name, 1)
+        top.addWidget(self.badge, 0, Qt.AlignmentFlag.AlignVCenter)
+        texts.addLayout(top)
+        texts.addWidget(self.details)
+        row.addLayout(texts, 1)
 
     def set_file(self, path: Path | None, details: str = "", shown_path: str = "") -> None:
-        self.name.setText(path.name if path else "")
+        # Sin ayuda emergente propia: la de la línea de detalles ya lleva la ruta entera (y un texto crudo en una
+        # ayuda emergente lo tomarían por un texto sin traducir las pruebas de pseudolocalización).
+        name = path.name if path else ""
+        self.name.set_text(name, name)
         self.set_details(details, shown_path)
 
     def set_details(self, details: str, shown_path: str = "") -> None:
@@ -173,7 +183,8 @@ class ViewerHeader(QWidget):
         self.details.set_text(details, shown_path)
         self.details.setToolTip(details)
 
-    def set_summary(self, level: str | None, text: str = "") -> None:
+    def set_summary(self, level: str | None, text: str = "", tooltip: str = "") -> None:
         self.badge.setVisible(level is not None)
         if level is not None:
             self.badge.set_status(level, text)
+        self.badge.setToolTip(tooltip)

@@ -41,9 +41,9 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from ...core.cancel import CancelCheck, raise_if_cancelled
+from ...core.cancel import CancelCheck, Cancelled, raise_if_cancelled
 from ...core.clausewitz import Block, ParseResult, Scalar, iter_json, parse_file, to_json, to_source
-from ...core.encoding import GAME_UNREADABLE
+from ...core.encoding import DISPLAY_NAMES, GAME_UNREADABLE
 from ...core.modcheck import CLAUSEWITZ_SUFFIXES
 from ...i18n import N_, tr
 from ...settings import app_settings
@@ -73,10 +73,7 @@ INLINE_LIST_LIMIT = 60          # una lista de escalares más corta se muestra e
 SEARCH_DELAY_MS = 150
 LINE_SAMPLE = "0000000"         # números de línea que caben en la columna Línea
 RELEASE_CHUNK = 4096            # elementos que se sueltan de una vez al desmontar un análisis viejo
-ENCODING_NAMES = {
-    "cp1252": "Windows-1252", "utf-8": "UTF-8", "utf-8-sig": "UTF-8 BOM", "utf-16": "UTF-16 LE BOM",
-    "utf-16-be-bom": "UTF-16 BE BOM", "utf-16-le": "UTF-16 LE", "utf-16-be": "UTF-16 BE",
-}
+ENCODING_NAMES = DISPLAY_NAMES   # los mismos nombres que los diagnósticos del parser y del lint
 
 _UNBOUNDED = (1 << 63) - 1      # fin de un bloque sin cerrar: llega hasta el final del archivo
 
@@ -180,8 +177,10 @@ class StructureIndex:
         return opened, roots
 
 
-def build_index(block: Block, cancelled: CancelCheck = None) -> StructureIndex:
-    index = StructureIndex()
+def build_index(block: Block, cancelled: CancelCheck = None, index: StructureIndex | None = None) -> StructureIndex:
+    """Índice plano en preorden de ``block``. ``index``: uno vacío que rellenar (si se cancela a mitad, quien
+    llama conserva lo construido para desmontarlo por pasos)."""
+    index = StructureIndex() if index is None else index
     entries, parents, children, ends = index.entries, index.parents, index.children, index.ends
     stack = [(-1, iter(enumerate(block.entries)))]
     while stack:
@@ -265,13 +264,21 @@ def load_clausewitz(path: str | os.PathLike, make_document: Callable[..., QTextD
     path = Path(path)
     stat = path.stat()  # antes de leer: si el archivo cambia mientras, la próxima apertura lo relee
     result = parse_file(path, cancelled=cancelled)
-    text = display_text(to_source(result.document))
-    raise_if_cancelled(cancelled)
-    lines = text.count("\n") + (0 if not text or text.endswith("\n") else 1)
-    index = build_index(result.document, cancelled)
-    rows, markers, marks = _diagnostic_views(result, path, index)
-    continuations = string_continuations(text)
-    document = make_document(text, cancelled) if make_document is not None else None
+    index = StructureIndex()
+    try:
+        text = display_text(to_source(result.document))
+        raise_if_cancelled(cancelled)
+        lines = text.count("\n") + (0 if not text or text.endswith("\n") else 1)
+        build_index(result.document, cancelled, index)
+        rows, markers, marks = _diagnostic_views(result, path, index)
+        continuations = string_continuations(text)
+        document = make_document(text, cancelled) if make_document is not None else None
+    except Cancelled:
+        # Se canceló a mitad (p. ej. al dejar el archivo mientras aún se analizaba): soltar aquí el árbol de golpe
+        # retendría el GIL en una sola cascada y pararía la interfaz (0,2-0,5 s con 20 MB). Se desmonta por pasos.
+        for _ in _dismantle_partial(result, index):
+            pass
+        raise
     return ClausewitzLoad(path, result, text, stat.st_size, lines, index, (stat.st_mtime_ns, stat.st_size), rows,
                           markers, marks, continuations, document)
 
@@ -299,6 +306,38 @@ def _drain(items) -> Iterator[None]:
             for _ in range(min(len(items), RELEASE_CHUNK)):
                 items.popitem()
             yield
+
+
+def _dismantle_tree(block: Block) -> Iterator[None]:
+    """Vacía por pasos un árbol del parser, de ``RELEASE_CHUNK`` en ``RELEASE_CHUNK`` entradas por bloque.
+
+    Entre paso y paso el intérprete puede ceder el GIL; soltar la raíz de una vez liberaría todo el árbol en una
+    sola llamada de C que no lo cede. ``_orig`` (las entradas en el orden leído) también las retiene.
+    """
+    block._orig = None
+    stack = [block.entries]
+    while stack:
+        entries = stack[-1]
+        if not entries:
+            stack.pop()
+            continue
+        chunk = entries[-RELEASE_CHUNK:]
+        del entries[-RELEASE_CHUNK:]
+        for entry in chunk:
+            value = entry.value
+            if isinstance(value, Block) and value.entries:
+                value._orig = None
+                stack.append(value.entries)
+        del chunk, entry, value
+        yield
+
+
+def _dismantle_partial(result: ParseResult, index: StructureIndex) -> Iterator[None]:
+    """Desmonta por pasos lo que deja un análisis cancelado: el árbol, el índice a medias y los diagnósticos."""
+    yield from _dismantle_tree(result.document)
+    for item in fields(index):
+        yield from _drain(getattr(index, item.name))
+    yield from _drain(result.diagnostics)
 
 
 def dismantle_load(load: ClausewitzLoad) -> Iterator[None]:
@@ -605,6 +644,7 @@ class ClausewitzViewer(QWidget):
         self._runner = TaskRunner(self)
         self._runner.finished.connect(self._on_loaded)
         self._runner.failed.connect(self._on_failed)
+        self._runner.discarded.connect(self._on_discarded)
         self._json_runner = TaskRunner(self)
         self._json_runner.finished.connect(self._on_json_ready)
         self._json_runner.failed.connect(self._on_json_failed)
@@ -1030,6 +1070,12 @@ class ClausewitzViewer(QWidget):
         self.code.clear_source()
         self._release(old)
 
+    def _on_discarded(self, result) -> None:
+        """Un análisis que llegó ya superado (se pidió otro archivo mientras terminaba): fuera del hilo de la
+        interfaz, como cualquier otro. Un ``ClausewitzFailure`` no lleva nada grande ni índice que desmontar."""
+        if isinstance(result, ClausewitzLoad):
+            self._release(result)
+
     @staticmethod
     def _release(load: ClausewitzLoad | None) -> None:
         """Suelta ``load``, que ya no muestra nada, en el hilo de una tarea (``dismantle_load``).
@@ -1191,11 +1237,10 @@ class ClausewitzViewer(QWidget):
         if load is None:
             return tr("viewer.details_loading", path=shown)
         encoding = load.result.encoding
-        name = ENCODING_NAMES.get(encoding, encoding)
-        if encoding in GAME_UNREADABLE:
-            name = tr("viewer.encoding_unreadable", encoding=name)
-        return tr("viewer.details_one" if load.lines == 1 else "viewer.details", path=shown, encoding=name,
-                  lines=format_number(load.lines), size=format_size(load.size))
+        # Que el juego no puede leerlo ya lo dice la insignia roja (con la explicación en su ayuda emergente).
+        return tr("viewer.details_one" if load.lines == 1 else "viewer.details", path=shown,
+                  encoding=ENCODING_NAMES.get(encoding, encoding), lines=format_number(load.lines),
+                  size=format_size(load.size))
 
     def _retranslate_failure(self) -> None:
         self.failure.set_texts(tr("viewer.failed_title"), tr("viewer.failed_text", error=self.failure_text()))
@@ -1211,8 +1256,10 @@ class ClausewitzViewer(QWidget):
         if load is None:
             self.header.set_summary(None)
             return
-        if load.result.encoding in GAME_UNREADABLE:  # nada de lo demás importa si el juego no puede leerlo
-            self.header.set_summary("error", tr("viewer.summary_unreadable"))
+        encoding = load.result.encoding
+        if encoding in GAME_UNREADABLE:  # nada de lo demás importa si el juego no puede leerlo
+            self.header.set_summary("error", tr("viewer.summary_unreadable"), tr(
+                "viewer.unreadable_tooltip", encoding=ENCODING_NAMES.get(encoding, encoding)))
             return
         counts = self.diagnostics_model.counts()
         self.header.set_summary(*summary_status(counts["error"], counts["warning"], counts["info"]))
@@ -1248,9 +1295,8 @@ class ClausewitzViewer(QWidget):
                 text = tr("viewer.tab.diagnostics_count", count=format_number(total))
             self.tabs.setTabText(i, text)
         load = self.current_load()
-        # Un archivo que el juego no puede leer es un error aunque el parser no encuentre nada (como en la cabecera).
-        unreadable = load is not None and load.result.encoding in GAME_UNREADABLE
-        worst = "error" if unreadable else next((s for s in ("error", "warning") if counts[s]), None)
+        # Un archivo que el juego no puede leer ya trae su error (``unreadable_encoding``, de ``parse_file``).
+        worst = next((s for s in ("error", "warning") if counts[s]), None)
         icon = severity_icon(worst) if worst else make_icon("check", "success") if load is not None else QIcon()
         self.tabs.setTabIcon(TABS.index(TAB_DIAGNOSTICS), icon)
         # Los textos del árbol y de su cabecera se piden al pintarlos: basta con repintar. Con
@@ -1270,13 +1316,7 @@ class ClausewitzViewer(QWidget):
         self._retranslate_failure()
         self.diagnostics_hint.setText(tr("viewer.diagnostics_hint"))
         self.diagnostics_view.setToolTip(tr("viewer.diagnostics_hint"))
-        if unreadable:
-            encoding = load.result.encoding
-            self.diagnostics_empty.set_texts(tr("viewer.summary_unreadable"), tr(
-                "viewer.unreadable_text", encoding=ENCODING_NAMES.get(encoding, encoding)))
-        else:
-            self.diagnostics_empty.set_texts(tr("viewer.no_diagnostics_title"), tr("viewer.no_diagnostics_text"))
-        self.diagnostics_empty.medallion.set_icon("error" if unreadable else "check")
+        self.diagnostics_empty.set_texts(tr("viewer.no_diagnostics_title"), tr("viewer.no_diagnostics_text"))
         self.diagnostics_model.retranslate()
         self._retranslate_json()
         self._retranslate_matches()

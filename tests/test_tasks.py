@@ -415,6 +415,38 @@ class GarbageCollectorTests(TaskCase):
         self.assertEqual(sorted(freed), ["antes", "en la interfaz", "en la tarea"])
         self.assertEqual(gc.get_freeze_count(), 0)
 
+    def test_a_result_built_while_another_is_released_is_still_frozen(self):
+        """R2-RELEASE-SKIPS-FREEZE: lo que soltaba a la vez una liberación en segundo plano descontaba del
+        contador de la generación joven, y el resultado que se construía mientras tanto no se congelaba: la
+        primera pasada del recolector lo recorría entero (60-95 ms de interfaz parada)."""
+        gc.collect()
+        gc.unfreeze()
+        old = Result([i] for i in range(4 * GC_FREEZE_MIN_OBJECTS))  # el análisis viejo que se suelta
+        built, gate = self.event(), self.event()
+
+        def work(ctx):
+            result = Result([i] for i in range(2 * GC_FREEZE_MIN_OBJECTS))
+            built.set()
+            gate.wait(TIMEOUT_MS / 1000)
+            return result
+
+        def dismantle(value):
+            while value:
+                del value[-4096:]
+                yield
+
+        runner, finished, _ = self.runner()
+        runner.start(work)
+        self.assertTrue(built.wait(TIMEOUT_MS / 1000))
+        release_in_background(old, dismantle)  # mientras la tarea sigue con el recolector parado
+        del old
+        self.assertTrue(thread_pool(POOL_RELEASE).waitForDone(TIMEOUT_MS))
+        gate.set()
+        self.wait(lambda: finished, "la tarea no terminó")
+        self.assertGreaterEqual(gc.get_freeze_count(), 2 * GC_FREEZE_MIN_OBJECTS, "el resultado no se congeló")
+        finished.clear()
+        self.assertEqual(gc.get_freeze_count(), 0)
+
     def test_nothing_is_thawed_while_another_frozen_result_lives(self):
         gc.unfreeze()
         runner, finished, _ = self.runner()

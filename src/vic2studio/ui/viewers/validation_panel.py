@@ -276,8 +276,8 @@ class ValidationPanel(QWidget):
         # Sin total todavía, ``relative`` es la carpeta que se explora en busca de archivos.
         scanning = total == 0 and bool(relative)
         self.running_title.setText(tr("validation.scanning" if scanning else "validation.running"))
-        self.progress_bar.setFormat(tr("validation.progress", done=format_number(done), total=format_number(total))
-                                    if total else "")
+        self.progress_bar.setFormat(tr("validation.progress_one" if total == 1 else "validation.progress",
+                                       done=format_number(done), total=format_number(total)) if total else "")
 
     def _retranslate_summary(self) -> None:
         report = self.report()
@@ -290,7 +290,7 @@ class ValidationPanel(QWidget):
                   infos=format_number(counts[INFO]))
         shown = len(self.model.visible_rows())
         if shown != len(self.model.all_rows()):
-            text += " " + tr("validation.shown", shown=format_number(shown))
+            text += " " + tr("validation.shown_one" if shown == 1 else "validation.shown", shown=format_number(shown))
         color = theme.PALETTE["danger" if counts[ERROR] else "warning" if counts[WARNING] else "success"]
         self.summary.setText(f'<span style="color:{color}; font-weight:600;">{html.escape(text)}</span>')
         self.view.setToolTip(f"{text}\n{tr('validation.hint')}")

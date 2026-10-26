@@ -473,7 +473,7 @@ class ProjectPageTests(UiTestCase):
             (root / "notes.txt").write_text("x")
             self.assertEqual(evaluate_mod(inspect_folder(root), None)[:2], ("warning", "check.mod_unknown"))
             (root / "events").mkdir()
-            self.assertEqual(evaluate_mod(inspect_folder(root), None), ("ok", "check.mod_ok", {"count": 1}))
+            self.assertEqual(evaluate_mod(inspect_folder(root), None), ("ok", "check.mod_ok_one", {"count": 1}))
             self.assertEqual(evaluate_mod(inspect_folder(root), root)[:2], ("error", "check.mod_is_game"))
             self.assertEqual(evaluate_game(inspect_folder(root))[:2], ("error", "check.game_no_data"))
 

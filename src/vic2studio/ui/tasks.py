@@ -189,7 +189,12 @@ def _resume_gc(result: Any = None) -> None:
         if _gc_tasks == 0 and _gc_paused:
             _gc_paused = False
             # Sin congelarlos, la primera pasada tras reactivarlo recorrería todos los objetos nuevos de golpe.
-            if gc.get_count()[0] >= GC_FREEZE_MIN_OBJECTS:
+            young = gc.get_count()[0]
+            if young < GC_FREEZE_MIN_OBJECTS and any(ref() is not None for ref in _gc_delivered):
+                # Lo que suelta a la vez otra tarea (release_in_background) descuenta del contador aunque no fuera
+                # nuevo. Con el recolector parado todo lo nuevo sigue en la generación 0: se cuenta de verdad.
+                young = len(gc.get_objects(0))
+            if young >= GC_FREEZE_MIN_OBJECTS:
                 gc.freeze()
                 for ref in _gc_delivered:
                     if ref() is not None:
@@ -296,12 +301,16 @@ class TaskRunner(QObject):
     """Ejecuta funciones en segundo plano en el grupo ``pool``; como mucho una vigente a la vez.
 
     ``finished(result)``, ``failed(TaskFailure)`` y ``progress(valor)`` se emiten
-    en el hilo de la interfaz y solo para la tarea vigente.
+    en el hilo de la interfaz y solo para la tarea vigente. ``discarded(result)``
+    entrega el resultado de una tarea ya superada que terminó de todos modos, para
+    que quien sepa desmontarlo lo suelte fuera del hilo de la interfaz (si nadie
+    lo escucha, se suelta allí mismo, como antes).
     """
 
     finished = Signal(object)
     failed = Signal(object)
     progress = Signal(object)
+    discarded = Signal(object)
 
     def __init__(self, parent: QObject | None = None, *, pool: str = POOL_PREVIEW):
         super().__init__(parent)
@@ -349,6 +358,8 @@ class TaskRunner(QObject):
         generation, handoff = payload
         kind, value = handoff.pop()  # desde aquí, solo lo retiene la interfaz
         if generation != self._generation:
+            if kind == _FINISHED:
+                self.discarded.emit(value)
             return
         if kind == _PROGRESS:
             self.progress.emit(value)

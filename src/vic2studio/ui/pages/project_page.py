@@ -77,8 +77,10 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from ...core.clausewitz import Severity
+from ...core.clausewitz.diagnostics import ENCODING_CODES
 from ...core.csvloc import is_localisation_csv
-from ...core.encoding import decode_bytes
+from ...core.encoding import GAME_UNREADABLE, decode_bytes
 from ...core.modfile import INSIDE, ModDescriptor, find_descriptor, read_descriptor
 from ...core.vfs.guard import (
     EXPECTED_FOLDERS,
@@ -94,7 +96,7 @@ from ...i18n import N_, tr, translator
 from ...settings import app_settings
 from .. import theme
 from ..viewers import CLAUSEWITZ_SUFFIXES, IMAGE_SUFFIXES, ClausewitzViewer, ImageViewer, ValidationPanel
-from ..viewers.common import file_stamp, format_seconds
+from ..viewers.common import ElidedLabel, file_stamp, format_seconds, format_size
 from ..widgets import (
     Divider,
     EmptyState,
@@ -269,7 +271,7 @@ class ExplorerModel(QIdentityProxyModel):
             source = self.mapToSource(index)
             locale = translator().locale()
             if index.column() == 1:
-                return "" if self.fs.isDir(source) else locale.formattedDataSize(self.fs.size(source))
+                return "" if self.fs.isDir(source) else format_size(self.fs.size(source))
             return locale.toString(self.fs.lastModified(source), QLocale.FormatType.ShortFormat)
         if role == Qt.ItemDataRole.DecorationRole and index.column() == 0:
             source = self.mapToSource(index)
@@ -332,10 +334,17 @@ _LINK_TOKEN = "\ue000"
 _VALUE_TOKENS = {"name": "\ue001", "path": "\ue002", "user_dir": "\ue003"}
 
 
+def syntax_error_count(diagnostics) -> int:
+    """Errores de sintaxis de verdad: los de codificación (``ENCODING_CODES``, p. ej. un UTF-16) se cuentan aparte."""
+    return sum(1 for d in diagnostics if d.severity is Severity.ERROR and d.code not in ENCODING_CODES)
+
+
 def _descriptor_errors_text(descriptor: ModDescriptor) -> str:
-    errors = len(descriptor.errors)
-    return tr("check.descriptor_errors_one" if errors == 1 else "check.descriptor_errors", count=errors) \
-        if errors else ""
+    parts = [] if descriptor.game_readable else [tr("check.descriptor_unreadable")]
+    errors = syntax_error_count(descriptor.errors)
+    if errors:
+        parts.append(tr("check.descriptor_errors_one" if errors == 1 else "check.descriptor_errors", count=errors))
+    return " · ".join(parts)
 
 
 def descriptor_html(descriptor: ModDescriptor) -> str:
@@ -544,11 +553,10 @@ class FilePreview(QWidget):
         head.addWidget(self.icon, 0, Qt.AlignmentFlag.AlignTop)
         names = QVBoxLayout()
         names.setSpacing(0)
-        self.name = mark_data(QLabel())
+        # Recortado por el medio: un nombre largo sin espacios no puede partirse y ensancharía la ficha.
+        self.name = mark_data(ElidedLabel())
         self.name.setFont(theme.font("body_bold", 13))
         self.name.setProperty("role", "title")
-        self.name.setWordWrap(True)
-        self.name.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         self.kind = QLabel()
         self.kind.setProperty("role", "caption")
         self.kind.setFont(theme.font("caption"))
@@ -569,8 +577,10 @@ class FilePreview(QWidget):
             value = mark_data(QLabel())
             value.setProperty("role", "value")
             value.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-            value.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
-            value.setWordWrap(True)  # «UTF-16 BE con BOM (…) — el juego no puede leerlo» no cabe en una línea
+            # Preferred y no Fixed: con Fixed el alto se queda en el sizeHint y, con la vista previa estrecha, el
+            # texto partido («UTF-16 BE con BOM (…) — el juego no puede leerlo») pierde sus últimas líneas.
+            value.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+            value.setWordWrap(True)
             self.form.addRow(label, value)
             self.form_labels[row_id] = label
             self.form_values[row_id] = value
@@ -623,7 +633,8 @@ class FilePreview(QWidget):
             self.icon.set_icon("folder_open", "bronze")
         else:
             self.icon.set_icon(*file_icon_spec(facts.path.suffix.lower()))
-        self.name.setText(facts.path.name or facts.relative)
+        name = facts.path.name or facts.relative  # la fila «Ruta» lo lleva entero
+        self.name.set_text(name, name)
         self.csv_button.setVisible(not facts.is_dir and preview_kind(facts.path) == PREVIEW_CSV)
         self.excerpt.setPlainText(facts.excerpt or "")
         self.excerpt.setVisible(facts.excerpt is not None)
@@ -644,9 +655,8 @@ class FilePreview(QWidget):
         self.kind.setText(file_type_text(facts.path, facts.is_dir))
         values = {
             "path": facts.relative,
-            "size": None if facts.is_dir else tr(
-                "project.preview.size_value", human=locale.formattedDataSize(facts.size),
-                bytes=locale.toString(facts.size)),
+            "size": None if facts.is_dir else format_size(facts.size) if facts.size < 1024 else tr(
+                "project.preview.size_value", human=format_size(facts.size), bytes=locale.toString(facts.size)),
             "modified": locale.toString(QDateTime.fromSecsSinceEpoch(int(facts.modified)), "d MMM yyyy, HH:mm"),
             "entries": None if facts.entries is None else tr(
                 "project.preview.entries_value_one" if facts.entries == 1 else "project.preview.entries_value",
@@ -1224,7 +1234,10 @@ class ProjectPage(BasePage):
             return  # terminó de analizarse cuando ya se mostraba otra cosa
         load = self.clausewitz_viewer.current_load()
         if load is not None and load.path == path:
-            errors = len(load.result.errors)
+            if load.result.encoding in GAME_UNREADABLE:
+                self.request_status("status.file_unreadable", name=path.name)
+                return
+            errors = syntax_error_count(load.result.errors)
             if errors:
                 self.request_status("status.file_errors_one" if errors == 1 else "status.file_errors",
                                     name=path.name, count=errors)

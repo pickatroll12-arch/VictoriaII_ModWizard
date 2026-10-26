@@ -786,7 +786,10 @@ tienen de verdad los bytes (`utf-8-sig` sin BOM pasa a `utf-8`; `utf-16` con
 BOM `FE FF`, a `utf-16-be-bom`…) y `split_extra_boms(text, encoding)` separa los
 BOM repetidos que siguen al primero y devuelve cuántos había. `parse_file` usa
 las tres (§4.1). `normalize_encoding` rechaza los codecs que no
-son de texto. `partial=True` es para vistas previas: una secuencia multibyte
+son de texto. `display_name(encoding)` da el nombre para mostrar
+(`DISPLAY_NAMES`: `utf-16-be-bom` → «UTF-16 BE BOM», `cp1252` →
+«Windows-1252»; acepta alias), el que llevan en `args` los diagnósticos de
+codificación del parser y del lint y el que enseña el visor. `partial=True` es para vistas previas: una secuencia multibyte
 cortada al final no cambia la detección. Decodificar y volver a codificar un
 archivo sin cambios da los mismos bytes: lo comprueba la prueba de corpus con
 los 12 007 archivos de texto (`.txt`, `.csv`, `.mod`, `.lua`, `.bak`) del corpus
@@ -1480,11 +1483,14 @@ actualiza la página Localización y `csv_requested(path, line)` abre allí un C
   otra tarea con `iter_json`, hasta `JSON_DISPLAY_LIMIT` caracteres). El
   índice sitúa el final de cada entrada con `Entry.value_end` y
   `Block.close_position` (§4.1). Un archivo en UTF-16 sale en rojo: la
-  cabecera dice «Ilegible para el juego» y la pestaña Diagnósticos, con el
-  icono de error, muestra el error `unreadable_encoding` que da `parse_file`.
-  Como ese error siempre está, el estado vacío con el mismo título
-  (`viewer.unreadable_text`) ya no se ve nunca. La cabecera nombra las siete
-  codificaciones que detecta el núcleo (`ENCODING_NAMES`).
+  insignia de la cabecera dice «Ilegible para el juego» (con la explicación
+  en su ayuda emergente) y la pestaña Diagnósticos, con el icono de error,
+  muestra el error `unreadable_encoding` que da `parse_file`; la barra de
+  estado lo dice también, sin llamarlo «error de sintaxis». La insignia va a
+  la derecha del nombre, así que la línea de detalles tiene todo el ancho; un
+  nombre largo se recorta por el medio. Las codificaciones se nombran con
+  `encoding.display_name` (`DISPLAY_NAMES`: «UTF-16 BE BOM», «Windows-1252»…),
+  el mismo mapa que usan los diagnósticos del parser y el lint del CSV.
   Al cambiar de archivo, el análisis anterior se suelta en segundo plano
   (`dismantle_load`, §2.5, §6.3). Al reintentar un fallo de lectura, el fallo
   sigue a la vista hasta la respuesta o hasta `LOADING_DELAY_MS` (150 ms,

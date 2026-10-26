@@ -590,7 +590,7 @@ class LocalisationEditor(QWidget):
         self._retranslate_diagnostics()
 
     def _update_counts(self, *args) -> None:
-        self.count_label.setText(tr("loc.row_count", shown=format_number(self.visible_rows()),
+        self.count_label.setText(tr("loc.row_count_one" if self.total_rows() == 1 else "loc.row_count", shown=format_number(self.visible_rows()),
                                     total=format_number(self.total_rows())))
 
     def _retranslate_diagnostics(self) -> None:

@@ -162,7 +162,8 @@ def evaluate_mod(report: FolderReport, game_path: Path | None) -> tuple[str, str
         if is_under(report.path, game_path) and not is_under(report.path, game_path / "mod"):
             return "error", N_("check.mod_inside_game"), {}
     if report.present:
-        return "ok", N_("check.mod_ok"), {"count": len(report.present)}
+        return "ok", N_("check.mod_ok_one") if len(report.present) == 1 else N_("check.mod_ok"), \
+            {"count": len(report.present)}
     if report.entries == 0:
         return "warning", N_("check.mod_empty"), {}
     return "warning", N_("check.mod_unknown"), {}

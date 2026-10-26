@@ -367,7 +367,7 @@ class ModCheckTests(unittest.TestCase):
         self.assertFalse({code for relative, code, _, _ in found if relative == "events/utf8_bom.txt"}
                          & {UNREADABLE_ENCODING, STRAY_BOM}, "un UTF-8 con BOM de verdad no es un BOM perdido")
         big_endian = next(i for i in report.issues if i.relative == "events/big_endian.txt")
-        self.assertEqual(big_endian.diagnostic.args, {"encoding": "UTF-16-BE-BOM"})
+        self.assertEqual(big_endian.diagnostic.args, {"encoding": "UTF-16 BE BOM"})
         self.assertIn("no puede leerlo", big_endian.message("es"))
         self.assertIn("cannot read it", big_endian.message("en"))
         stray = next(i for i in report.issues if i.code == STRAY_BOM)
