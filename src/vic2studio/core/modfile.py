@@ -217,6 +217,78 @@ def _sync_repeated(doc, key: str, values: tuple[str, ...]) -> None:
         doc.append(key, _quoted(key, value))
 
 
+# --- generador del .mod (wizard §14.1, iteración 2) ---------------------------------------------
+# Contrato. render_descriptor sustituye a la lógica de write_descriptor (que pasa a usarla y a escribir con
+# core.project.journal, como create_mod_skeleton: tests/test_arch_writes.py no admite escrituras directas aquí).
+# Los imports de core.project y core.modcheck van dentro de las funciones: los dos importan este módulo.
+
+# Códigos nuevos de descriptor_problems (sus textos, en modcheck.MESSAGES). Los demás son los de
+# modcheck.check_descriptor: descriptor_bad_path / descriptor_other_folder (= descriptor_path_mismatch de §14.1),
+# descriptor_missing_folder (= descriptor_folder_missing), descriptor_no_name, descriptor_no_path,
+# descriptor_bad_user_dir y descriptor_bad_replace_path.
+DESCRIPTOR_NAME_DUPLICATE = "descriptor_name_duplicate"       # aviso: otro .mod de <juego>/mod con el mismo name
+DESCRIPTOR_USER_DIR_EMPTY = "descriptor_user_dir_empty"       # info: sin user_dir, partidas y caché junto a vanilla
+DESCRIPTOR_FOLDER_RESERVED = "windows_reserved_name"          # error: CON, NUL, <>:"|?*, punto o espacio final
+DESCRIPTOR_FOLDER_TAKEN = "descriptor_folder_taken"           # error (al crear): <juego>/mod/<carpeta> ya existe
+REPLACE_PATH_EMPTY = "replace_path_empty"                     # error: el mod deja vacía una carpeta reemplazada
+REPLACE_PATH_HIDES_REFERENCED = "replace_path_hides_referenced"   # error; necesita el índice: iteración 3
+
+# Carpetas que «Nuevo mod» crea vacías (la herencia hace innecesario copiar vanilla, §14.1).
+SKELETON_FOLDERS = ("common", "history", "localisation")
+
+
+@dataclass(frozen=True)
+class DescriptorSpec:
+    """Lo que el formulario «Descriptor .mod» edita. ``path`` es siempre ``"mod/<folder>"``."""
+
+    name: str
+    folder: str
+    user_dir: str = ""
+    replace_paths: tuple[str, ...] = ()
+    dependencies: tuple[str, ...] = ()
+
+    @property
+    def path(self) -> str:
+        return f"mod/{self.folder}"
+
+    @classmethod
+    def from_descriptor(cls, descriptor: ModDescriptor) -> DescriptorSpec:
+        raise NotImplementedError
+
+
+def render_descriptor(spec: DescriptorSpec, existing: ParseResult | None = None) -> bytes:
+    """Bytes del descriptor. Sin ``existing``: canónico, cp1252 y CRLF (``_new_source``). Con él: solo cambian los
+    campos que difieren y se conserva el resto (comentarios, claves desconocidas como ``archive``, formato y
+    codificación salvo UTF-16, que pasa a cp1252). Un valor con comillas o saltos de línea lanza
+    ``DescriptorFieldError``. Prueba de oro: ``DescriptorSpec("Shago Mod", "VSM", "VSM")`` da los bytes de
+    ``tests/fixtures/shago_mod_min/VSM.mod``."""
+    raise NotImplementedError
+
+
+def descriptor_problems(spec: DescriptorSpec, game_root: Path, *, creating: bool = False,
+                        descriptor_file: Path | None = None) -> list:
+    """``modcheck.Issue`` del formulario (los de ``check_descriptor`` más los códigos nuevos de arriba).
+
+    ``creating``: además comprueba que ``<juego>/mod/<folder>`` y su ``.mod`` no existan. ``descriptor_file``:
+    el propio ``.mod`` (se excluye al buscar nombres duplicados). La iteración 3 los convierte en ``Problem``.
+    """
+    raise NotImplementedError
+
+
+def create_mod_skeleton(game_root: Path, spec: DescriptorSpec, *, template: Path | None = None) -> ModDescriptor:
+    """«Nuevo mod»: ``<juego>/mod/<folder>/`` con ``SKELETON_FOLDERS`` y ``<juego>/mod/<folder>.mod``, en una sola
+    transacción del diario (todo o nada). ``template``: carpeta cuyo contenido se copia dentro (p. ej. una
+    «Plantilla Mod»). Lanza ``ValueError`` si ``descriptor_problems(..., creating=True)`` tiene errores."""
+    raise NotImplementedError
+
+
+def sanitize_folder(name: str, *, taken: frozenset[str] = frozenset()) -> list[str]:
+    """Propuestas de carpeta para ``name``, la primera la recomendada: siglas (``Dark Age Mod`` → ``DAM``) y
+    guiones bajos (``Dark_Age_Mod``), en ASCII, sin nombres que Windows rechace ni los de ``taken``
+    (comparados sin mayúsculas)."""
+    raise NotImplementedError
+
+
 def write_descriptor(file: str | os.PathLike, descriptor: ModDescriptor, *, backup: bool = True) -> Path | None:
     """Escribe ``descriptor`` en ``file`` (no tiene por qué ser ``descriptor.file``).
 

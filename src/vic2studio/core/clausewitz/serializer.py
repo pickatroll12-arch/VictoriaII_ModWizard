@@ -1366,6 +1366,18 @@ def _repeated_boms(document: Document, encoding: str) -> str:
     return BOM * document.extra_boms if same else ""
 
 
+def render_checked(document_or_result, *, encoding: str | None = None, verify: bool = True,
+                   path: str | os.PathLike | None = None) -> bytes:
+    """Los bytes que escribiría ``write_file``, sin tocar el disco (wizard §6.1, paso 0 de §6.5).
+
+    Misma verificación por relectura (``SourceMismatchError``, que nombra ``path``),
+    misma codificación por defecto (la del documento; cp1252 si es nuevo) con sus
+    BOM repetidos, y ``UnencodableTextError`` si algún carácter no cabe.
+    ``write_file`` pasa a usarla sin cambiar su comportamiento.
+    """
+    raise NotImplementedError
+
+
 def write_file(path: str | os.PathLike, document_or_result, *, encoding: str | None = None,
                backup: bool = True, verify: bool = True, expected=None) -> Path | None:
     """Escribe ``to_source`` de forma atómica; devuelve la copia de seguridad o None.

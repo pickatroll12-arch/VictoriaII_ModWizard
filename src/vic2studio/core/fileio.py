@@ -129,3 +129,61 @@ def write_text(path: str | os.PathLike, text: str, encoding: str, *, backup: boo
                expected: FileStamp | None = None) -> Path | None:
     """Codifica (lanza ``UnencodableTextError`` si no se puede) y escribe de forma atómica."""
     return atomic_write_bytes(path, encode_text(text, encoding), backup=backup, expected=expected)
+
+
+# --- primitivas del guardado con diario (wizard §6.5) ------------------------------------
+# Son las únicas escrituras crudas del proyecto (tests/test_arch_writes.py). Dentro del mod solo
+# las llama core/project/journal.py, después de WriteGuard.check; fuera, el bloqueo y las cachés.
+# atomic_write_bytes se reimplementa encima de stage_bytes + commit_staged con la misma firma.
+
+REPLACE_RETRIES = 3          # os.replace ante PermissionError (antivirus o editor con el archivo abierto en Windows)
+REPLACE_RETRY_DELAY = 0.1    # segundos entre intentos
+
+
+def stage_bytes(target: str | os.PathLike, data: bytes) -> Path:
+    """Escribe ``data`` en un temporal ``.<nombre>.<token>.tmp`` junto a ``target``, con fsync; devuelve su ruta.
+
+    Crea las carpetas intermedias. No toca ``target``.
+    """
+    raise NotImplementedError
+
+
+def commit_staged(temp: str | os.PathLike, target: str | os.PathLike, *, retries: int = REPLACE_RETRIES,
+                  delay: float = REPLACE_RETRY_DELAY) -> None:
+    """``os.replace(temp, target)`` conservando los permisos de ``target`` si existía; reintenta ante PermissionError."""
+    raise NotImplementedError
+
+
+def discard_staged(temp: str | os.PathLike) -> None:
+    """Borra un temporal de ``stage_bytes`` (no falla si ya no existe)."""
+    raise NotImplementedError
+
+
+def fsync_dir(folder: str | os.PathLike) -> None:
+    """fsync de la carpeta para que los renombrados sobrevivan a un corte (no-op donde no se puede, p. ej. Windows)."""
+    raise NotImplementedError
+
+
+def copy_file(source: str | os.PathLike, target: str | os.PathLike) -> None:
+    """Copia con metadatos (``copy2``) y fsync, creando las carpetas intermedias (``.bak``, ``originals/``)."""
+    raise NotImplementedError
+
+
+def move_file(source: str | os.PathLike, target: str | os.PathLike) -> None:
+    """Mueve (``os.replace``, o copia y borra entre unidades) creando las carpetas intermedias (papelera)."""
+    raise NotImplementedError
+
+
+def remove_file(path: str | os.PathLike) -> None:
+    """Borra un archivo (no falla si ya no existe)."""
+    raise NotImplementedError
+
+
+def make_dirs(folder: str | os.PathLike) -> None:
+    """``mkdir(parents=True, exist_ok=True)``."""
+    raise NotImplementedError
+
+
+def remove_empty_dirs(folder: str | os.PathLike, *, stop_at: str | os.PathLike) -> None:
+    """Borra ``folder`` y sus padres vacíos hasta ``stop_at`` (excluido); para limpiar ``journal/`` y temporales."""
+    raise NotImplementedError

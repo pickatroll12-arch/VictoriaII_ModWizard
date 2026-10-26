@@ -80,6 +80,16 @@ def _same_file(a: Path, b: Path) -> bool:
     return os.path.normcase(os.path.realpath(a)) == os.path.normcase(os.path.realpath(b))
 
 
+def render_csv_checked(file: LocalisationFile, *, encoding: str | None = None) -> bytes:
+    """Los bytes que escribiría ``write_csv_file``, sin tocar el disco ni el modelo (wizard §6.1).
+
+    Misma codificación por defecto (la del archivo), mismo tratamiento de los BOM
+    repetidos y ``UnencodableTextError`` si algún carácter no cabe.
+    ``write_csv_file`` pasa a usarla sin cambiar su comportamiento.
+    """
+    raise NotImplementedError
+
+
 def write_csv_file(path: str | os.PathLike, file: LocalisationFile, *,
                    encoding: str | None = None, backup: bool = True, force: bool = False) -> Path | None:
     """Codifica y escribe de forma atómica; devuelve la ruta de la copia ``.bak`` si se hizo.

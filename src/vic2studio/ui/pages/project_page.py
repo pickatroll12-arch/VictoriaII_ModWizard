@@ -24,7 +24,7 @@ Otros puntos de extensión: ``file_activated(Path)``, ``set_preview_widget(widge
 (``None`` restaura la vista por defecto), ``game_path_changed`` / ``mod_path_changed``.
 
 La inspección de carpetas (``inspect_folder``, ``evaluate_game``, ``evaluate_mod``)
-no depende de Qt para poder reutilizarla en el futuro sistema de archivos virtual.
+vive en ``core.vfs.guard`` (sin Qt) y se reexporta aquí.
 """
 
 from __future__ import annotations
@@ -79,8 +79,17 @@ from PySide6.QtWidgets import (
 
 from ...core.csvloc import is_localisation_csv
 from ...core.encoding import decode_bytes
-from ...core.modcheck import GAME_EXECUTABLES
 from ...core.modfile import INSIDE, ModDescriptor, find_descriptor, read_descriptor
+from ...core.vfs.guard import (
+    EXPECTED_FOLDERS,
+    FolderReport,
+    evaluate_game,
+    evaluate_mod,
+    folder_key,
+    inspect_folder,
+    same_folder,
+)
+from ...core.vfs.guard import is_under as _is_under
 from ...i18n import N_, tr, translator
 from ...settings import app_settings
 from .. import theme
@@ -107,9 +116,6 @@ __all__ = [
     "read_descriptor", "same_folder",
 ]
 
-EXPECTED_FOLDERS = ("common", "history", "localisation", "map", "events", "decisions", "gfx", "interface")
-GAME_DATA_MIN_FOLDERS = 5
-
 SETTINGS_GAME = "project/game_path"
 SETTINGS_MOD = "project/mod_path"
 SETTINGS_ROOT = "project/explorer_root"
@@ -120,91 +126,6 @@ COMPACT_HEIGHT = 600
 SELECTION_DELAY_MS = 150  # con el teclado, espera antes de cargar la vista previa del archivo seleccionado
 REVEAL_TIMEOUT_MS = 5000  # como mucho, lo que se espera a que el explorador liste las carpetas de lo revelado
 RESCROLL_SECONDS = 1.0    # tras listarlas, cada cambio de disposición vuelve a centrarlo durante este tiempo
-
-# --- inspección de carpetas (sin Qt) ------------------------------------------------------
-# El descriptor .mod se lee con el parser Clausewitz (core.modfile).
-
-
-@dataclass(frozen=True)
-class FolderReport:
-    path: Path | None
-    exists: bool = False
-    present: tuple[str, ...] = ()
-    executable: str | None = None
-    entries: int = 0
-    descriptor: ModDescriptor | None = None
-
-    @property
-    def is_game(self) -> bool:
-        return self.executable is not None
-
-
-def inspect_folder(path: str | os.PathLike | None) -> FolderReport:
-    if path is None or os.fspath(path) == "":
-        return FolderReport(None)
-    folder = Path(path)
-    try:
-        entries = {entry.name.lower(): entry for entry in os.scandir(folder)}
-    except OSError:
-        return FolderReport(folder)
-    present = tuple(name for name in EXPECTED_FOLDERS if name in entries and entries[name].is_dir())
-    executable = next((entries[name].name for name in GAME_EXECUTABLES
-                       if name in entries and entries[name].is_file()), None)
-    return FolderReport(folder, True, present, executable, len(entries), find_descriptor(folder))
-
-
-def folder_key(path: str | os.PathLike) -> str:
-    """Clave de una carpeta para compararla con otras (ruta real, sin distinguir mayúsculas en Windows)."""
-    return os.path.normcase(os.path.realpath(path))
-
-
-def same_folder(a: Path | None, b: Path | None) -> bool:
-    if a is None or b is None:
-        return False
-    return folder_key(a) == folder_key(b)
-
-
-def _is_under(path: Path, root: Path) -> bool:
-    try:
-        Path(os.path.realpath(path)).relative_to(os.path.realpath(root))
-    except ValueError:
-        return False
-    return True
-
-
-def evaluate_game(report: FolderReport) -> tuple[str, str, dict]:
-    """(nivel, clave de catálogo, formato) para la ruta del juego base."""
-    if report.path is None:
-        return "neutral", N_("check.not_set"), {}
-    if not report.exists:
-        return "error", N_("check.missing"), {}
-    if report.is_game:
-        return "ok", N_("check.game_ok"), {"exe": report.executable}
-    if len(report.present) >= GAME_DATA_MIN_FOLDERS:
-        return "warning", N_("check.game_no_exe"), {}
-    return "error", N_("check.game_no_data"), {}
-
-
-def evaluate_mod(report: FolderReport, game_path: Path | None) -> tuple[str, str, dict]:
-    """El mod nunca puede ser el juego base, ni contenerlo, ni estar dentro de él salvo en su
-    carpeta ``mod/``: así jamás se escribe sobre el original ni se validan sus archivos."""
-    if report.path is None:
-        return "neutral", N_("check.not_set"), {}
-    if not report.exists:
-        return "error", N_("check.missing"), {}
-    if report.is_game or same_folder(report.path, game_path):
-        return "error", N_("check.mod_is_game"), {}
-    if game_path is not None:
-        if _is_under(game_path, report.path):
-            return "error", N_("check.mod_contains_game"), {}
-        if _is_under(report.path, game_path) and not _is_under(report.path, game_path / "mod"):
-            return "error", N_("check.mod_inside_game"), {}
-    if report.present:
-        return "ok", N_("check.mod_ok"), {"count": len(report.present)}
-    if report.entries == 0:
-        return "warning", N_("check.mod_empty"), {}
-    return "warning", N_("check.mod_unknown"), {}
-
 
 # --- tipos de archivo ---------------------------------------------------------------------
 
