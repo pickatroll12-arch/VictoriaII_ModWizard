@@ -15,8 +15,7 @@ puede usar en **español o inglés**, cambiando de idioma en tiempo real.
 
 > Proyecto independiente, sin relación con Paradox Interactive. La aplicación
 > trabaja sobre la copia de Victoria II que tenga instalada cada usuario y no
-> incluye gráficos ni fuentes del juego. El repositorio sí contiene algo de
-> contenido de vanilla en dos capturas antiguas (ver
+> incluye gráficos, fuentes ni archivos del juego (ver
 > [Licencias y datos](#licencias-y-datos)).
 
 ## Estado del proyecto
@@ -416,9 +415,9 @@ python3 tools/screenshot.py --out capturas --lang es --page project \
     --mod tests/fixtures/shago_mod_min/VSM --validate --left-tab validation
 ```
 
-Las capturas de `docs/capturas/` son anteriores a T4 y no siguen estos
-nombres; en T5 se sustituirán por otras generadas con esta herramienta sobre la
-muestra del repositorio.
+Las 10 capturas de `docs/capturas/` (T5, 26-10-2026) se generaron con esta
+herramienta sobre la muestra del repositorio, en español e inglés, a 1100x700,
+1440x900 y 1920x1080; su nombre dice la página, el idioma y el tamaño.
 
 ## Empaquetado
 
@@ -469,7 +468,7 @@ tools/screenshot.py    capturas sin pantalla
 packaging/             PyInstaller y lanzador de Linux
 docs/
 ├── diseno/            wizard.md (iteraciones 2 a 10) y prototipos del taller de mapas
-├── capturas/          capturas de muestra (anteriores a T4)
+├── capturas/          10 capturas ES/EN de la muestra (T5)
 ├── requisitos/        requisitos originales del usuario
 └── handoff/           workflow de la iteración 1 (contratos de API)
 ```
@@ -489,10 +488,8 @@ El árbol detallado y la arquitectura están en [ARCHITECTURE.md](ARCHITECTURE.m
     `unit_names` son inventados. Conservan los nombres de partido, las
     ideologías, los colores, `graphical_culture`, el `social_policy` de 5 de
     los 6 países, los partidos `MAJ_*` de Warsangali y las rarezas de formato.
-  - Dos de las capturas antiguas de `docs/capturas/`
-    (`03_estructura_provincia.png` y `04_localizacion_text_csv.png`) muestran
-    archivos de vanilla. Se sustituirán en T5 (ver
-    [Capturas de pantalla](#capturas-de-pantalla)).
+  - Las capturas de `docs/capturas/` solo muestran archivos de la muestra
+    (desde T5; las anteriores enseñaban dos archivos de vanilla).
 - **Código del proyecto.** Todavía sin licencia: no hay archivo `LICENSE` ni
   campo de licencia en `pyproject.toml`, y está pendiente de que el autor la
   elija.
@@ -580,9 +577,8 @@ and 2 when a path cannot be read.
 user's installation at runtime. The six `common/countries/` files of the test
 sample (`tests/fixtures/shago_mod_min`, from the user's mod) repeated vanilla
 party blocks and unit name lists; at the user's request (26 October 2026) they
-are now synthetic (invented policies, party dates and unit names). Two of the
-old screenshots in `docs/capturas/` still show vanilla files; they will be
-replaced in T5. The project's own code has no licence yet. See
+are now synthetic (invented policies, party dates and unit names). The
+screenshots in `docs/capturas/` only show files of that sample. The project's own code has no licence yet. See
 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for the MIT licence of
 Azgaar's Fantasy Map Generator and [ARCHITECTURE.md](ARCHITECTURE.md)
 (Spanish) for the design.

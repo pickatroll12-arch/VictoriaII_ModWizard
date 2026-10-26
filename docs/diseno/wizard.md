@@ -2152,7 +2152,7 @@ Familia `core/validate/rules/mapforge.py`, más las de §16.6 sobre el resultado
 
 ## 19. Pruebas y fixtures
 
-El repositorio **no contiene archivos de Paradox**, salvo lo que muestran dos capturas antiguas (`docs/capturas/03_estructura_provincia.png` y `04_localizacion_text_csv.png` enseñan archivos de vanilla), que se sustituyen en T5. Las pruebas del repositorio usan fixtures sintéticos generados por código con la forma real y la muestra del usuario (`tests/fixtures/shago_mod_min`: archivos creados por él, salvo los 6 de `common/countries/`, que desde el 26-10-2026 son versiones sintéticas de los suyos, por decisión del usuario, porque repetían bloques de partidos y listas `unit_names` de vanilla; las políticas, las fechas de los partidos y los `unit_names` son inventados). El corpus completo se usa en local mediante variables de entorno.
+El repositorio **no contiene archivos de Paradox** (desde T5, tampoco en las capturas de `docs/capturas/`, que solo muestran la muestra del usuario). Las pruebas del repositorio usan fixtures sintéticos generados por código con la forma real y la muestra del usuario (`tests/fixtures/shago_mod_min`: archivos creados por él, salvo los 6 de `common/countries/`, que desde el 26-10-2026 son versiones sintéticas de los suyos, por decisión del usuario, porque repetían bloques de partidos y listas `unit_names` de vanilla; las políticas, las fechas de los partidos y los `unit_names` son inventados). El corpus completo se usa en local mediante variables de entorno.
 
 ### 19.1 Fixtures
 

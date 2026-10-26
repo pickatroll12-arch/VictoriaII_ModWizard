@@ -1052,7 +1052,7 @@ VictoriaII_ModWizard/
 ├── pyproject.toml                       metadatos y empaquetado (setuptools, layout src, gui-script vic2studio)
 ├── requirements.txt                     dependencias de ejecución (las mismas que pyproject.toml)
 ├── docs/
-│   ├── capturas/                        7 PNG de la interfaz (01_proyecto_diagnosticos … 07_countries_planned_en)
+│   ├── capturas/                        10 PNG ES/EN de la muestra (01_validar_mod_es_1100x700 … 10_map_roadmap_en_1920x1080)
 │   ├── diseno/
 │   │   ├── wizard.md                    diseño de las iteraciones 2 a 10
 │   │   └── prototipos/mapforge/         README y 61 scripts de estudio del taller de mapas (wizard §18); no se instalan ni se prueban
