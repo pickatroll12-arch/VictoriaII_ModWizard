@@ -8,6 +8,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from _corpus import DEV_DIARY, corpus_roots, user_mod, user_mod_error_files  # noqa: E402
+from vic2studio.core.cancel import Cancelled  # noqa: E402
 from vic2studio.core.clausewitz import Severity  # noqa: E402
 from vic2studio.core.modcheck import (  # noqa: E402
     CHECK_FAILED,
@@ -122,11 +123,20 @@ class ModCheckTests(unittest.TestCase):
         outside = check_file(self.root.parent / "elsewhere.txt", self.root)
         self.assertEqual(outside[0].relative, "../elsewhere.txt")
 
+    def test_cancel_inside_a_file_stops_without_counting_it(self):
+        # La consulta 1 es la de antes del archivo; la 2, ya dentro del análisis, pide parar.
+        calls = []
+        report = check_mod(self.root, cancelled=lambda: calls.append(1) or len(calls) >= 2)
+        self.assertTrue(report.cancelled)
+        self.assertEqual((report.files, report.issues), (0, []))
+        with self.assertRaises(Cancelled):
+            check_file(self.root / "events" / "good.txt", self.root, cancelled=lambda: True)
+
     def test_unexpected_failure_is_reported(self):
         from vic2studio.core import modcheck
 
         original = modcheck.parse_file
-        modcheck.parse_file = lambda path: (_ for _ in ()).throw(RuntimeError("fallo simulado"))
+        modcheck.parse_file = lambda path, **_: (_ for _ in ()).throw(RuntimeError("fallo simulado"))
         try:
             issues = check_file(self.root / "events" / "good.txt", self.root)
         finally:

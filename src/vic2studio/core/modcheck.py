@@ -14,6 +14,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, Iterable
 
+from .cancel import CancelCheck, Cancelled
 from .clausewitz import Severity, parse_file
 from .csvloc import read_csv_file
 
@@ -118,16 +119,22 @@ def _relative(path: Path, root: Path) -> str:
         return Path(os.path.relpath(path, root)).as_posix()
 
 
-def check_file(path: str | os.PathLike, root: str | os.PathLike | None = None) -> list[Issue]:
-    """Diagnósticos de un archivo; nunca lanza (los fallos se devuelven como ``Issue``)."""
+def check_file(path: str | os.PathLike, root: str | os.PathLike | None = None, *,
+               cancelled: CancelCheck = None) -> list[Issue]:
+    """Diagnósticos de un archivo; los fallos se devuelven como ``Issue``.
+
+    Solo lanza ``core.cancel.Cancelled``, si ``cancelled()`` devuelve True a mitad del archivo.
+    """
     path = Path(path)
     relative = _relative(path, Path(root)) if root is not None else path.as_posix()
     kind = file_kind(path) or KIND_CLAUSEWITZ
     try:
         if kind == KIND_CSV:
-            diagnostics = read_csv_file(path).diagnostics
+            diagnostics = read_csv_file(path, cancelled=cancelled).diagnostics
         else:
-            diagnostics = parse_file(path).diagnostics
+            diagnostics = parse_file(path, cancelled=cancelled).diagnostics
+    except Cancelled:
+        raise
     except OSError as exc:
         return [Issue(path, relative, kind, READ_ERROR, Severity.ERROR, None, None, None,
                       {"error": exc.strerror or str(exc)})]
@@ -141,7 +148,7 @@ def check_file(path: str | os.PathLike, root: str | os.PathLike | None = None) -
 
 def check_mod(root: str | os.PathLike, *, extra_files: Iterable[str | os.PathLike] = (),
               progress: Callable[[int, int, str], None] | None = None,
-              cancelled: Callable[[], bool] | None = None) -> ModCheckReport:
+              cancelled: CancelCheck = None) -> ModCheckReport:
     """Valida todos los archivos Clausewitz y CSV de ``root`` (y ``extra_files``).
 
     ``progress(hechos, total, ruta_relativa)`` se llama tras cada archivo;
@@ -156,7 +163,11 @@ def check_mod(root: str | os.PathLike, *, extra_files: Iterable[str | os.PathLik
         if cancelled is not None and cancelled():
             report.cancelled = True
             break
-        issues = check_file(path, root)
+        try:
+            issues = check_file(path, root, cancelled=cancelled)
+        except Cancelled:
+            report.cancelled = True
+            break
         report.files += 1
         if file_kind(path) == KIND_CSV:
             report.csv_files += 1

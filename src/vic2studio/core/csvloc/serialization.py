@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 from typing import Any, Mapping
 
+from ..cancel import CancelCheck, raise_if_cancelled
 from ..encoding import GAME_ENCODING, UTF8, UTF8_BOM, detect_newline, encode_text
 from ..fileio import atomic_write_bytes, read_text
 from .model import COMMENT_PREFIX, DEFAULT_NEWLINE, SEPARATOR, LocalisationFile, LocRow, RowKind
@@ -16,11 +17,12 @@ _NEWLINES = ("\r\n", "\n")
 
 
 def parse_csv(text: str, *, filename: str | os.PathLike | None = None,
-              encoding: str | None = None) -> LocalisationFile:
+              encoding: str | None = None, cancelled: CancelCheck = None) -> LocalisationFile:
     """Convierte el texto de un CSV en un ``LocalisationFile`` sin perder nada.
 
     Un BOM inicial se quita del texto y se recuerda como codificación
     ``utf-8-sig``. Sin saltos de línea en el texto se asume CRLF (el de vanilla).
+    Si ``cancelled()`` devuelve True lanza ``core.cancel.Cancelled``.
     """
     if text.startswith(_BOM) and (encoding is None or codecs.lookup(encoding).name in (UTF8, UTF8_BOM)):
         text, encoding = text[1:], UTF8_BOM
@@ -34,6 +36,8 @@ def parse_csv(text: str, *, filename: str | os.PathLike | None = None,
     data, comment, blank = RowKind.DATA, RowKind.COMMENT, RowKind.BLANK
     rows = []
     for index, piece in enumerate(pieces):
+        if not index & 0xFFF:
+            raise_if_cancelled(cancelled)
         terminated = index < last or trailing_newline
         if terminated and piece.endswith("\r"):
             line, eol = piece[:-1], "\r\n"
@@ -50,14 +54,16 @@ def parse_csv(text: str, *, filename: str | os.PathLike | None = None,
         rows.append(row)
     file = LocalisationFile(rows, encoding=encoding, newline=newline,
                             trailing_newline=trailing_newline, path=filename)
+    raise_if_cancelled(cancelled)
     file.diagnostics = file.lint()
     return file
 
 
-def read_csv_file(path: str | os.PathLike, *, encoding: str | None = None) -> LocalisationFile:
+def read_csv_file(path: str | os.PathLike, *, encoding: str | None = None,
+                  cancelled: CancelCheck = None) -> LocalisationFile:
     """Lee un CSV detectando la codificación (ver ``core.encoding.decode_bytes``)."""
     decoded = read_text(path, encoding)
-    return parse_csv(decoded.text, filename=path, encoding=decoded.encoding)
+    return parse_csv(decoded.text, filename=path, encoding=decoded.encoding, cancelled=cancelled)
 
 
 def to_source(file: LocalisationFile) -> str:

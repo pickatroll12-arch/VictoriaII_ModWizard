@@ -29,6 +29,8 @@ from typing import Any, Callable
 from PySide6.QtCore import QObject, QRunnable, QThreadPool, Signal, Slot
 from shiboken6 import isValid
 
+from ..core.cancel import Cancelled
+
 log = logging.getLogger(__name__)
 
 PROGRESS_INTERVAL = 0.04  # segundos entre notificaciones de progreso
@@ -88,6 +90,7 @@ class TaskContext:
         self._last = 0.0
 
     def cancelled(self) -> bool:
+        """Se puede pasar tal cual como ``cancelled=`` a las funciones del núcleo."""
         return self._cancel.is_set()
 
     def report(self, value: Any, *, force: bool = False) -> None:
@@ -107,6 +110,8 @@ class _Job(QRunnable):
     def run(self) -> None:
         try:
             result = self.fn(self.context)
+        except Cancelled:
+            return  # quien canceló ya descartó esta generación
         except BaseException as exc:  # noqa: BLE001 - toda excepción se entrega a la interfaz
             self.deliver(_FAILED, TaskFailure(exc))
         else:
