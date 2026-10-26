@@ -26,11 +26,6 @@ QLabel[level="error"] { color: $danger; }
 QLabel[level="neutral"] { color: $ink_muted; }
 
 QFrame#verticalRule { background: $bronze; border: none; }
-QLabel#previewThumbnail {
-    background: rgba(28, 17, 10, 210);
-    border: 1px solid $bronze;
-    padding: 8px;
-}
 
 QLabel#folderChip {
     border-radius: 8px;
@@ -231,8 +226,10 @@ QTreeView, QListView, QTableView, QColumnView {
     outline: 0;
 }
 QTreeView:focus, QListView:focus, QTableView:focus { border: 1px solid $velvet_light; }
-QTreeView::item, QListView::item { padding: 3px 2px; border: none; }
-QTreeView::item:hover, QListView::item:hover { background: rgba(201, 162, 74, 70); }
+QTreeView::item, QListView::item, QTableView[role="diagnostics"]::item { padding: 3px 2px; border: none; }
+QTreeView::item:hover, QListView::item:hover, QTableView[role="diagnostics"]::item:hover {
+    background: rgba(201, 162, 74, 70);
+}
 QTreeView::item:selected, QListView::item:selected, QTableView::item:selected {
     background: $velvet;
     color: $cream;
@@ -350,6 +347,8 @@ QTabBar::tab:selected {
     font-weight: 600;
 }
 QTabBar::tab:focus { color: $velvet_text; }
+/* Las cuatro pestañas del visor tienen que caber en el panel de la vista previa a 1100x700. */
+QTabWidget#viewerTabs QTabBar::tab { padding: 6px 10px; }
 
 QGroupBox {
     background: rgba(250, 243, 223, 110);

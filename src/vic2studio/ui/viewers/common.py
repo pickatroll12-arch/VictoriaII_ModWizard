@@ -1,7 +1,8 @@
-"""Piezas compartidas por los visores: gravedades, idioma de los diagnósticos y cabecera de archivo."""
+"""Piezas compartidas por los visores: gravedades, idioma de los diagnósticos, errores al leer y cabecera."""
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 from PySide6.QtCore import QSize, Qt
@@ -18,6 +19,12 @@ SEVERITY_ICON = {ERROR: "error", WARNING: "warning", INFO: "info"}
 SEVERITY_COLOR = {ERROR: "danger", WARNING: "warning", INFO: "ink_soft"}
 SEVERITY_KEYS = {ERROR: N_("severity.error"), WARNING: N_("severity.warning"), INFO: N_("severity.info")}
 CORE_LANGUAGES = ("es", "en")
+# Mensaje de cada error del sistema al abrir un archivo; los demás usan «file_error.generic».
+OS_ERROR_KEYS = (
+    ((FileNotFoundError, NotADirectoryError), N_("file_error.not_found")),
+    (PermissionError, N_("file_error.permission")),
+    (IsADirectoryError, N_("file_error.not_file")),
+)
 
 
 def severity_name(severity) -> str:
@@ -29,6 +36,25 @@ def core_language() -> str:
     """Idioma para ``Diagnostic.message``: el de la interfaz si el núcleo lo tiene, si no inglés."""
     current = language()
     return current if current in CORE_LANGUAGES else "en"
+
+
+def file_stamp(path: str | os.PathLike) -> tuple[int, int] | None:
+    """(modificación en ns, tamaño) de ``path``, o ``None`` si no se puede consultar."""
+    try:
+        stat = os.stat(path)
+    except OSError:
+        return None
+    return stat.st_mtime_ns, stat.st_size
+
+
+def describe_os_error(error: BaseException) -> tuple[str, str]:
+    """(motivo traducido, detalle del sistema) de un error al leer un archivo.
+
+    ``strerror`` es el texto de la libc o del CRT, siempre en inglés: solo sirve de detalle.
+    """
+    detail = getattr(error, "strerror", None) or str(error) or type(error).__name__
+    key = next((key for kinds, key in OS_ERROR_KEYS if isinstance(error, kinds)), None)
+    return (tr(key) if key else tr("file_error.generic", detail=detail)), detail
 
 
 def severity_icon(severity: str):

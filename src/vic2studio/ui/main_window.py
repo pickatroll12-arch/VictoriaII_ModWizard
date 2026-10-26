@@ -21,12 +21,11 @@ from ..i18n import available_languages, language, set_language, tr, translator
 from ..settings import app_settings
 from . import theme
 from .pages import PAGE_CLASSES, PAGE_KEYS, BasePage
-from .tasks import thread_pool
+from .tasks import cancel_all
 from .widgets import HeaderBanner, NavBar, OrnateFrame, TexturedPanel, emblem_pixmap, mark_data
 
 SETTINGS_GEOMETRY = "ui/geometry"
 SETTINGS_LAST_PAGE = "ui/last_page"
-SHUTDOWN_WAIT_MS = 3000
 MINIMUM_SIZE = QSize(1100, 700)
 DEFAULT_SIZE = QSize(1440, 900)
 
@@ -152,9 +151,9 @@ class MainWindow(QMainWindow):
         return list(self._page_actions)
 
     def open_in_localisation(self, path: str | os.PathLike, line: int | None = None) -> None:
-        """Abre un CSV en la página de Localización y cambia a ella."""
-        self.page("localisation").open_file(path, line=line)
+        """Cambia a la página de Localización y abre en ella un CSV (su mensaje de carga queda a la vista)."""
         self.set_current_page(PAGE_KEYS.index("localisation"))
+        self.page("localisation").open_file(path, line=line)
 
     def show_status(self, key: str, fmt: dict | None = None) -> None:
         """Muestra un mensaje del catálogo; se re-traduce si cambia el idioma.
@@ -236,6 +235,6 @@ class MainWindow(QMainWindow):
         app_settings().setValue(SETTINGS_GEOMETRY, self.saveGeometry())
         for page in self.pages:
             page.shutdown()
-        # Las tareas canceladas terminan enseguida; no se deja ningún hilo de Python vivo al salir.
-        thread_pool().waitForDone(SHUTDOWN_WAIT_MS)
+        # Sin esperar: la ventana se cierra en el acto y app.main espera a que las tareas paren.
+        cancel_all()
         super().closeEvent(event)

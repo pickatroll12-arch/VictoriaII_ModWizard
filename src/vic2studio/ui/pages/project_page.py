@@ -4,13 +4,18 @@ Al seleccionar un archivo del explorador la vista previa elige visor:
 
 * scripts Clausewitz (``.txt``, ``.mod``, ``.gfx``, ``.gui``, ``.sfx``, ``.asset``):
   ``ClausewitzViewer`` (estructura, código fuente, diagnósticos y JSON);
-* imágenes (``.tga``, ``.dds``, ``.bmp``, ``.png``, ``.jpg``): ``ImageViewer``;
+* imágenes (``.tga``, ``.dds``, ``.bmp``, ``.png``, ``.jpg``, ``.gif``): ``ImageViewer``;
 * el resto (y las carpetas): la ficha de metadatos ``FilePreview``.
 
-Los ``.csv`` se abren en la página de Localización: al hacer clic en ellos (o
-con Intro / doble clic) se emite ``csv_requested(Path, línea | None)``. Con el
-teclado, moverse por encima de un CSV solo muestra su ficha, para que recorrer
-``localisation/`` con las flechas no cambie de página a cada paso.
+Los ``.csv`` de ``localisation/`` se abren en la página de Localización: al hacer
+clic en ellos (o con Intro / doble clic) se emite ``csv_requested(Path, línea |
+None)``. Con el teclado, moverse por encima de un CSV solo muestra su ficha, para
+que recorrer ``localisation/`` con las flechas no cambie de página a cada paso. Los
+demás CSV (``map/definition.csv``…) no son de localización y muestran su ficha.
+
+Con el teclado la vista previa espera a que la selección se asiente
+(``SELECTION_DELAY_MS``) para no analizar cada archivo por el que se pasa; con el
+ratón o al abrir un archivo desde otra parte se muestra en el acto.
 
 «Validar mod» analiza en segundo plano todos los archivos Clausewitz y CSV del
 mod (``core.modcheck``) y lista sus diagnósticos en la pestaña «Validación».
@@ -44,8 +49,7 @@ from PySide6.QtCore import (
     QUrl,
     Signal,
 )
-from PIL import Image
-from PySide6.QtGui import QAction, QDesktopServices, QGuiApplication, QImage, QPixmap
+from PySide6.QtGui import QAction, QDesktopServices, QGuiApplication
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QComboBox,
@@ -65,6 +69,7 @@ from PySide6.QtWidgets import (
     QSizePolicy,
     QSplitter,
     QStackedWidget,
+    QStyle,
     QTabWidget,
     QToolButton,
     QTreeView,
@@ -72,13 +77,15 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from ...core.csvloc import is_localisation_csv
 from ...core.encoding import decode_bytes
+from ...core.modcheck import GAME_EXECUTABLES
 from ...core.modfile import INSIDE, ModDescriptor, find_descriptor, read_descriptor
 from ...i18n import N_, tr, translator
 from ...settings import app_settings
 from .. import theme
-from ..viewers import CLAUSEWITZ_SUFFIXES, ClausewitzViewer, ImageViewer, ValidationPanel
-from ..viewers.image_viewer import IMAGE_SUFFIXES as IMAGE_VIEWER_SUFFIXES
+from ..viewers import CLAUSEWITZ_SUFFIXES, IMAGE_SUFFIXES, ClausewitzViewer, ImageViewer, ValidationPanel
+from ..viewers.common import file_stamp, format_seconds
 from ..widgets import (
     Divider,
     EmptyState,
@@ -101,7 +108,6 @@ __all__ = [
 ]
 
 EXPECTED_FOLDERS = ("common", "history", "localisation", "map", "events", "decisions", "gfx", "interface")
-GAME_EXECUTABLES = ("v2game.exe", "victoria2.exe")
 GAME_DATA_MIN_FOLDERS = 5
 
 SETTINGS_GAME = "project/game_path"
@@ -111,6 +117,9 @@ SETTINGS_SPLITTER = "project/splitter"
 SETTINGS_LEFT_TAB = "project/left_tab"
 # Por debajo de esta altura de página (1100x700 da ~490 px) se ocultan las líneas secundarias.
 COMPACT_HEIGHT = 600
+SELECTION_DELAY_MS = 150  # con el teclado, espera antes de cargar la vista previa del archivo seleccionado
+REVEAL_TIMEOUT_MS = 5000  # como mucho, lo que se espera a que el explorador liste las carpetas de lo revelado
+RESCROLL_SECONDS = 1.0    # tras listarlas, cada cambio de disposición vuelve a centrarlo durante este tiempo
 
 # --- inspección de carpetas (sin Qt) ------------------------------------------------------
 # El descriptor .mod se lee con el parser Clausewitz (core.modfile).
@@ -144,10 +153,15 @@ def inspect_folder(path: str | os.PathLike | None) -> FolderReport:
     return FolderReport(folder, True, present, executable, len(entries), find_descriptor(folder))
 
 
+def folder_key(path: str | os.PathLike) -> str:
+    """Clave de una carpeta para compararla con otras (ruta real, sin distinguir mayúsculas en Windows)."""
+    return os.path.normcase(os.path.realpath(path))
+
+
 def same_folder(a: Path | None, b: Path | None) -> bool:
     if a is None or b is None:
         return False
-    return os.path.normcase(os.path.realpath(a)) == os.path.normcase(os.path.realpath(b))
+    return folder_key(a) == folder_key(b)
 
 
 def _is_under(path: Path, root: Path) -> bool:
@@ -172,13 +186,19 @@ def evaluate_game(report: FolderReport) -> tuple[str, str, dict]:
 
 
 def evaluate_mod(report: FolderReport, game_path: Path | None) -> tuple[str, str, dict]:
-    """El mod nunca puede ser el juego base: así jamás se escribe sobre el original."""
+    """El mod nunca puede ser el juego base, ni contenerlo, ni estar dentro de él salvo en su
+    carpeta ``mod/``: así jamás se escribe sobre el original ni se validan sus archivos."""
     if report.path is None:
         return "neutral", N_("check.not_set"), {}
     if not report.exists:
         return "error", N_("check.missing"), {}
     if report.is_game or same_folder(report.path, game_path):
         return "error", N_("check.mod_is_game"), {}
+    if game_path is not None:
+        if _is_under(game_path, report.path):
+            return "error", N_("check.mod_contains_game"), {}
+        if _is_under(report.path, game_path) and not _is_under(report.path, game_path / "mod"):
+            return "error", N_("check.mod_inside_game"), {}
     if report.present:
         return "ok", N_("check.mod_ok"), {"count": len(report.present)}
     if report.entries == 0:
@@ -188,7 +208,6 @@ def evaluate_mod(report: FolderReport, game_path: Path | None) -> tuple[str, str
 
 # --- tipos de archivo ---------------------------------------------------------------------
 
-IMAGE_SUFFIXES = {".bmp", ".tga", ".dds", ".png", ".jpg", ".jpeg", ".gif"}
 TEXT_SUFFIXES = {".txt", ".csv", ".mod", ".lua", ".gui", ".gfx", ".sfx", ".asset", ".fx", ".fnt", ".bak", ".map", ".yml"}
 FILE_TYPE_KEYS = {
     ".txt": N_("filetype.txt"), ".csv": N_("filetype.csv"), ".mod": N_("filetype.mod"), ".lua": N_("filetype.lua"),
@@ -204,21 +223,18 @@ FILE_ICONS = {
 ENCODING_KEYS = {"cp1252": N_("encoding.cp1252"), "utf-8": N_("encoding.utf8"), "utf-8-sig": N_("encoding.utf8_bom")}
 MAX_SCAN_BYTES = 2 * 1024 * 1024
 EXCERPT_LINES = 160
-THUMBNAIL = QSize(520, 300)
-
 
 PREVIEW_CLAUSEWITZ, PREVIEW_IMAGE, PREVIEW_CSV = "clausewitz", "image", "csv"
-CSV_SUFFIX = ".csv"
 
 
 def preview_kind(path: str | os.PathLike) -> str | None:
-    """Visor que corresponde a un archivo: ``clausewitz``, ``image``, ``csv`` o ``None`` (ficha)."""
+    """Visor que corresponde a un archivo: ``clausewitz``, ``image``, ``csv`` (de localización) o ``None`` (ficha)."""
     suffix = Path(path).suffix.lower()
     if suffix in CLAUSEWITZ_SUFFIXES:
         return PREVIEW_CLAUSEWITZ
-    if suffix in IMAGE_VIEWER_SUFFIXES:
+    if suffix in IMAGE_SUFFIXES:
         return PREVIEW_IMAGE
-    if suffix == CSV_SUFFIX:
+    if is_localisation_csv(path):  # el juego solo lee la localización de los CSV de localisation/
         return PREVIEW_CSV
     return None
 
@@ -254,41 +270,32 @@ class FileFacts:
     lines: int | None = None
     excerpt: str | None = None
     partial: bool = False
-    image: QImage | None = None
-    image_size: QSize | None = None
+    stamp: tuple[int, int] | None = None  # ``file_stamp`` al leerlo: si cambia, la ficha está desfasada
 
 
-def _load_image(path: Path) -> tuple[QImage | None, QSize | None]:
-    """Miniatura y tamaño original. Se usa Pillow (TGA, DDS, BMP, PNG…): con archivos
-    dañados falla limpiamente, mientras que los lectores de Qt llenan el registro de avisos."""
+def relative_text(path: Path, root: Path | None) -> str:
+    """``path`` relativa a ``root`` (con ``/``) si cuelga de ella; si no, completa."""
     try:
-        with Image.open(path) as im:
-            original = QSize(*im.size)
-            im.thumbnail((THUMBNAIL.width(), THUMBNAIL.height()))
-            rgba = im.convert("RGBA")
-    except Exception:  # noqa: BLE001 - imagen ilegible: la vista previa queda sin miniatura
-        return None, None
-    data = rgba.tobytes("raw", "RGBA")
-    return QImage(data, rgba.width, rgba.height, 4 * rgba.width, QImage.Format.Format_RGBA8888).copy(), original
+        return path.relative_to(root).as_posix() if root else path.as_posix()
+    except ValueError:
+        return path.as_posix()
 
 
 def gather_facts(path: Path, root: Path | None) -> FileFacts:
-    try:
-        relative = path.relative_to(root).as_posix() if root else path.as_posix()
-    except ValueError:
-        relative = path.as_posix()
+    """Metadatos de la ficha; de los archivos de texto, también la codificación y un extracto."""
+    relative = relative_text(path, root)
     stat = path.stat()
+    stamp = stat.st_mtime_ns, stat.st_size  # como ``file_stamp``
     if path.is_dir():
         try:
             entries = sum(1 for _ in os.scandir(path))
         except OSError:
             entries = None
-        return FileFacts(path, relative, True, 0, stat.st_mtime, entries)
-    facts = FileFacts(path, relative, False, stat.st_size, stat.st_mtime)
+        return FileFacts(path, relative, True, 0, stat.st_mtime, entries, stamp=stamp)
+    facts = FileFacts(path, relative, False, stat.st_size, stat.st_mtime, stamp=stamp)
     suffix = path.suffix.lower()
     if suffix in IMAGE_SUFFIXES:
-        facts.image, facts.image_size = _load_image(path)
-        return facts
+        return facts  # las muestra ImageViewer
     with path.open("rb") as handle:
         data = handle.read(MAX_SCAN_BYTES)
     facts.partial = stat.st_size > len(data)
@@ -357,11 +364,17 @@ class ExplorerModel(QIdentityProxyModel):
 
 
 def name_filters(text: str) -> list[str]:
-    """``"france *.csv"`` -> ``["*france*", "*.csv"]``; admite comodines * y ?."""
+    """``"france; *.csv"`` -> ``["*france*", "*.csv"]``: patrones separados por ``;`` o ``,``.
+
+    Los espacios forman parte del patrón (``400 - Dunkirk``). Solo ``*`` y ``?`` son
+    comodines: los corchetes se buscan tal cual (en Qt abrirían una clase de caracteres).
+    """
     patterns = []
-    for token in re.split(r"[\s;,]+", text.strip()):
+    for token in re.split(r"[;,]", text):
+        token = token.strip()
         if token:
-            patterns.append(token if any(c in token for c in "*?[") else f"*{token}*")
+            literal = "".join(f"[{c}]" if c in "[]" else c for c in token)
+            patterns.append(literal if any(c in token for c in "*?") else f"*{literal}*")
     return patterns
 
 
@@ -387,22 +400,33 @@ class _VRule(QFrame):
         self.setFixedWidth(1)
 
 
-_LINK_TOKEN = ""  # marcador del enlace dentro del texto traducido (sobrevive al escape HTML)
+# Marcadores dentro del texto traducido (sobreviven al escape HTML y a ``rich``): el enlace y los
+# valores del descriptor, que se insertan después para que sus comillas invertidas no formen código.
+_LINK_TOKEN = "\ue000"
+_VALUE_TOKENS = {"name": "\ue001", "path": "\ue002", "user_dir": "\ue003"}
+
+
+def _descriptor_errors_text(descriptor: ModDescriptor) -> str:
+    errors = len(descriptor.errors)
+    return tr("check.descriptor_errors_one" if errors == 1 else "check.descriptor_errors", count=errors) \
+        if errors else ""
 
 
 def descriptor_html(descriptor: ModDescriptor) -> str:
     """Resumen del descriptor con su nombre de archivo como enlace (``href="descriptor"``)."""
     missing = tr("check.descriptor_missing_value")
-    text = tr("check.descriptor", file=_LINK_TOKEN, name=descriptor.name or missing,
-              path=descriptor.path or missing, user_dir=descriptor.user_dir or missing)
+    text = tr("check.descriptor", file=_LINK_TOKEN, **_VALUE_TOKENS)
     if descriptor.location == INSIDE:
         text += " " + tr("check.descriptor_inside")
-    errors = len(descriptor.errors)
+    errors = _descriptor_errors_text(descriptor)
     if errors:
-        text += " · " + tr("check.descriptor_errors_one" if errors == 1 else "check.descriptor_errors", count=errors)
+        text += " · " + errors
     anchor = (f'<a href="descriptor" style="color:{theme.PALETTE["velvet_light"]};">'
               f'{html.escape(descriptor.file.name)}</a>')
-    return rich(text, 9).replace(_LINK_TOKEN, anchor)
+    result = rich(text, 9).replace(_LINK_TOKEN, anchor)
+    for field, token in _VALUE_TOKENS.items():
+        result = result.replace(token, html.escape(getattr(descriptor, field) or missing, quote=False))
+    return result
 
 
 class PathField(QWidget):
@@ -443,9 +467,10 @@ class PathField(QWidget):
         layout.addLayout(row)
         self.badge = StatusBadge()
         layout.addWidget(self.badge)
-        # En modo compacto la insignia se reduce a un icono dentro del campo.
+        # En modo compacto la insignia se reduce a un icono dentro del campo; con descriptor, abre este.
         self.status_action = self.edit.addAction(make_icon("info", "ink_muted"), QLineEdit.ActionPosition.TrailingPosition)
         self.status_action.setVisible(False)
+        self.status_action.triggered.connect(self._on_descriptor_link)
         self.chips_box = QWidget()
         self.chip_layout = FlowLayout(self.chips_box, spacing=3)
         self.chips = [FolderChip(name) for name in EXPECTED_FOLDERS]
@@ -485,7 +510,8 @@ class PathField(QWidget):
         self.retranslate()
 
     def set_compact(self, compact: bool) -> None:
-        """Sin carpetas detectadas ni línea del descriptor (pasan a la ayuda emergente de la insignia)."""
+        """Sin carpetas detectadas ni línea del descriptor: pasan a la ayuda emergente del icono de estado,
+        y un clic en él abre el descriptor."""
         if compact != self._compact:
             self._compact = compact
             self._apply_compact()
@@ -514,7 +540,11 @@ class PathField(QWidget):
                 hidden.append(tr("check.compact_folders", folders=", ".join(self._report.present) or "—"))
             if self.kind == "mod" and self._report.descriptor is not None:
                 d = self._report.descriptor
-                hidden.append(tr("check.compact_descriptor", file=d.file.name, name=d.name or "—"))
+                missing = tr("check.descriptor_missing_value")
+                line = tr("check.compact_descriptor", file=d.file.name, name=d.name or missing,
+                          path=d.path or missing, user_dir=d.user_dir or missing)
+                errors = _descriptor_errors_text(d)
+                hidden += [f"{line} · {errors}" if errors else line, tr("check.compact_descriptor_open")]
             self.status_action.setIcon(make_icon(LEVEL_ICONS[level], LEVEL_COLORS[level]))
         self.status_action.setToolTip("\n".join(hidden))
         for chip in self.chips:
@@ -536,7 +566,7 @@ class PathField(QWidget):
         d = self._report.descriptor
         return d.file if d else None
 
-    def _on_descriptor_link(self, link: str) -> None:
+    def _on_descriptor_link(self, *args) -> None:
         file = self.descriptor_file()
         if file is not None:
             self.descriptor_activated.emit(file)
@@ -558,13 +588,12 @@ class PathField(QWidget):
 
 
 class FilePreview(QWidget):
-    """Vista previa por defecto: metadatos, miniatura de imágenes o extracto de texto."""
+    """Ficha de lo que no tiene visor propio (carpetas, CSV y otros archivos): metadatos y extracto de texto."""
 
     ROW_KEYS = (
         ("path", N_("project.preview.path")), ("size", N_("project.preview.size")),
         ("modified", N_("project.preview.modified")), ("entries", N_("project.preview.entries")),
         ("encoding", N_("project.preview.encoding")), ("lines", N_("project.preview.lines")),
-        ("dimensions", N_("project.preview.dimensions")),
     )
 
     csv_requested = Signal(object)  # Path
@@ -626,10 +655,6 @@ class FilePreview(QWidget):
         self.csv_button.clicked.connect(self._on_csv_clicked)
         self.csv_button.setVisible(False)
         column.addWidget(self.csv_button, 0, Qt.AlignmentFlag.AlignLeft)
-        self.thumbnail = QLabel()
-        self.thumbnail.setObjectName("previewThumbnail")
-        self.thumbnail.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        column.addWidget(self.thumbnail)
         self.excerpt_caption = QLabel()
         self.excerpt_caption.setProperty("role", "caption")
         self.excerpt_caption.setFont(theme.font("caption"))
@@ -677,12 +702,6 @@ class FilePreview(QWidget):
         self.excerpt.setVisible(facts.excerpt is not None)
         self.excerpt_caption.setVisible(facts.excerpt is not None)
         self.details_stretch.setVisible(facts.excerpt is None)
-        if facts.image is not None:
-            self.thumbnail.setPixmap(QPixmap.fromImage(facts.image))
-            self.thumbnail.setVisible(True)
-        else:
-            self.thumbnail.clear()
-            self.thumbnail.setVisible(False)
         self.retranslate()
 
     def retranslate(self) -> None:
@@ -702,13 +721,13 @@ class FilePreview(QWidget):
                 "project.preview.size_value", human=locale.formattedDataSize(facts.size),
                 bytes=locale.toString(facts.size)),
             "modified": locale.toString(QDateTime.fromSecsSinceEpoch(int(facts.modified)), "d MMM yyyy, HH:mm"),
-            "entries": None if facts.entries is None else tr("project.preview.entries_value", count=facts.entries),
+            "entries": None if facts.entries is None else tr(
+                "project.preview.entries_value_one" if facts.entries == 1 else "project.preview.entries_value",
+                count=locale.toString(facts.entries)),
             "encoding": None if facts.encoding is None else tr(ENCODING_KEYS.get(facts.encoding, "encoding.other"),
                                                                name=facts.encoding),
             "lines": None if facts.lines is None else (
                 locale.toString(facts.lines) + (" +" if facts.partial else "")),
-            "dimensions": None if facts.image_size is None else
-            f"{facts.image_size.width()} × {facts.image_size.height()} px",
         }
         for row_id, value in values.items():
             self.form.setRowVisible(self.form_values[row_id], value is not None)
@@ -719,7 +738,6 @@ class FilePreview(QWidget):
     def _on_csv_clicked(self) -> None:
         if self.facts is not None:
             self.csv_requested.emit(self.facts.path)
-
 
 
 class ProjectPage(BasePage):
@@ -745,7 +763,12 @@ class ProjectPage(BasePage):
         self._explorer_root: Path | None = None
         self._loading = False
         self._last_emitted: Path | None = None
-        self._reveal_target: Path | None = None
+        self._reveal_target: Path | None = None  # archivo revelado cuyas carpetas aún está listando el modelo
+        self._reveal_waiting: set[str] = set()     # esas carpetas (``folder_key``)
+        self._listed_folders: set[str] = set()     # carpetas que el modelo ya ha listado (``directoryLoaded``)
+        self._revealing = False
+        self._pending_selection: Path | None = None
+        self._preview_path: Path | None = None  # lo que muestra la vista previa (archivo o carpeta)
         self._custom_preview: QWidget | None = None
         self._mod_report = FolderReport(None)
         self._mod_status: tuple[str, str, dict] = ("neutral", N_("check.not_set"), {})
@@ -827,6 +850,8 @@ class ProjectPage(BasePage):
         self.tree.setAnimated(False)
         self.tree.setIconSize(QSize(18, 18))
         self.tree.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        # Intro y doble clic llegan los dos por ``activated``, que es quien expande o contrae.
+        self.tree.setExpandsOnDoubleClick(False)
         self.tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.tree.customContextMenuRequested.connect(self._show_context_menu)
         header = self.tree.header()
@@ -855,7 +880,10 @@ class ProjectPage(BasePage):
         self.validation.run_requested.connect(self.validate_mod)
         self.validation.issue_activated.connect(self._on_issue_activated)
         self.validation.validation_finished.connect(self._on_validation_finished)
-        self.validation.busy_changed.connect(lambda busy: self._update_validate_button())
+        self.validation.validation_cancelled.connect(lambda: self.request_status("status.validation_cancelled"))
+        self.validation.validation_failed.connect(
+            lambda error: self.request_status("status.validation_failed", error=error))
+        self.validation.busy_changed.connect(self._on_validation_busy)
         self.left_tabs.addTab(self.validation, make_icon("validate", "ink_soft"), "")
         stored_tab = settings.value(SETTINGS_LEFT_TAB, "files", str)
         self.left_tabs.setCurrentIndex(0 if stored_tab not in self.LEFT_TABS else self.LEFT_TABS.index(stored_tab))
@@ -873,7 +901,8 @@ class ProjectPage(BasePage):
         self.clausewitz_viewer = ClausewitzViewer()
         self.image_viewer = ImageViewer()
         self.clausewitz_viewer.loaded.connect(self._on_viewer_loaded)
-        self.image_viewer.loaded.connect(self._on_viewer_loaded)
+        # Al volver a la aplicación (p. ej. tras corregir el archivo en otro editor) se relee lo que se ve.
+        QGuiApplication.instance().applicationStateChanged.connect(self._on_application_state)
         for viewer in (self.clausewitz_viewer, self.image_viewer):
             self.preview_stack.addWidget(viewer)
         show_in_stack(self.preview_stack, self.preview)
@@ -898,6 +927,14 @@ class ProjectPage(BasePage):
         self._loading_timeout.setSingleShot(True)
         self._loading_timeout.setInterval(5000)
         self._loading_timeout.timeout.connect(self._finish_loading)
+        self._reveal_timeout = QTimer(self)
+        self._reveal_timeout.setSingleShot(True)
+        self._reveal_timeout.setInterval(REVEAL_TIMEOUT_MS)
+        self._reveal_timeout.timeout.connect(self._settle_reveal)
+        self._selection_timer = QTimer(self)
+        self._selection_timer.setSingleShot(True)
+        self._selection_timer.setInterval(SELECTION_DELAY_MS)
+        self._selection_timer.timeout.connect(self._show_pending_selection)
 
         self.game_field.set_path(self._game_path)
         self.mod_field.set_path(self._mod_path)
@@ -929,6 +966,7 @@ class ProjectPage(BasePage):
         self.mod_field.set_path(self._mod_path)
         app_settings().setValue(SETTINGS_MOD, os.fspath(self._mod_path) if self._mod_path else "")
         self.validation.clear()
+        self._retranslate_left_tabs()
         self._validate()
         self._refresh_explorer()
         self.request_status("status.mod_path_set" if self._mod_path else "status.mod_path_cleared")
@@ -941,8 +979,10 @@ class ProjectPage(BasePage):
     def set_preview_widget(self, widget: QWidget | None) -> None:
         """Muestra ``widget`` en el panel de vista previa; ``None`` vuelve a los metadatos.
 
-        El widget anterior se retira del panel sin destruirlo.
+        El widget anterior se retira del panel sin destruirlo. Un clic en el archivo seleccionado
+        del explorador lo vuelve a mostrar.
         """
+        self._preview_path = None  # ``_show_preview`` lo fija después de mostrar su visor
         if self._custom_preview is not None and self._custom_preview is not widget:
             self.preview_stack.removeWidget(self._custom_preview)
             self._custom_preview.hide()
@@ -958,8 +998,26 @@ class ProjectPage(BasePage):
     def preview_widget(self) -> QWidget | None:
         return self._custom_preview
 
+    def reload_preview_if_changed(self) -> bool:
+        """Vuelve a leer el archivo (o la carpeta) de la vista previa si cambió en disco desde que se leyó;
+        ``True`` si lo hace. Si no cambió no lee nada: solo consulta su fecha y su tamaño. Un archivo que
+        no se pudo leer se reintenta siempre (``ClausewitzViewer.reload_if_changed``)."""
+        widget = self.preview_stack.currentWidget()
+        if widget is self.clausewitz_viewer:
+            return self.clausewitz_viewer.reload_if_changed()
+        if widget is self.image_viewer:
+            return self.image_viewer.reload_if_changed()
+        facts = self.preview.facts
+        if widget is self.preview and facts is not None and facts.stamp != file_stamp(facts.path):
+            self._show_preview(facts.path)
+            return True
+        return False
+
     def reveal_file(self, path: str | os.PathLike) -> bool:
-        """Selecciona ``path`` en el explorador (expandiendo sus carpetas) si está bajo la raíz."""
+        """Selecciona ``path`` en el explorador (expandiendo sus carpetas) si está bajo la raíz.
+
+        Mientras el modelo lista esas carpetas, el archivo se mantiene centrado e ``is_busy()`` es ``True``.
+        """
         target = Path(path)
         root = self._explorer_root
         if root is None or not target.exists():
@@ -975,9 +1033,28 @@ class ProjectPage(BasePage):
         parent = index.parent()
         while parent.isValid() and parent != self.tree.rootIndex():
             self.tree.expand(parent)
+            self.model.fetchMore(parent)  # que se liste aunque la vista aún no se haya maquetado
             parent = parent.parent()
-        self._reveal_target = target
-        self.tree.setCurrentIndex(index)
+        # Hasta que el modelo liste las carpetas que llevan al archivo, cada fila nueva (y la ordenación
+        # que hace después, en diferido) lo cambia de sitio: se vuelve a centrar hasta que estén todas.
+        waiting, root_key = set(), folder_key(root)
+        folder = target.parent
+        while _is_under(folder, root):
+            key = folder_key(folder)
+            if key not in self._listed_folders:
+                waiting.add(key)
+            if key == root_key:
+                break
+            folder = folder.parent
+        self._cancel_reveal()
+        if waiting:
+            self._reveal_target, self._reveal_waiting = target, waiting
+            self._reveal_timeout.start()
+        self._revealing = True  # se muestra en el acto, sin la espera de la navegación con teclado
+        try:
+            self.tree.setCurrentIndex(index)
+        finally:
+            self._revealing = False
         self.tree.scrollTo(index, QAbstractItemView.ScrollHint.PositionAtCenter)
         return True
 
@@ -985,9 +1062,9 @@ class ProjectPage(BasePage):
                   tab: str | None = None) -> bool:
         """Abre ``path`` en el visor que le corresponda, en ``line`` si se indica.
 
-        Lo selecciona también en el explorador cuando está bajo su raíz. Los CSV
-        se piden a la página de Localización (``csv_requested``). Devuelve
-        ``False`` si el archivo no existe.
+        Lo selecciona también en el explorador cuando está bajo su raíz. Los CSV de
+        ``localisation/`` se piden a la página de Localización (``csv_requested``).
+        Devuelve ``False`` si el archivo no existe.
         """
         path = Path(path)
         if not path.is_file():
@@ -1001,6 +1078,7 @@ class ProjectPage(BasePage):
 
     def validate_mod(self) -> bool:
         """Valida en segundo plano el mod (y su descriptor .mod); ``False`` si no hay mod válido."""
+        self._validate()  # la carpeta y el descriptor pueden haber cambiado desde que se eligió el mod
         if not self._can_validate():
             return False
         descriptor = self._mod_report.descriptor
@@ -1025,12 +1103,15 @@ class ProjectPage(BasePage):
         self.set_compact(self.height() < COMPACT_HEIGHT)
 
     def is_busy(self) -> bool:
-        return (self._loading or self._scroll_timer.isActive() or self.clausewitz_viewer.is_busy()
-                or self.image_viewer.is_busy() or self.validation.is_busy())
+        return (self._loading or self._reveal_target is not None or self._scroll_timer.isActive()
+                or self._selection_timer.isActive()
+                or self.clausewitz_viewer.is_busy() or self.image_viewer.is_busy() or self.validation.is_busy())
 
     def shutdown(self) -> None:
+        self._selection_timer.stop()
         self.validation.cancel()
         self.clausewitz_viewer.clear()
+        self.image_viewer.cancel()
 
     # --- interno -------------------------------------------------------------------------
 
@@ -1053,9 +1134,12 @@ class ProjectPage(BasePage):
         return self._mod_path is not None and self._mod_report.exists and self._mod_status[0] != "error"
 
     def _update_validate_button(self) -> None:
-        busy = self.validation.is_busy()
-        self.validate_button.setEnabled(self._can_validate() and not busy)
+        self.validate_button.setEnabled(self._can_validate() and not self.validation.is_busy())
         self.validation.set_run_enabled(self._can_validate())
+
+    def _on_validation_busy(self, busy: bool) -> None:
+        self._update_validate_button()
+        self._retranslate_left_tabs()
 
     def _refresh_explorer(self) -> None:
         which = self.root_combo.currentData()
@@ -1063,9 +1147,12 @@ class ProjectPage(BasePage):
         if root is None or not root.is_dir():
             self._explorer_root = None
             self._loading = False
+            self._selection_timer.stop()
+            self._cancel_reveal()
             show_in_stack(self.explorer_stack, self.explorer_empty)
             self.preview.show_facts(None)
             self.set_preview_widget(None)
+            self._preview_path = None
             self._retranslate_explorer_empty()
             return
         if self._explorer_root is not None and same_folder(root, self._explorer_root):
@@ -1073,25 +1160,47 @@ class ProjectPage(BasePage):
         self._explorer_root = root
         self._loading = True
         self._loading_timeout.start()
+        # Nada queda resaltado en el explorador mientras la vista previa dice «Ningún archivo seleccionado».
+        self._selection_timer.stop()
+        self._cancel_reveal()
+        self.tree.selectionModel().clear()
         source_root = self.fs.setRootPath(os.fspath(root))
         self.tree.setRootIndex(self.model.mapFromSource(source_root))
         show_in_stack(self.explorer_stack, self.tree)
         self.preview.show_facts(None)
         self.set_preview_widget(None)
-        self._last_emitted = None
+        self._preview_path = self._last_emitted = None
 
     def _on_directory_loaded(self, directory: str) -> None:
-        if self._explorer_root is not None and same_folder(Path(directory), self._explorer_root):
+        key = folder_key(directory)
+        self._listed_folders.add(key)
+        if self._explorer_root is not None and key == folder_key(self._explorer_root):
             self._finish_loading()
-        if self._reveal_target is not None and same_folder(Path(directory), self._reveal_target.parent):
-            # El modelo sigue insertando y ordenando filas tras cargar la carpeta: durante un
-            # instante cada cambio de disposición vuelve a centrar el archivo seleccionado.
-            self._reveal_target = None
-            self._rescroll_until = time.monotonic() + 1.0
-            self._scroll_timer.start()
+        if self._reveal_target is not None and key in self._reveal_waiting:
+            self._reveal_waiting.discard(key)
+            if self._reveal_waiting:
+                self._scroll_timer.start()
+            else:
+                self._settle_reveal()
+
+    def _settle_reveal(self) -> None:
+        """Ya están listadas las carpetas del archivo revelado (o venció el plazo): se ordena ya lo que el
+        modelo ordenaría en diferido (con la máquina cargada, quizá cuando ya nadie lo volviera a centrar)
+        y se centra el archivo en su sitio definitivo. Durante ``RESCROLL_SECONDS`` cada cambio de
+        disposición (otra carpeta que termina de cargar por encima) lo vuelve a centrar."""
+        self._cancel_reveal()
+        header = self.tree.header()
+        self.model.sort(header.sortIndicatorSection(), header.sortIndicatorOrder())  # no hace nada si ya lo está
+        self._rescroll_until = time.monotonic() + RESCROLL_SECONDS
+        self._scroll_timer.start()
+
+    def _cancel_reveal(self) -> None:
+        self._reveal_timeout.stop()
+        self._reveal_target = None
+        self._reveal_waiting = set()
 
     def _rescroll_if_pending(self, *args) -> None:
-        if time.monotonic() < self._rescroll_until:
+        if self._reveal_target is not None or time.monotonic() < self._rescroll_until:
             self._scroll_timer.start()
 
     def _scroll_to_current(self) -> None:
@@ -1122,24 +1231,44 @@ class ProjectPage(BasePage):
             return
         path = self.model.file_path(current)
         if self._reveal_target is not None and not same_folder(path, self._reveal_target):
-            self._reveal_target = None
-        try:
-            facts = gather_facts(path, self._explorer_root)
-        except OSError:
-            facts = None
-        self.preview.show_facts(facts)
-        if facts is None or facts.is_dir:
-            self.set_preview_widget(None)
-            return
+            self._cancel_reveal()  # el usuario eligió otra cosa: ya no hay que perseguir el archivo revelado
+        if self._revealing or QGuiApplication.mouseButtons() != Qt.MouseButton.NoButton:
+            self._select(path)
+        else:
+            self._pending_selection = path
+            self._selection_timer.start()
+
+    def _show_pending_selection(self) -> None:
+        current = self.tree.currentIndex()
+        if self._pending_selection is not None and current.isValid() \
+                and self.model.file_path(current) == self._pending_selection:
+            self._select(self._pending_selection)
+        self._pending_selection = None
+
+    def _select(self, path: Path) -> None:
+        """Muestra en la vista previa ``path``, seleccionado en el explorador."""
+        self._selection_timer.stop()
+        self._pending_selection = None
         self._show_preview(path)
         if path != self._last_emitted:
             self._last_emitted = path
-            self.request_status("status.file_selected", path=facts.relative)
-            self.file_activated.emit(path)
+            self.request_status("status.file_selected", path=relative_text(path, self._explorer_root))
+            if not path.is_dir():
+                self.file_activated.emit(path)
 
     def _show_preview(self, path: Path, *, line: int | None = None, column: int | None = None,
                       tab: str | None = None) -> None:
-        kind = preview_kind(path)
+        kind = None if path.is_dir() else preview_kind(path)
+        # Un análisis que ya no se va a ver deja libre su hilo, y también el JSON a medio generar. Si el
+        # visor ya tiene su archivo cargado, lo conserva para no repetir el análisis al volver.
+        viewer = self.clausewitz_viewer
+        if kind != PREVIEW_CLAUSEWITZ:
+            if viewer.is_busy() and viewer.current_load() is None:
+                viewer.clear()
+            else:
+                viewer.cancel()
+        if kind != PREVIEW_IMAGE:
+            self.image_viewer.cancel()
         # Ruta mostrada en la cabecera del visor: relativa al explorador (o al mod) si cuelga de él.
         root = self._explorer_root or self._mod_path
         if root is None or not _is_under(path, root):
@@ -1151,9 +1280,21 @@ class ProjectPage(BasePage):
             self.set_preview_widget(self.image_viewer)
             self.image_viewer.load(path, root=root)
         else:
+            try:
+                facts = gather_facts(path, self._explorer_root)
+            except OSError:
+                facts = None
+            self.preview.show_facts(facts)
             self.set_preview_widget(None)
+        self._preview_path = path
+
+    def _on_application_state(self, state: Qt.ApplicationState) -> None:
+        if state == Qt.ApplicationState.ApplicationActive and self.isVisible():
+            self.reload_preview_if_changed()
 
     def _on_viewer_loaded(self, path: Path) -> None:
+        if self.preview_stack.currentWidget() is not self.clausewitz_viewer:
+            return  # terminó de analizarse cuando ya se mostraba otra cosa
         load = self.clausewitz_viewer.current_load()
         if load is not None and load.path == path:
             errors = len(load.result.errors)
@@ -1168,44 +1309,63 @@ class ProjectPage(BasePage):
         return path if preview_kind(path) == PREVIEW_CSV else None
 
     def _on_clicked(self, index: QModelIndex) -> None:
-        csv = self._csv_at(index)
-        if csv is not None:
-            self.csv_requested.emit(csv, None)
+        # Con la activación de un solo clic (p. ej. KDE) ese mismo clic emite también ``activated``.
+        if not self.tree.style().styleHint(QStyle.StyleHint.SH_ItemView_ActivateItemOnSingleClick, None, self.tree):
+            self._open_index(index)
 
     def _on_activated(self, index: QModelIndex) -> None:
-        if index.isValid() and self.fs.isDir(self.model.mapToSource(index)):
+        if not index.isValid():
+            return
+        index = index.siblingAtColumn(0)  # isExpanded solo responde por la primera columna
+        if self.fs.isDir(self.model.mapToSource(index)):
             self.tree.setExpanded(index, not self.tree.isExpanded(index))
+        self._open_index(index)
+
+    def _open_index(self, index: QModelIndex) -> None:
+        """Clic, doble clic o Intro: los CSV de localización van a su página; el resto se vuelve a mostrar si la
+        vista previa enseñaba otra cosa (un archivo abierto desde fuera, otra raíz, otro widget…) y, si ya lo
+        mostraba, se relee si cambió en disco (p. ej. corregido en otro editor)."""
+        if not index.isValid():
             return
         csv = self._csv_at(index)
         if csv is not None:
             self.csv_requested.emit(csv, None)
+            return
+        path = self.model.file_path(index)
+        if path != self._preview_path:
+            self._select(path)
+        else:
+            self.reload_preview_if_changed()
 
     def _on_issue_activated(self, row) -> None:
-        if row.path is not None:
-            self.open_file(row.path, line=row.line, column=row.column)
+        if row.path is not None and not self.open_file(row.path, line=row.line, column=row.column):
+            self.request_status("status.file_missing", name=row.relative or row.path.name)
 
     def _on_validation_finished(self, report) -> None:
         self._retranslate_left_tabs()
+        self.clausewitz_viewer.reload_if_changed()  # que el visor no contradiga a la validación
         # Invocables: la barra de estado los vuelve a formatear si cambia el idioma.
         self.request_status("status.validation_done", files=lambda: translator().locale().toString(report.files),
-                            errors=len(report.files_with()),
-                            seconds=lambda: translator().locale().toString(report.elapsed, "f", 1))
+                            errors=len(report.files_with()), seconds=lambda: format_seconds(report.elapsed))
         self.validation_finished.emit(report)
 
     def _show_context_menu(self, pos: QPoint) -> None:
         index = self.tree.indexAt(pos)
-        if not index.isValid():
-            return
-        path = self.model.file_path(index)
+        if index.isValid():
+            menu = self.context_menu(self.model.file_path(index))
+            menu.exec(self.tree.viewport().mapToGlobal(pos))
+            menu.deleteLater()
+
+    def context_menu(self, path: Path) -> QMenu:
+        """Menú contextual del explorador para ``path``: copiar la ruta y abrir la carpeta que lo contiene."""
         menu = QMenu(self)
         copy = QAction(make_icon("copy", "cream"), tr("project.explorer.copy_path"), menu)
         copy.triggered.connect(lambda: QGuiApplication.clipboard().setText(os.fspath(path)))
         reveal = QAction(make_icon("external", "cream"), tr("project.explorer.open_folder"), menu)
-        folder = path if path.is_dir() else path.parent
-        reveal.triggered.connect(lambda: QDesktopServices.openUrl(QUrl.fromLocalFile(os.fspath(folder))))
+        reveal.triggered.connect(lambda: QDesktopServices.openUrl(QUrl.fromLocalFile(os.fspath(path.parent))))
         menu.addAction(copy)
         menu.addAction(reveal)
-        menu.exec(self.tree.viewport().mapToGlobal(pos))
+        return menu
 
     def _save_splitter(self, *args) -> None:
         app_settings().setValue(SETTINGS_SPLITTER, self.splitter.saveState())
