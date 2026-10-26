@@ -1,0 +1,350 @@
+political_decisions = {
+	uncivilized_buff = {
+		picture = noimage
+		potential = {
+			year = 1836
+			civilized = no
+			ai = no
+			NOT = {
+				has_country_flag = unciv_buff
+			}
+		}
+		allow = {
+		}
+		effect = {
+			add_country_modifier = {
+				name = unciv_buff
+				duration = 3650 
+			}
+			set_country_flag = unciv_buff
+		}
+	}
+	civilized_buff = {
+		picture = noimage
+		potential = {
+			year = 1836
+			civilized = yes
+			ai = no
+			NOT = {
+				has_country_flag = civ_buff
+			}
+		}
+		allow = {
+		}
+		effect = {
+			add_country_modifier = {
+				name = civ_buff
+				duration = 3650 
+			}
+			set_country_flag = civ_buff
+		}
+	}
+	education_funding_1 = {
+		picture = noimage
+		potential = {
+			civilized = yes
+			ai = no
+			NOT = {
+				has_country_flag = ed_fund_1
+			}
+		}
+		allow = {
+			late_enlightenment_philosophy = 1
+			malthusian_thought = 1
+			money = 100000
+		}
+		effect = {
+			add_country_modifier = {
+				name = ed_fund_1
+				duration = -1
+			}
+			set_country_flag = ed_fund_1
+		}
+	}
+	education_funding_2 = {
+		picture = noimage
+		potential = {
+			civilized = yes
+			ai = no
+			has_country_flag = ed_fund_1
+			NOT = {
+				has_country_flag = ed_fund_2
+			}
+		}
+		allow = {
+			idealism = 1
+			functionalism = 1
+			money = 150000
+		}
+		effect = {
+			remove_country_modifier = ed_fund_1
+			add_country_modifier = {
+				name = ed_fund_2
+				duration = -1
+			}
+			set_country_flag = ed_fund_2
+		}
+	}
+	education_funding_3 = {
+		picture = noimage
+		potential = {
+			civilized = yes
+			ai = no
+			has_country_flag = ed_fund_2
+			NOT = {
+				has_country_flag = ed_fund_3
+			}
+		}
+		allow = {
+			phenomenalism = 1
+			biologism = 1
+			money = 250000
+		}
+		effect = {
+			remove_country_modifier = ed_fund_2
+			add_country_modifier = {
+				name = ed_fund_3
+				duration = -1
+			}
+			set_country_flag = ed_fund_3
+		}
+	}
+	education_funding_4 = {
+		picture = noimage
+		potential = {
+			civilized = yes
+			ai = no
+			has_country_flag = ed_fund_3
+			NOT = {
+				has_country_flag = ed_fund_4
+			}
+		}
+		allow = {
+			empiricism = 1
+			experimental_psychology = 1
+			money = 500000
+		}
+		effect = {
+			remove_country_modifier = ed_fund_3
+			add_country_modifier = {
+				name = ed_fund_4
+				duration = -1
+			}
+			set_country_flag = ed_fund_4
+		}
+	}
+	education_funding_5 = {
+		picture = noimage
+		potential = {
+			civilized = yes
+			ai = no
+			has_country_flag = ed_fund_4
+			NOT = {
+				has_country_flag = ed_fund_5
+			}
+		}
+		allow = {
+			social_science = 1
+			analytic_philosophy = 1
+			money = 750000
+		}
+		effect = {
+			remove_country_modifier = ed_fund_4
+			add_country_modifier = {
+				name = ed_fund_5
+				duration = -1
+			}
+			set_country_flag = ed_fund_5
+		}
+	}
+	education_funding_6 = {
+		picture = noimage
+		potential = {
+			civilized = yes
+			ai = no
+			has_country_flag = ed_fund_5
+			NOT = {
+				has_country_flag = ed_fund_6
+			}
+		}
+		allow = {
+			psychoanalysis = 1
+			phenomenology_n_hermeneutic = 1
+			money = 1000000
+		}
+		effect = {
+			remove_country_modifier = ed_fund_5
+			add_country_modifier = {
+				name = ed_fund_6
+				duration = -1
+			}
+			set_country_flag = ed_fund_6
+		}
+	}
+	education_funding_7 = {
+		picture = noimage
+		potential = {
+			civilized = yes
+			ai = no
+			has_country_flag = ed_fund_6
+			NOT = {
+				has_country_flag = ed_fund_7
+			}
+		}
+		allow = {
+			anti_rationalism = 1
+			social_alienation = 1
+			money = 2000000
+		}
+		effect = {
+			remove_country_modifier = ed_fund_6
+			add_country_modifier = {
+				name = ed_fund_7
+				duration = -1
+			}
+			set_country_flag = ed_fund_7
+		}
+	}
+	agrarian_reform_1 = {
+		picture = noimage
+		potential = {
+			civilized = yes
+			ai = no
+			NOT = {
+				has_country_flag = ag_ref_1
+			}
+		}
+		allow = {
+			practical_steam_engine = 1
+			mechanical_production = 1
+			money = 100000
+		}
+		effect = {
+			add_country_modifier = {
+				name = ag_ref_1
+				duration = -1
+			}
+			set_country_flag = ag_ref_1
+		}
+	}
+	agrarian_reform_2 = {
+		picture = noimage
+		potential = {
+			civilized = yes
+			ai = no
+			has_country_flag = ag_ref_1
+			NOT = {
+				has_country_flag = ag_ref_2
+			}
+		}
+		allow = {
+			high_n_low_pressure_steam_engines = 1
+			inorganic_chemistry = 1
+			money = 250000
+		}
+		effect = {
+			remove_country_modifier = ag_ref_1
+			add_country_modifier = {
+				name = ag_ref_2
+				duration = -1
+			}
+			set_country_flag = ag_ref_2
+		}
+	}
+	agrarian_reform_3 = {
+		picture = noimage
+		potential = {
+			civilized = yes
+			ai = no
+			has_country_flag = ag_ref_2
+			NOT = {
+				has_country_flag = ag_ref_3
+			}
+		}
+		allow = {
+			combustion_engine = 1
+			organic_chemistry = 1
+			steel_railroad = 1
+			money = 500000
+		}
+		effect = {
+			remove_country_modifier = ag_ref_2
+			add_country_modifier = {
+				name = ag_ref_3
+				duration = -1
+			}
+			set_country_flag = ag_ref_3
+		}
+	}
+	mine_funding_1 = {
+		picture = noimage
+		potential = {
+			civilized = yes
+			ai = no
+			NOT = {
+				has_country_flag = mine_fund_1
+			}
+		}
+		allow = {
+			clean_coal = 1
+			mechanical_production = 1
+			money = 100000
+		}
+		effect = {
+			add_country_modifier = {
+				name = mine_fund_1
+				duration = -1
+			}
+			set_country_flag = mine_fund_1
+		}
+	}
+	mine_funding_2 = {
+		picture = noimage
+		potential = {
+			civilized = yes
+			ai = no
+			has_country_flag = mine_fund_1
+			NOT = {
+				has_country_flag = mine_fund_2
+			}
+		}
+		allow = {
+			steam_turbine = 1
+			cheap_steel = 1
+			money = 250000
+		}
+		effect = {
+			remove_country_modifier = mine_fund_1
+			add_country_modifier = {
+				name = mine_fund_2
+				duration = -1
+			}
+			set_country_flag = mine_fund_2
+		}
+	}
+	mine_funding_3 = {
+		picture = noimage
+		potential = {
+			civilized = yes
+			ai = no
+			has_country_flag = mine_fund_2
+			NOT = {
+				has_country_flag = mine_fund_3
+			}
+		}
+		allow = {
+			combustion_engine = 1
+			advanced_metallurgy = 1
+			steel_railroad = 1
+			money = 500000
+		}
+		effect = {
+			remove_country_modifier = mine_fund_2
+			add_country_modifier = {
+				name = mine_fund_3
+				duration = -1
+			}
+			set_country_flag = mine_fund_3
+		}
+	}
+}

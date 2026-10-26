@@ -1,0 +1,155 @@
+political_decisions = {
+	western_techs_and_ideas = {
+		picture = build_vittoriano
+		potential = {
+			tag = ZUL
+			NOT = {
+				has_country_flag = western_techs
+			}
+		}
+		allow = {
+			war = no
+			OR = {
+				TRN = {
+					all_core = {
+						owned_by = THIS
+					}
+				}
+				ORA = {
+					all_core = {
+						owned_by = THIS
+					}
+				}
+			}
+			
+		}
+		effect = {
+			add_country_modifier = {
+				name = western_techs
+				duration = 1825
+			}
+			set_country_flag = western_techs
+		}
+		ai_will_do = {
+			factor = 0
+		}
+	}
+	gran_zulu = {
+		picture = zanzibar_oman
+		potential = {
+			tag = ZUL
+			NOT = {
+				has_country_flag = great_zulu
+			}
+		}
+		allow = {
+			war = no
+			TRN = {
+				all_core = {
+					owned_by = THIS
+				}
+			}
+			ORA = {
+				all_core = {
+					owned_by = THIS
+				}
+			}
+		}
+		effect = {
+			prestige = 10
+			research_points = 7500
+			badboy = 5
+			set_country_flag = great_zulu
+
+			TRN = {
+				all_core = {
+					add_core = THIS
+				}
+			}
+			ORA = {
+				all_core = {
+					add_core = THIS
+				}
+			}
+			add_core = 2096
+			add_core = 2097
+			add_core = 2098
+			add_core = 2099	
+			add_core = 2100
+			add_core = 2104		
+		}
+		ai_will_do = {
+			factor = 0
+		}
+	}
+	imperio_zulu = {
+		picture = map_saf
+		potential = {
+			tag = ZUL
+			NOT = {
+				has_country_flag = zulu_empire
+			}
+		}
+		allow = {
+			war = no
+			2087 = {
+				owned_by = THIS
+			}
+			2092 = {
+				owned_by = THIS
+			}
+			2096 = {
+				owned_by = THIS
+			}
+		}
+		effect = {
+			prestige = 35
+			add_accepted_culture = khoisan
+			add_accepted_culture = xhosa
+			SAF = {
+				all_core = {
+					remove_core = SAF
+					add_core = IZU
+				}
+			}
+			TRN = {
+				all_core = {
+					remove_core = TRN
+					add_core = IZU
+				}
+			}
+			ORA = {
+				all_core = {
+					remove_core = ORA
+					add_core = IZU
+				}
+			}
+			NAL = {
+				all_core = {
+					remove_core = NAL
+					add_core = IZU
+				}
+			}
+			2088 = {
+				add_core = IZU
+			}
+			2094 = {
+				add_core = IZU
+			}
+			2095 = {
+				add_core = IZU
+			}
+			change_tag = IZU
+			any_pop = {
+				militancy = -4
+			}
+			set_country_flag = zulu_empire
+			add_country_modifier = {
+				name = african_pride
+				duration = -1
+			}
+		}
+		ai_will_do = {
+			factor = 0
+		}
+}

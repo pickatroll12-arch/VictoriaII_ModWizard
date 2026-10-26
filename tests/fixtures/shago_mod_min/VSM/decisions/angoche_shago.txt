@@ -1,0 +1,92 @@
+political_decisions = {
+	reclaim_our_lands_angoche = {
+		picture = noimage
+		potential = {
+			tag = AGC
+			NOT = {
+				has_country_flag = great_angoche
+			}
+		}
+		allow = {
+			war = no
+			AGC = {
+				all_core = {
+					owned_by = THIS
+				}
+			}
+			
+		}
+		effect = {
+			Prestige = 5
+			add_country_modifier = {
+				name = great_angoche
+				duration = 3650
+			}
+			set_country_flag = great_angoche
+		}
+		ai_will_do = {
+			factor = 0
+		}
+	}
+	adoptar_tecnologias_occidentales = {
+		picture = westernize_nation
+		potential = {
+			civilized = no
+			ai = no
+			NOT = {
+				has_country_flag = western_techs
+			}
+		}
+		allow = {
+			OR = {
+				civilization_progress = 0.5
+				AND = {
+					civilization_progress = 0.4
+					literacy = 0.04
+				}
+			}
+		}
+		effect = {
+			add_country_modifier = {
+				name = western_techs
+				duration = 1825
+			}
+			set_country_flag = western_techs
+		}
+	}
+	expand_angoche = {
+		picture = zanzibar_oman
+		potential = {
+			tag = AGC
+			NOT = {
+				has_country_flag = angoche_expanded
+			}
+		}
+		allow = {
+			war = no
+			ZAN = {
+				all_core = {
+					owned_by = THIS
+				}
+			}
+			
+		}
+		effect = {
+			Prestige = 15
+			add_country_modifier = {
+				name = african_pride
+				duration = -1
+			}
+			ZAN = {
+				all_core = {
+					add_core = THIS
+				}
+			}
+			set_country_flag = angoche_expanded
+		}
+		ai_will_do = {
+			factor = 0
+		}
+	}
+}
+

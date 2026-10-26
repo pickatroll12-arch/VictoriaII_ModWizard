@@ -1,0 +1,8 @@
+# Dependencias de ejecución de Victoria II Mod Studio (las mismas que pyproject.toml).
+# Python 3.10 o superior.
+PySide6>=6.5
+numpy>=1.24
+Pillow>=10
+
+# Solo para generar los ejecutables (packaging/build_*.sh/.bat los instalan en su propio venv):
+# pyinstaller>=6.0

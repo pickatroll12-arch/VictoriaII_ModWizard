@@ -1,0 +1,14 @@
+[Desktop Entry]
+Type=Application
+Version=1.5
+Name=Victoria II Mod Studio
+GenericName=Mod Editor
+GenericName[es]=Editor de mods
+Comment=Create and edit Victoria II mods visually
+Comment[es]=Crea y edita mods de Victoria II de forma visual
+Exec=vic2studio
+Icon=vic2studio
+Terminal=false
+Categories=Development;
+Keywords=Victoria;Paradox;Clausewitz;mod;modding;editor;
+Keywords[es]=Victoria;Paradox;Clausewitz;mod;modificación;editor;
