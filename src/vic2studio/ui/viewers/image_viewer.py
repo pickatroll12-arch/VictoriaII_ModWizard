@@ -16,7 +16,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from PIL import Image
-from PySide6.QtCore import QRectF, QSize, Qt, Signal
+from PySide6.QtCore import QRectF, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QBrush, QColor, QImage, QPainter, QPixmap
 from PySide6.QtWidgets import (
     QButtonGroup,
@@ -36,7 +36,7 @@ from ...i18n import tr
 from .. import theme
 from ..tasks import POOL_IMAGES, TaskRunner
 from ..widgets import EmptyState, show_in_stack
-from .common import ViewerHeader, describe_os_error, file_stamp, format_size
+from .common import LOADING_DELAY_MS, ViewerHeader, describe_os_error, file_stamp, format_size
 
 IMAGE_SUFFIXES = frozenset({".tga", ".dds", ".bmp", ".png", ".jpg", ".jpeg", ".gif"})
 MAX_DISPLAY_SIDE = 8192   # las imágenes mayores se reducen para mostrarlas
@@ -210,6 +210,11 @@ class ImageViewer(QWidget):
         self._runner = TaskRunner(self, pool=POOL_IMAGES)
         self._runner.finished.connect(self._on_loaded)
         self._runner.failed.connect(self._on_failed)
+        # Al reintentar un fallo, este sigue a la vista hasta que haya respuesta o pase el plazo.
+        self._loading_timer = QTimer(self)
+        self._loading_timer.setSingleShot(True)
+        self._loading_timer.setInterval(LOADING_DELAY_MS)
+        self._loading_timer.timeout.connect(self._show_loading)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -274,13 +279,14 @@ class ImageViewer(QWidget):
             if self._runner.is_busy() or (load is not None and _unchanged(load)):
                 self.retranslate()  # la raíz puede ser otra
                 return
+        retrying = path == self._path and self._error is not None
         self._path = path
-        self._error = self._read_error = None
         self._load = None
-        self.canvas.set_pixmap(None)
-        self._set_tools_enabled(False)
-        show_in_stack(self.stack, self.scroll)
-        self.header.set_file(path)
+        if retrying:
+            self._loading_timer.start()
+        else:
+            self._show_loading()
+        self.header.set_file(path, self._details(), self._shown_path())
         self.retranslate()
         self._runner.start(lambda ctx: try_load_image(path, cancelled=ctx.cancelled))
 
@@ -307,25 +313,39 @@ class ImageViewer(QWidget):
     def cancel(self) -> None:
         """Detiene la carga en curso sin vaciar el visor; volver a pedir la imagen la recarga."""
         self._runner.cancel()
+        self._loading_timer.stop()  # un reintento cancelado deja el fallo, no «cargando…» sin carga
 
     def set_fit(self, fit: bool) -> None:
         (self.fit_button if fit else self.actual_button).setChecked(True)
 
     # --- interno -------------------------------------------------------------------------
 
+    def _show_loading(self) -> None:
+        """Lienzo vacío mientras carga (de un reintento, solo si tarda más de ``LOADING_DELAY_MS``)."""
+        self._loading_timer.stop()
+        self._error = self._read_error = None
+        self.canvas.set_pixmap(None)
+        self._set_tools_enabled(False)
+        show_in_stack(self.stack, self.scroll)
+        self.retranslate()
+
     def _on_loaded(self, load: ImageLoad | ImageFailure) -> None:
         if load.path != self._path:
             return
+        self._loading_timer.stop()
         if isinstance(load, ImageFailure):
             self._show_failure(load.message, load.stamp, load.error)
             return
+        self._error = self._read_error = None
         self._load = load
+        show_in_stack(self.stack, self.scroll)
         self.canvas.set_pixmap(QPixmap.fromImage(load.image))
         self._set_tools_enabled(True)
         self.retranslate()
         self.loaded.emit(load.path)
 
     def _on_failed(self, failure) -> None:
+        self._loading_timer.stop()
         self._show_failure(str(failure.exception), file_stamp(self._path))
 
     def _show_failure(self, message: str, stamp: tuple[int, int] | None, error: OSError | None = None) -> None:
@@ -364,26 +384,28 @@ class ImageViewer(QWidget):
         else:
             self.zoom_label.setText(tr("image.zoom", percent=round(self.canvas.scale() * 100)))
 
+    def _details(self) -> str:
+        load = self.current_load()
+        if self._path is None:
+            return ""
+        if self._read_error is not None:
+            return tr("viewer.details_failed", path=self._shown_path())
+        if self._error is not None:
+            return tr("image.details_failed", path=self._shown_path())
+        if load is None:
+            return tr("image.details_loading", path=self._shown_path())
+        details = tr("image.details", path=self._shown_path(), format=load.format, width=load.width,
+                     height=load.height, mode=load.mode, size=format_size(load.size))
+        if load.reduced:
+            details += " · " + tr("image.reduced", side=max(load.image.width(), load.image.height()))
+        return details
+
     def retranslate(self) -> None:
         self.fit_button.setText(tr("image.fit"))
         self.fit_button.setToolTip(tr("image.fit_tooltip"))
         self.actual_button.setText(tr("image.actual"))
         self.actual_button.setToolTip(tr("image.actual_tooltip"))
-        load = self.current_load()
-        if self._path is None:
-            self.header.set_details("")
-        elif self._read_error is not None:
-            self.header.set_details(tr("viewer.details_failed", path=self._shown_path()))
-        elif self._error is not None:
-            self.header.set_details(tr("image.details_failed", path=self._shown_path()))
-        elif load is None:
-            self.header.set_details(tr("image.details_loading", path=self._shown_path()))
-        else:
-            details = tr("image.details", path=self._shown_path(), format=load.format, width=load.width,
-                         height=load.height, mode=load.mode, size=format_size(load.size))
-            if load.reduced:
-                details += " · " + tr("image.reduced", side=max(load.image.width(), load.image.height()))
-            self.header.set_details(details)
+        self.header.set_details(self._details(), self._shown_path())
         error, tooltip = self._read_error, ""
         if error is not None:
             reason, detail = describe_os_error(error)

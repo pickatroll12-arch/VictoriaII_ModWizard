@@ -21,6 +21,7 @@ from vic2studio.core.clausewitz import (  # noqa: E402
     parse,
     parse_file,
     to_source,
+    write_file,
 )
 from vic2studio.core.clausewitz.diagnostics import MESSAGES  # noqa: E402
 
@@ -258,7 +259,7 @@ class DiagnosticTests(unittest.TestCase):
                    "x = {\n\ty = {\n}\n"]
         for text in samples:
             emitted.update(d.code for d in parse(text).diagnostics)
-        emitted.add("non_game_encoding")
+        emitted.update(("non_game_encoding", "unreadable_encoding", "stray_bom"))  # los de parse_file
         self.assertTrue(emitted <= set(MESSAGES["es"]), emitted - set(MESSAGES["es"]))
         for lang in ("es", "en"):
             for code, template in MESSAGES[lang].items():
@@ -444,6 +445,212 @@ class ParseResultTests(unittest.TestCase):
 
             forced = parse_file(cp, encoding="latin-1")
             self.assertEqual(forced.encoding, "iso8859-1")
+
+
+class FileEncodingTests(unittest.TestCase):
+    """Lo que hace ``parse_file`` con la codificación y el BOM del archivo."""
+
+    TEXT = 'country_event = {\r\n\tid = 2\r\n\ttitle = "Le\u00f3n"\r\n}\r\n'
+
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.dir = Path(tmp.name)
+
+    def file(self, data: bytes, name: str = "a.txt") -> Path:
+        path = self.dir / name
+        path.write_bytes(data)
+        return path
+
+    def assert_saves_bytes(self, result, raw: bytes):
+        path = self.file(b"", "out.txt")
+        write_file(path, result, backup=False)
+        self.assertEqual(path.read_bytes(), raw)
+
+    def assert_saves(self, result, raw: bytes, label: str):
+        """Guardar sin cambios da los mismos bytes y pasar a cp1252 da el texto sin ningún BOM."""
+        path = self.file(b"", "out.txt")
+        write_file(path, result, backup=False)
+        self.assertEqual(path.read_bytes(), raw, label)
+        write_file(path, result, encoding="cp1252", backup=False)
+        self.assertEqual(path.read_bytes(), self.TEXT.encode("cp1252"), label)
+
+    def test_encodings_the_game_cannot_read(self):
+        """R1: la CLI, «Validar mod» y el visor reciben del parser que un UTF-16 es ilegible para el juego
+        (antes, nada si era ASCII o un aviso falso, «lo lee como Windows-1252») y el BOM UTF-8 delante de
+        cp1252 (antes, nada)."""
+        ascii_text = self.TEXT.replace("\u00f3", "o")
+        cases = [
+            (ascii_text.encode("utf-16"), "UTF-16"),
+            (ascii_text.encode("utf-16-le"), "UTF-16-LE"),
+            (codecs.BOM_UTF16_BE + self.TEXT.encode("utf-16-be"), "UTF-16-BE-BOM"),
+            (self.TEXT.encode("utf-16-be"), "UTF-16-BE"),
+        ]
+        for raw, shown in cases:
+            with self.subTest(shown=shown):
+                result = parse_file(self.file(raw))
+                self.assertEqual([(d.code, d.severity, d.line, d.column, d.args) for d in result.diagnostics],
+                                 [("unreadable_encoding", Severity.ERROR, 1, 1, {"encoding": shown})])
+                self.assertFalse(result.ok)
+                self.assertIn("no puede leerlo", result.diagnostics[0].message("es"))
+                self.assertIn("cannot read it", result.diagnostics[0].message("en"))
+        stray = parse_file(self.file(codecs.BOM_UTF8 + self.TEXT.encode("cp1252")))
+        self.assertEqual(stray.encoding, "cp1252")
+        self.assertEqual([(d.code, d.severity, d.line, d.column) for d in stray.diagnostics],
+                         [("stray_bom", Severity.WARNING, 1, 1)])
+        self.assertIn("ï»¿", stray.diagnostics[0].message("en"))
+        self.assertEqual(stray.document.entries[0].key.text, "ï»¿country_event", "lo que ve el juego")
+        utf8_bom = parse_file(self.file(codecs.BOM_UTF8 + self.TEXT.encode("utf-8")))
+        self.assertEqual([d.code for d in utf8_bom.diagnostics], ["non_game_encoding"], "un BOM de verdad no")
+
+    def test_explicit_encoding_that_does_not_describe_the_file(self):
+        """NF-6: con una codificación explícita el BOM quedaba en el texto (no se podía pasar a cp1252) o el
+        BOM y el orden de bytes no hacían ida y vuelta."""
+        utf16_native = "utf-16-le" if sys.byteorder == "little" else "utf-16-be"
+        cases = [
+            (codecs.BOM_UTF8 + self.TEXT.encode("utf-8"), "utf-8", "utf-8-sig"),
+            (codecs.BOM_UTF16_LE + self.TEXT.encode("utf-16-le"), "utf-16-le", "utf-16"),
+            (codecs.BOM_UTF16_BE + self.TEXT.encode("utf-16-be"), "utf-16-be", "utf-16-be-bom"),
+            (codecs.BOM_UTF16_BE + self.TEXT.encode("utf-16-be"), "utf-16", "utf-16-be-bom"),
+            (self.TEXT.encode(utf16_native), "utf-16", utf16_native),
+            (self.TEXT.encode("utf-8"), "utf-8-sig", "utf-8"),
+            (self.TEXT.encode("utf-16-be"), "utf-16-be-bom", "utf-16-be"),
+            (codecs.BOM_UTF16_LE + self.TEXT.encode("utf-16-le"), "utf-16", "utf-16"),
+        ]
+        for raw, explicit, expected in cases:
+            with self.subTest(explicit=explicit, bom=raw[:2]):
+                result = parse_file(self.file(raw), encoding=explicit)
+                self.assertEqual((result.encoding, result.document.extra_boms), (expected, 0))
+                self.assertEqual(to_source(result.document), self.TEXT)
+                self.assert_saves(result, raw, explicit)
+
+    def test_repeated_bom(self):
+        """NF-10: con el BOM repetido el U+FEFF sobrante quedaba al principio del texto y write_file(cp1252)
+        lanzaba UnencodableTextError. Ahora lo cuenta Document.extra_boms y la ida y vuelta es exacta.
+
+        Como el de la codificación, los repetidos no están en to_source: el texto y las posiciones del árbol
+        coinciden (REG-VIEW-BOM-COL: el visor muestra to_source y señalaba un carácter antes en la línea 1)."""
+        cases = [
+            (codecs.BOM_UTF8, "utf-8", "utf-8-sig", 1, "utf-16"),
+            (codecs.BOM_UTF8, "utf-8", "utf-8-sig", 2, "utf-16-be-bom"),
+            (codecs.BOM_UTF16_LE, "utf-16-le", "utf-16", 1, "utf-8-sig"),
+            (codecs.BOM_UTF16_BE, "utf-16-be", "utf-16-be-bom", 1, "utf-8-sig"),
+        ]
+        for mark, codec, encoding, extra, other in cases:
+            with self.subTest(encoding=encoding, extra=extra):
+                raw = mark * (extra + 1) + self.TEXT.encode(codec)
+                result = parse_file(self.file(raw))
+                doc = result.document
+                self.assertEqual((result.encoding, doc.extra_boms), (encoding, extra))
+                first = doc.entries[0]
+                self.assertEqual((first.key.text, first.line, first.column), ("country_event", 1, 1))
+                self.assertEqual(to_source(doc), self.TEXT)
+                self.assertEqual(doc.get("country_event").close_position, (4, 1))
+                self.assert_saves(result, raw, encoding)
+                # Tras editar se conservan en su codificación, aunque se escriba de otra forma; en otra con
+                # BOM se escribe solo el suyo, y sin BOM ninguno.
+                doc.get("country_event").set("id", 3)
+                path = self.file(raw, "edited.txt")
+                edited = self.TEXT.replace("id = 2", "id = 3")
+                for target, expected in ((None, mark * (extra + 1) + edited.encode(codec)),
+                                         (encoding.upper(), mark * (extra + 1) + edited.encode(codec)),
+                                         (other, edited.encode(other)),
+                                         ("utf-8", edited.encode("utf-8"))):
+                    write_file(path, result, encoding=target, backup=False)
+                    self.assertEqual(path.read_bytes(), expected, target)
+                result.encoding = "utf-8"
+                write_file(path, result, backup=False)
+                self.assertEqual(path.read_bytes(), edited.encode("utf-8"))
+        only = parse_file(self.file(codecs.BOM_UTF8 * 2))
+        self.assertEqual((only.document.entries, only.document.extra_boms, to_source(only.document)), ([], 1, ""))
+        self.assert_saves_bytes(only, codecs.BOM_UTF8 * 2)
+        # Un solo BOM, aunque se fuerce la codificación, es el suyo: no hay ninguno repetido.
+        forced = parse_file(self.file(codecs.BOM_UTF8 + b"a = 1\n"), encoding="utf-8-sig")
+        self.assertEqual((forced.encoding, forced.document.extra_boms, to_source(forced.document)),
+                         ("utf-8-sig", 0, "a = 1\n"))
+        # Sin archivo no hay codificación: un U+FEFF inicial es del texto (el lexer lo toma por espacio).
+        loose = parse("\ufeffa = 1\n")
+        self.assertEqual((loose.document.extra_boms, to_source(loose.document), loose.document.entries[0].column),
+                         (0, "\ufeffa = 1\n", 2))
+
+    def test_unknown_document_encoding_does_not_block_an_explicit_one(self):
+        """REG-WRITE-ENC: write_file normalizaba document.encoding aunque se le diera otra codificación, y una
+        que no existe (puesta a mano) lanzaba LookupError en vez de escribir con la pedida."""
+        plain = parse("a = 1\n").document
+        repeated = parse_file(self.file(codecs.BOM_UTF8 * 2 + b"a = 1\n")).document
+        path = self.file(b"", "out.txt")
+        for doc in (plain, repeated):
+            for bad in ("bogus-codec", "base64"):
+                with self.subTest(extra_boms=doc.extra_boms, encoding=bad):
+                    doc.encoding = bad
+                    write_file(path, doc, encoding="cp1252", backup=False)
+                    self.assertEqual(path.read_bytes(), b"a = 1\n")
+                    write_file(path, doc, encoding="utf-8-sig", backup=False)  # otra con BOM: solo el suyo
+                    self.assertEqual(path.read_bytes(), codecs.BOM_UTF8 + b"a = 1\n")
+                    write_file(path, doc, encoding="cp1252", backup=False)
+                    with self.assertRaises(LookupError):
+                        write_file(path, doc, backup=False)
+                    self.assertEqual(path.read_bytes(), b"a = 1\n")
+
+
+class EndPositionTests(unittest.TestCase):
+    """VIEW-NF-4: dónde acaban el valor de una entrada y un bloque, sin leer atributos privados."""
+
+    def test_value_end_and_close_position(self):
+        text = ('a = 1\nname = "Le\u00f3n"\nb = { c = yes }\n{ 1 2 }\nlong = "x\r\ny\rzz"\nlast = "a\nbc"\n'
+                'open = { d = 1\n')
+        doc = parse(text).document
+        ends = {str(e.key) if e.key is not None else "[loose]": e.value_end for e in doc.entries}
+        self.assertEqual(ends, {"a": (1, 5), "name": (2, 13), "b": (3, 15), "[loose]": (4, 7),
+                                "long": (7, 3), "last": (9, 3), "open": None})
+        block = doc.get("b")
+        self.assertEqual((block.close_position, block.find("c").value_end), ((3, 15), (3, 13)))
+        self.assertIsNone(doc.get("open").close_position, "bloque sin cerrar")
+        self.assertIsNone(doc.close_position, "un documento no tiene «}»")
+        doc.get("open").close()
+        self.assertIsNone(doc.get("open").close_position, "la «}» que añade close() no se leyó")
+        # Una cadena sin cerrar llega al final: un salto final cuenta en su línea, donde empieza.
+        for tail, end in (("", (2, 11)), ("\n", (2, 12)), ("\r\n", (2, 12)), ("\r", (2, 12)), ("\nx\r\n", (3, 2))):
+            with self.subTest(tail=tail):
+                self.assertEqual(parse('a = 1\nname = "Mod' + tail).document.find("name").value_end, end)
+
+    def test_values_set_by_code_have_no_end(self):
+        doc = parse('a = 1\nb = { c = 2 }\nn = "x"\n').document
+        a, b, n = doc.find("a"), doc.find("b"), doc.find("n")
+        block = b.value
+        a.value = 5
+        b.value = {"z": 1}
+        self.assertEqual((a.value_end, b.value_end, b.value.close_position), (None, None, None))
+        self.assertIsNone(doc.append("new", 1).value_end)
+        a.value = 1
+        b.value = block
+        self.assertEqual((a.value_end, b.value_end), ((1, 5), (2, 13)), "devolverle el valor leído")
+        n.value = "x"  # mismo texto y comillas: el valor leído
+        self.assertEqual(n.value_end, (3, 7))
+        n.key = None  # pasa a valor suelto: su texto se regenera donde estaba la clave
+        self.assertIsNone(n.value_end)
+        block.find("c").value = 3
+        self.assertEqual(block.close_position, (2, 13), "editar dentro no mueve la «}» leída")
+
+    def test_read_blocks_moved_by_code_have_no_value_end(self):
+        """REG-VALUE-END-MOVED: un bloque leído que el código pone en otra entrada sigue teniendo su «}» leída
+        (close_position), pero no es el valor leído de esa entrada: value_end es None, como su line si es
+        nueva. Antes, una entrada nueva devolvía la «}» de otro sitio."""
+        doc = parse("a = { x = 1 }\nb = 2\nc = { y = 2 }\nd = { z = 3 }\n").document
+        a, c, d = doc.get("a"), doc.get("c"), doc.get("d")
+        doc.remove("a")
+        new = doc.append("n", a)
+        self.assertEqual((new.line, new.value_end, a.close_position), (None, None, (1, 13)))
+        b = doc.find("b")
+        b.value = c  # escalar leído -> bloque leído en otra entrada
+        self.assertEqual((b.line, b.value_end, doc.find("c").value_end), (2, None, (3, 13)))
+        e = doc.find("d")
+        e.value = c  # bloque leído -> otro bloque leído
+        self.assertEqual((e.line, e.value_end, c.close_position), (4, None, (3, 13)))
+        e.value = d
+        self.assertEqual(e.value_end, (4, 13), "devolverle su bloque")
+        loose = parse("{ 1 2 }\n").document.entries[0]
+        self.assertEqual((loose.line, loose.value_end), (1, (1, 7)), "valor suelto leído: la posición es del bloque")
 
 
 class RecoveryTests(unittest.TestCase):

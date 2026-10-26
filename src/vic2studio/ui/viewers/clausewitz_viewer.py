@@ -18,7 +18,7 @@ from __future__ import annotations
 import bisect
 import os
 from array import array
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
 from pathlib import Path
 from typing import Callable, Iterator
 
@@ -43,21 +43,21 @@ from PySide6.QtWidgets import (
 
 from ...core.cancel import CancelCheck, raise_if_cancelled
 from ...core.clausewitz import Block, ParseResult, Scalar, iter_json, parse_file, to_json, to_source
-from ...core.clausewitz.lexer import LINE_BREAK_RE, Token
+from ...core.encoding import GAME_UNREADABLE
 from ...core.modcheck import CLAUSEWITZ_SUFFIXES
 from ...i18n import N_, tr
 from ...settings import app_settings
 from .. import theme
-from ..tasks import TaskRunner
+from ..tasks import TaskRunner, release_in_background
 from ..widgets import EmptyState, make_icon, rich, show_in_stack
 from .code_view import CodeView, TextView, display_text, string_continuations
-from .common import SEVERITY_RANK, ViewerHeader, describe_os_error, file_stamp, format_number, format_size, \
-    severity_icon, severity_name, summary_status
+from .common import LOADING_DELAY_MS, SEVERITY_RANK, ViewerHeader, describe_os_error, file_stamp, format_number, \
+    format_size, severity_icon, severity_name, summary_status
 from .diagnostics import DiagnosticRow, DiagnosticsModel, DiagnosticsView, column_width
 
 __all__ = [
     "CLAUSEWITZ_SUFFIXES", "ClausewitzLoad", "ClausewitzViewer", "StructureIndex", "StructureModel", "build_index",
-    "file_stamp", "json_chunks", "json_preview", "load_clausewitz",
+    "dismantle_load", "file_stamp", "json_chunks", "json_preview", "load_clausewitz",
 ]
 
 TAB_STRUCTURE, TAB_SOURCE, TAB_DIAGNOSTICS, TAB_JSON = "structure", "source", "diagnostics", "json"
@@ -70,10 +70,13 @@ EXPAND_ALL_LIMIT = 5_000       # filas visibles como mucho tras «expandir todo�
 ROOT_BATCH = 1_000             # raíces del primer lote; cada lote siguiente dobla las ya entregadas
 JSON_DISPLAY_LIMIT = 2_000_000  # caracteres de JSON que se muestran como mucho
 INLINE_LIST_LIMIT = 60          # una lista de escalares más corta se muestra en línea
-LOADING_DELAY_MS = 150
 SEARCH_DELAY_MS = 150
 LINE_SAMPLE = "0000000"         # números de línea que caben en la columna Línea
-ENCODING_NAMES = {"cp1252": "Windows-1252", "utf-8": "UTF-8", "utf-8-sig": "UTF-8 BOM"}
+RELEASE_CHUNK = 4096            # elementos que se sueltan de una vez al desmontar un análisis viejo
+ENCODING_NAMES = {
+    "cp1252": "Windows-1252", "utf-8": "UTF-8", "utf-8-sig": "UTF-8 BOM", "utf-16": "UTF-16 LE BOM",
+    "utf-16-be-bom": "UTF-16 BE BOM", "utf-16-le": "UTF-16 LE", "utf-16-be": "UTF-16 BE",
+}
 
 _UNBOUNDED = (1 << 63) - 1      # fin de un bloque sin cerrar: llega hasta el final del archivo
 
@@ -83,20 +86,6 @@ _UNBOUNDED = (1 << 63) - 1      # fin de un bloque sin cerrar: llega hasta el fi
 def _position(line: int, column: int) -> int:
     """(línea, columna) como un entero que se ordena igual."""
     return (line << 32) | column
-
-
-def _token_end(token: Token | None, start: int) -> int:
-    """Posición del último carácter de ``token``; una cadena puede abarcar varias líneas.
-
-    Un valor creado o cambiado por código no tiene posición propia: acaba donde empieza la entrada.
-    """
-    raw = None if token is None else token.raw
-    if raw is None:
-        return start
-    if "\n" not in raw and "\r" not in raw:
-        return _position(token.line, token.column + len(raw) - 1)
-    last = max(raw.rfind("\n"), raw.rfind("\r"))
-    return _position(token.line + len(LINE_BREAK_RE.findall(raw)), len(raw) - last - 1)
 
 
 def _scalar_display(scalar: Scalar) -> str:
@@ -215,7 +204,9 @@ def build_index(block: Block, cancelled: CancelCheck = None) -> StructureIndex:
             if isinstance(value, Scalar):
                 shown = _scalar_display(value)
                 children.append(None)
-                ends.append(_token_end(entry._vtok, start))  # token del valor: el CST aún no expone dónde acaba
+                # Un valor creado o cambiado por código no tiene posición propia: acaba donde empieza la entrada.
+                end = entry.value_end
+                ends.append(start if end is None else _position(*end))
             else:
                 shown = ""
                 if value.entries and all(e.key is None and isinstance(e.value, Scalar) for e in value.entries):
@@ -223,8 +214,8 @@ def build_index(block: Block, cancelled: CancelCheck = None) -> StructureIndex:
                     if len(inline) <= INLINE_LIST_LIMIT:
                         shown = "{ " + inline + " }"
                 children.append([])
-                close = value._close  # token de la «}»: el CST aún no expone su posición
-                ends.append(_UNBOUNDED if close is None else _position(close.line, close.column))
+                close = value.close_position
+                ends.append(_UNBOUNDED if close is None else _position(*close))
             index.keys.append(key)
             index.values.append(shown)
             index.haystack.append(f"{key}\x00{shown}".casefold())
@@ -295,6 +286,38 @@ class ClausewitzFailure:
     path: Path
     error: OSError
     stamp: tuple[int, int] | None = None  # ``file_stamp`` antes de intentarlo
+
+
+def _drain(items) -> Iterator[None]:
+    """Vacía la lista o el diccionario ``items`` de ``RELEASE_CHUNK`` en ``RELEASE_CHUNK`` elementos, por pasos."""
+    if isinstance(items, list):
+        while items:
+            del items[-RELEASE_CHUNK:]
+            yield
+    elif isinstance(items, dict):
+        while items:
+            for _ in range(min(len(items), RELEASE_CHUNK)):
+                items.popitem()
+            yield
+
+
+def dismantle_load(load: ClausewitzLoad) -> Iterator[None]:
+    """Desmonta por pasos un análisis que ya no usa nadie (``release_in_background`` los recorre).
+
+    Soltar la raíz del árbol del parser liberaría millones de nodos en una sola cascada. Pero
+    ``index.entries`` retiene cada entrada: sin la raíz, vaciarla en preorden suelta en cada paso
+    unas pocas entradas, con sus tokens y sus bloques, mientras sus hijos siguen retenidos por la
+    lista hasta su propio paso. El resto del índice y las filas de diagnósticos son listas planas.
+    Su ``document`` (de Qt) ya no puede estar: o lo tiene la vista o se soltó en el hilo de la interfaz.
+    """
+    index = load.index
+    load.result = None  # la raíz y la lista de diagnósticos (sus filas aún los retienen)
+    yield
+    index.entries.reverse()  # se vacía desde el final: así sale primero el principio del preorden
+    for item in fields(index):
+        yield from _drain(getattr(index, item.name))
+    for items in (load.rows, load.markers, load.marks):
+        yield from _drain(items)
 
 
 def try_load_clausewitz(path: str | os.PathLike, make_document: Callable[..., QTextDocument] | None = None,
@@ -631,7 +654,7 @@ class ClausewitzViewer(QWidget):
         self._loading_timer = QTimer(self)
         self._loading_timer.setSingleShot(True)
         self._loading_timer.setInterval(LOADING_DELAY_MS)
-        self._loading_timer.timeout.connect(lambda: show_in_stack(self.stack, self.loading))
+        self._loading_timer.timeout.connect(self._show_loading)
         self._search_timer = QTimer(self)
         self._search_timer.setSingleShot(True)
         self._search_timer.setInterval(SEARCH_DELAY_MS)
@@ -774,6 +797,8 @@ class ClausewitzViewer(QWidget):
         return self._path
 
     def current_load(self) -> ClausewitzLoad | None:
+        """El análisis a la vista. Cuando el visor deja de mostrarlo lo vacía en segundo plano (``_release``):
+        quien quiera conservar algo de él, que lo copie antes."""
         return self._load if self._load is not None and self._load.path == self._path else None
 
     def is_busy(self) -> bool:
@@ -812,11 +837,12 @@ class ClausewitzViewer(QWidget):
                 if self.current_tab() == TAB_JSON:
                     self._ensure_json()  # ``cancel()`` pudo dejarlo a medias
                 return
+        if path != self._path:
+            self._error = None  # reintentar un fallo lo deja a la vista hasta que haya respuesta (``_show_loading``)
         self._pending = pending
         self._path = path
-        self._error = None
         self._json_runner.cancel()
-        self.header.set_file(path, "")
+        self.header.set_file(path, self._details(), self._shown_path())
         self.header.set_summary(None)
         self._retranslate_header()
         make_document = self.code.document_factory()
@@ -857,14 +883,11 @@ class ClausewitzViewer(QWidget):
         self._runner.cancel()
         self._json_runner.cancel()
         self._loading_timer.stop()
-        self._path = self._load = self._json_for = None
+        self._forget_load()
+        self._path = None
         self._error = None
         self._json_note = None
         self._json_failed = False
-        self._matches, self._match_pos = [], -1
-        self.structure_model.set_index(StructureIndex(), {})
-        self.code.clear_source()
-        self.diagnostics_model.set_rows([])
         self.json_view.set_document(None)
         self.header.set_file(None)
         self.header.set_summary(None)
@@ -956,12 +979,19 @@ class ClausewitzViewer(QWidget):
 
     # --- carga ---------------------------------------------------------------------------
 
+    def _show_loading(self) -> None:
+        """Pasados ``LOADING_DELAY_MS`` sin respuesta: un reintento que tarda ya no es el fallo de antes."""
+        self._error = None
+        show_in_stack(self.stack, self.loading)
+        self._retranslate_header()
+
     def _on_loaded(self, load: ClausewitzLoad | ClausewitzFailure) -> None:
         self._loading_timer.stop()
         if isinstance(load, ClausewitzFailure):
             self._show_failure(load.error, load.stamp)
             return
-        self._load = load
+        self._error = None
+        old, self._load = self._load, load
         self._json_for = None
         self._json_note = None
         self._json_failed = False
@@ -971,6 +1001,7 @@ class ClausewitzViewer(QWidget):
         show_in_stack(self.diagnostics_stack, self.diagnostics_view if load.rows else self.diagnostics_empty)
         self._fill_tree(load)
         self.json_view.set_document(None)
+        self._release(old)  # ya no lo muestra nada
         show_in_stack(self.stack, self.tabs)
         self.retranslate()
         self._apply_pending()
@@ -983,12 +1014,31 @@ class ClausewitzViewer(QWidget):
         self._show_failure(failure.exception, file_stamp(self._path))
 
     def _show_failure(self, error: BaseException, stamp: tuple[int, int] | None) -> None:
-        self._load = None
+        self._forget_load()
         self._error = error
         self._failed_stamp = stamp
         show_in_stack(self.stack, self.failure)
         self.retranslate()
         self.loaded.emit(self._path)
+
+    def _forget_load(self) -> None:
+        """Vacía las vistas y suelta en segundo plano el análisis que mostraban."""
+        old, self._load, self._json_for = self._load, None, None
+        self._matches, self._match_pos = [], -1
+        self.structure_model.set_index(StructureIndex(), {})
+        self.diagnostics_model.set_rows([])
+        self.code.clear_source()
+        self._release(old)
+
+    @staticmethod
+    def _release(load: ClausewitzLoad | None) -> None:
+        """Suelta ``load``, que ya no muestra nada, en el hilo de una tarea (``dismantle_load``).
+
+        Con un archivo de 20 MB, soltarlo aquí paraba la interfaz ~0,9 s.
+        """
+        if load is not None:
+            load.document = None  # de Qt: si aún lo tenía, se destruye aquí, en su hilo
+            release_in_background(load, dismantle_load)
 
     def _apply_pending(self) -> None:
         pending, self._pending = self._pending, None
@@ -1120,23 +1170,31 @@ class ClausewitzViewer(QWidget):
 
     # --- textos --------------------------------------------------------------------------
 
-    def _details(self) -> str:
+    def _shown_path(self) -> str:
         path = self._path
         if path is None:
             return ""
-        shown = path.as_posix()
         if self._root is not None:
             try:
-                shown = path.relative_to(self._root).as_posix()
+                return path.relative_to(self._root).as_posix()
             except ValueError:
                 pass
+        return path.as_posix()
+
+    def _details(self) -> str:
+        if self._path is None:
+            return ""
+        shown = self._shown_path()
         if self._error is not None:
             return tr("viewer.details_failed", path=shown)
         load = self.current_load()
         if load is None:
             return tr("viewer.details_loading", path=shown)
         encoding = load.result.encoding
-        return tr("viewer.details", path=shown, encoding=ENCODING_NAMES.get(encoding, encoding),
+        name = ENCODING_NAMES.get(encoding, encoding)
+        if encoding in GAME_UNREADABLE:
+            name = tr("viewer.encoding_unreadable", encoding=name)
+        return tr("viewer.details_one" if load.lines == 1 else "viewer.details", path=shown, encoding=name,
                   lines=format_number(load.lines), size=format_size(load.size))
 
     def _retranslate_failure(self) -> None:
@@ -1148,10 +1206,13 @@ class ClausewitzViewer(QWidget):
         self.failure.setToolTip(tooltip)
 
     def _retranslate_header(self) -> None:
-        self.header.set_details(self._details())
+        self.header.set_details(self._details(), self._shown_path())
         load = self.current_load()
         if load is None:
             self.header.set_summary(None)
+            return
+        if load.result.encoding in GAME_UNREADABLE:  # nada de lo demás importa si el juego no puede leerlo
+            self.header.set_summary("error", tr("viewer.summary_unreadable"))
             return
         counts = self.diagnostics_model.counts()
         self.header.set_summary(*summary_status(counts["error"], counts["warning"], counts["info"]))
@@ -1186,8 +1247,10 @@ class ClausewitzViewer(QWidget):
             if tab == TAB_DIAGNOSTICS and total:
                 text = tr("viewer.tab.diagnostics_count", count=format_number(total))
             self.tabs.setTabText(i, text)
-        worst = next((s for s in ("error", "warning") if counts[s]), None)
         load = self.current_load()
+        # Un archivo que el juego no puede leer es un error aunque el parser no encuentre nada (como en la cabecera).
+        unreadable = load is not None and load.result.encoding in GAME_UNREADABLE
+        worst = "error" if unreadable else next((s for s in ("error", "warning") if counts[s]), None)
         icon = severity_icon(worst) if worst else make_icon("check", "success") if load is not None else QIcon()
         self.tabs.setTabIcon(TABS.index(TAB_DIAGNOSTICS), icon)
         # Los textos del árbol y de su cabecera se piden al pintarlos: basta con repintar. Con
@@ -1207,7 +1270,13 @@ class ClausewitzViewer(QWidget):
         self._retranslate_failure()
         self.diagnostics_hint.setText(tr("viewer.diagnostics_hint"))
         self.diagnostics_view.setToolTip(tr("viewer.diagnostics_hint"))
-        self.diagnostics_empty.set_texts(tr("viewer.no_diagnostics_title"), tr("viewer.no_diagnostics_text"))
+        if unreadable:
+            encoding = load.result.encoding
+            self.diagnostics_empty.set_texts(tr("viewer.summary_unreadable"), tr(
+                "viewer.unreadable_text", encoding=ENCODING_NAMES.get(encoding, encoding)))
+        else:
+            self.diagnostics_empty.set_texts(tr("viewer.no_diagnostics_title"), tr("viewer.no_diagnostics_text"))
+        self.diagnostics_empty.medallion.set_icon("error" if unreadable else "check")
         self.diagnostics_model.retranslate()
         self._retranslate_json()
         self._retranslate_matches()

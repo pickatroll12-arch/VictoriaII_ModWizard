@@ -21,8 +21,18 @@ from collections import Counter
 from pathlib import Path
 
 from ..cancel import CancelCheck, raise_if_cancelled
-from ..encoding import GAME_ENCODING, UTF8_BOM, detect_newline
-from ..fileio import read_text
+from ..encoding import (
+    GAME_ENCODING,
+    GAME_UNREADABLE,
+    UTF8_BOM,
+    decode_bytes,
+    detect_newline,
+    has_stray_bom,
+    match_bom,
+    split_bom,
+    split_extra_boms,
+)
+from ..fileio import FileStamp
 from .diagnostics import Diagnostic, Severity
 from .lexer import (
     CANCEL_EVERY,
@@ -404,9 +414,15 @@ def parse(text: str, *, filename: str | os.PathLike | None = None, cancelled: Ca
     return ParseResult(doc, diags, path=filename)
 
 
-def _encoding_warning(text: str, encoding: str) -> Diagnostic | None:
+def _encoding_diagnostic(text: str, encoding: str) -> Diagnostic | None:
+    """Lo que hará el juego, que solo lee Windows-1252, con un archivo en ``encoding`` (``text`` sin BOM)."""
     if encoding == GAME_ENCODING:
+        if has_stray_bom(text, encoding):
+            # El juego pega los bytes del BOM UTF-8 ("ï»¿") a la primera clave.
+            return Diagnostic("stray_bom", WARNING, 1, 1, 0)
         return None
+    if encoding in GAME_UNREADABLE:
+        return Diagnostic("unreadable_encoding", ERROR, 1, 1, 0, {"encoding": encoding.upper()})
     if encoding == UTF8_BOM:
         return Diagnostic("non_game_encoding", WARNING, 1, 1, 0, {"encoding": "UTF-8 (BOM)"})
     match = _NON_ASCII_RE.search(text)
@@ -418,14 +434,28 @@ def _encoding_warning(text: str, encoding: str) -> Diagnostic | None:
 
 def parse_file(path: str | os.PathLike, *, encoding: str | None = None,
                cancelled: CancelCheck = None) -> ParseResult:
-    """Lee y analiza un archivo detectando su codificación (ver ``encoding.decode_bytes``)."""
+    """Lee y analiza un archivo detectando su codificación (ver ``encoding.decode_bytes``).
+
+    El BOM nunca queda en el texto. Con una ``encoding`` explícita, la del resultado
+    es la que describe de verdad el archivo (``encoding.match_bom`` y ``split_bom``:
+    ``utf-8`` sobre un archivo con BOM da ``utf-8-sig``...), así que guardarlo sin
+    cambios da los mismos bytes. Los BOM repetidos tras el primero van a
+    ``Document.extra_boms`` (``encoding.split_extra_boms``). Además de los del texto,
+    da el diagnóstico de la codificación: ``unreadable_encoding`` (UTF-16, que el
+    juego no puede leer), ``stray_bom`` (BOM UTF-8 delante de Windows-1252) o
+    ``non_game_encoding`` (UTF-8).
+    """
     path = Path(path)
-    decoded = read_text(path, encoding)
-    result = parse(decoded.text, filename=path, cancelled=cancelled)
-    result.encoding = decoded.encoding
-    result.stamp = decoded.stamp
-    warning = _encoding_warning(decoded.text, decoded.encoding)
-    if warning is not None:
-        result.diagnostics.insert(0, warning)
+    data = path.read_bytes()
+    decoded = decode_bytes(data, encoding)
+    text, name = split_bom(decoded.text, match_bom(data, decoded.encoding))
+    text, extra_boms = split_extra_boms(text, name)
+    result = parse(text, filename=path, cancelled=cancelled)
+    result.encoding = name
+    result.document.extra_boms = extra_boms
+    result.stamp = FileStamp.of(data)
+    diagnostic = _encoding_diagnostic(text, name)
+    if diagnostic is not None:
+        result.diagnostics.insert(0, diagnostic)
         result.diagnostics.sort(key=lambda d: d.offset)
     return result

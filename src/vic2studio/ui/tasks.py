@@ -50,7 +50,17 @@ vigilan; además ``TaskFailure`` suelta las trazas, que formaban uno con el marc
 del hilo que guarda el fallo. Sin nada que vigilar (un resultado que no admite
 referencias débiles, como una lista), se descongela en el acto: los objetos
 pasan a la generación más vieja sin recorrerlos, pero la siguiente pasada
-completa los recorrerá si siguen vivos.
+completa los recorrerá si siguen vivos. Lo que entrega una tarea solo lo retiene
+quien lo recibe: viaja en una lista que se vacía al llegar, así que el hilo, aunque
+aún no haya vuelto, no lo mantiene vivo (ni congelado) si la interfaz lo suelta.
+
+Soltar un resultado grande también cuesta: el recuento de referencias libera el
+árbol de 20 MB en una sola cascada en C (~0,9 s) que no suelta el GIL, así que
+hacerlo en otro hilo tal cual pararía la interfaz igual. ``release_in_background``
+lo suelta en el hilo de ``POOL_RELEASE`` con una función que lo desmonta por
+trozos; entre trozo y trozo el hilo cede el GIL como cualquier otra tarea. Empieza
+con un pequeño retraso (``RELEASE_DELAY``) para no competir con el repintado que
+sigue al cambio (~30 ms de hueco con 5 MB en vez de 40–95 ms).
 """
 
 from __future__ import annotations
@@ -63,7 +73,7 @@ import threading
 import time
 import traceback
 import weakref
-from typing import Any, Callable
+from typing import Any, Callable, Iterable
 
 from PySide6.QtCore import QDeadlineTimer, QObject, QRunnable, QThreadPool, Signal, Slot
 from shiboken6 import isValid
@@ -76,10 +86,14 @@ PROGRESS_INTERVAL = 0.04  # segundos entre notificaciones de progreso
 UI_SWITCH_INTERVAL = 0.0005  # segundos: cada cuánto cede el GIL un hilo de Python ocupado
 # Objetos nuevos vivos al terminar las tareas a partir de los que se congelan (recorrerlos costaría >10 ms).
 GC_FREEZE_MIN_OBJECTS = 100_000
+# Segundos que espera una liberación antes de empezar: quien suelta algo grande acaba de cambiar lo que
+# muestra y aún tiene que maquetarlo y pintarlo, y con otro hilo ocupado cada llamada a Python esperaría el GIL.
+RELEASE_DELAY = 0.1
 
-# Grupos de hilos: vistas previas y editores (scripts, JSON, CSV), imágenes y validación del mod.
-POOL_PREVIEW, POOL_IMAGES, POOL_VALIDATION = "preview", "images", "validation"
-POOL_THREADS = {POOL_PREVIEW: 2, POOL_IMAGES: 1, POOL_VALIDATION: 1}
+# Grupos de hilos: vistas previas y editores (scripts, JSON, CSV), imágenes, validación del mod y
+# liberación de resultados grandes que ya no se usan (``release_in_background``).
+POOL_PREVIEW, POOL_IMAGES, POOL_VALIDATION, POOL_RELEASE = "preview", "images", "validation", "release"
+POOL_THREADS = {POOL_PREVIEW: 2, POOL_IMAGES: 1, POOL_VALIDATION: 1, POOL_RELEASE: 1}
 
 _FINISHED, _FAILED, _PROGRESS = "finished", "failed", "progress"
 
@@ -249,7 +263,9 @@ class TaskContext:
 
 
 class _Job(QRunnable):
-    def __init__(self, fn: Callable[[TaskContext], Any], context: TaskContext, deliver: Callable[[str, Any], None]):
+    """Corre ``fn`` y entrega ``[(tipo, valor)]`` a ``deliver``: quien lo recibe saca el par de la lista."""
+
+    def __init__(self, fn: Callable[[TaskContext], Any], context: TaskContext, deliver: Callable[[list], None]):
         super().__init__()
         self.fn = fn
         self.context = context
@@ -269,7 +285,11 @@ class _Job(QRunnable):
         finally:
             # Se vigila el resultado, nunca un fallo: no lleva nada que convenga mantener congelado.
             _resume_gc(outcome[1] if outcome is not None and outcome[0] == _FINISHED else None)
-        self.deliver(*outcome)
+        # Va en una lista que vacía quien lo recibe: este hilo deja de retenerlo en cuanto llega, aunque aún
+        # no haya vuelto de entregarlo, y si la interfaz lo suelta muere en el acto (y descongela lo demás).
+        handoff = [outcome]
+        del outcome
+        self.deliver(handoff)
 
 
 class TaskRunner(QObject):
@@ -303,13 +323,13 @@ class TaskRunner(QObject):
         target = weakref.ref(self)
         emit = self._dispatcher.delivered.emit
 
-        def deliver(kind: str, value: Any) -> None:
+        def deliver(handoff: list) -> None:
             try:
-                emit(target, (generation, kind, value))
+                emit(target, (generation, handoff))
             except RuntimeError:
                 pass  # el despachador ya se destruyó: la aplicación se está cerrando
 
-        context = TaskContext(cancel, lambda value: deliver(_PROGRESS, value))
+        context = TaskContext(cancel, lambda value: deliver([(_PROGRESS, value)]))
         self._pool.start(_Job(fn, context, deliver))
         return generation
 
@@ -325,8 +345,9 @@ class TaskRunner(QObject):
     def is_busy(self) -> bool:
         return self._busy
 
-    def _receive(self, payload: tuple[int, str, Any]) -> None:
-        generation, kind, value = payload
+    def _receive(self, payload: tuple[int, list]) -> None:
+        generation, handoff = payload
+        kind, value = handoff.pop()  # desde aquí, solo lo retiene la interfaz
         if generation != self._generation:
             return
         if kind == _PROGRESS:
@@ -339,3 +360,31 @@ class TaskRunner(QObject):
         else:
             log.warning("tarea en segundo plano fallida:\n%s", value.traceback)
             self.failed.emit(value)
+
+
+# --- liberación en segundo plano -----------------------------------------------------------
+
+def release_in_background(value: Any, dismantle: Callable[[Any], Iterable[Any]]) -> None:
+    """Suelta ``value`` en el hilo de ``POOL_RELEASE``, recorriendo allí los pasos de ``dismantle(value)``.
+
+    Cada paso debe soltar poco: entre uno y otro el hilo cede el GIL. Quien llama le entrega su
+    última referencia y ya no lo toca, ni lo hace nada de lo que muestra, porque se vacía mientras la
+    interfaz sigue. Nada de lo que lleve puede ser un objeto de Qt, que se destruiría fuera de su
+    hilo. No se cancela: ``wait_for_tasks`` también la espera.
+    """
+    holder = [value]
+    del value
+
+    def release(context: TaskContext) -> None:
+        time.sleep(RELEASE_DELAY)  # sin el GIL
+        item = holder.pop()
+        for _ in dismantle(item):
+            pass
+        # ``item`` muere aquí con lo poco que quede (y avisa a la vigilancia del recolector si la tenía).
+
+    def report(handoff: list) -> None:
+        kind, outcome = handoff.pop()
+        if kind == _FAILED:
+            log.warning("liberación en segundo plano fallida:\n%s", outcome.traceback)
+
+    thread_pool(POOL_RELEASE).start(_Job(release, TaskContext(threading.Event(), lambda value: None), report))

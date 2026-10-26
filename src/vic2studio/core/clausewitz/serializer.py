@@ -22,6 +22,13 @@ texto original exacto. Reglas:
 - una cadena sin cerrar llega hasta el final del archivo: si algo la sigue tras
   editar, se le añade la comilla de cierre (su texto no cambia).
 
+Límite: en un archivo con errores de sintaxis, lo editado junto a ellos puede
+leerse de otra forma, porque el formato no tiene separadores que lo eviten: lo
+que se pone detrás de un bloque sin cerrar queda dentro de él, y un valor suelto
+seguido de un operador descartado (``= b``) forma con él una asignación. Lo
+nuevo nunca se pega al texto descartado, y ``write_file(verify=True)`` rechaza
+esos casos (``SourceMismatchError`` con ``near_errors``).
+
 ``format_canonical`` ignora el formato original. Los recorridos son iterativos
 (la profundidad no está limitada) y un bloque que se contiene a sí mismo da
 ``EditError("cycle")``.
@@ -35,9 +42,9 @@ from bisect import bisect_left
 from collections import Counter
 from pathlib import Path
 
-from ..encoding import GAME_ENCODING, encode_text
+from ..encoding import BOM, BOM_ENCODINGS, GAME_ENCODING, encode_text, normalize_encoding
 from ..fileio import BACKUP_SUFFIX, FileStamp, atomic_write_bytes
-from .diagnostics import EditError, EditTypeError, Severity
+from .diagnostics import ENCODING_CODES, EditError, EditTypeError, Severity
 from .lexer import (
     OP,
     OPEN_STRING,
@@ -72,11 +79,16 @@ class SourceMismatchError(EditError):
     """El texto generado no se vuelve a leer como el árbol en memoria; no se ha escrito nada.
 
     ``params["entry"]`` es la ruta de la primera entrada distinta y ``params["line"]``
-    su línea en el texto generado.
+    su línea en el texto generado. ``params["near_errors"]``: lo leído ya tenía errores
+    de sintaxis (o bloques sin cerrar), la causa habitual; el mensaje lo dice.
     """
 
-    def __init__(self, path, entry: str, line: int):
-        super().__init__("source_mismatch", {"where": str(path), "entry": entry, "line": line})
+    def __init__(self, path, entry: str, line: int, near_errors: bool = False):
+        super().__init__("source_mismatch",
+                         {"where": str(path), "entry": entry, "line": line, "near_errors": near_errors})
+
+    def _template(self) -> str:
+        return "source_mismatch_near_errors" if self.params.get("near_errors") else self.code
 
 
 # --- trivia -------------------------------------------------------------------------
@@ -708,10 +720,11 @@ class _Writer:
         if original is not None and block.entries != original:
             self._plan(frame, original)
         if frame.inline:
-            # Ya se decidió desplegarlo (_restart) o lo que se le ha puesto no cabe en su línea.
+            # Ya se decidió desplegarlo (_restart) o lo que se le ha puesto no cabe en su línea. Se decide
+            # antes de escribir nada dentro: así no hay que volver a escribirlo desde la "{" (R4).
             marked = self.unfolding and id(block) in self.unfolding
             if marked or (block._open_comment or block._trailing_comments
-                          or frame.items is not None and self._must_unfold(frame)) and self._unfold(frame):
+                          or self._must_unfold(frame)) and self._unfold(frame):
                 self._unfold_items(frame)
 
     def _closer_lead(self, frame: _Frame) -> str:
@@ -787,6 +800,9 @@ class _Writer:
         """True si las entradas añadidas a un bloque de una línea, o los comentarios puestos a las suyas,
         no caben en ella (con lo añadido sería más ancha que ``INLINE_WIDTH``)."""
         entries = frame.block.entries
+        if frame.items is None:
+            # Las mismas entradas, y leídas en una línea no tenían comentarios (se habrían tragado la "}").
+            return any(entry._comments or entry._line_comment for entry in entries)
         added = False
         for entry, lead in zip(entries, frame.items):
             if lead is None:
@@ -950,6 +966,15 @@ class _Writer:
                 last = self._last_char()
                 if last and WORD_CHAR_RE.match(last) is not None:
                     lead = " " + lead
+        return lead
+
+    def _unglued(self, lead: str) -> str:
+        """Trivia ante un cierre con un espacio delante si empieza por texto descartado que se pegaría a la
+        palabra escrita justo antes (lo editado junto a un error: "clave =" tras un valor nuevo)."""
+        if lead and WORD_CHAR_RE.match(lead) is not None:
+            last = self._last_char()
+            if last and WORD_CHAR_RE.match(last) is not None:
+                return " " + lead
         return lead
 
     def _last_char(self) -> str:
@@ -1142,7 +1167,7 @@ class _Writer:
                     self.need_break = False
                     if first_break(lead) < 0:
                         lead = self.newline + self._base_indent(frame) + lead.lstrip(_BLANK)
-                out.append(lead)
+                out.append(self._unglued(lead))
                 out.append("}")
             elif end == ADDED:
                 if frame.owns_eof:
@@ -1152,14 +1177,14 @@ class _Writer:
                     head, rest = split
                 else:
                     head, rest = lead, ""
-                out.append(head)
+                out.append(self._unglued(head))
                 out.append(self.newline + self._base_indent(frame) + "}")
                 self.need_break = False
                 self._set_closer_lead(frame, rest)
             else:
                 self._set_closer_lead(frame, lead)
                 if end == END:
-                    out.append(self.eof_lead)
+                    out.append(self._unglued(self.eof_lead))
         if frame.after:
             out.append(" " + frame.after)
             self.need_break = True
@@ -1227,7 +1252,9 @@ def to_source(node, *, newline: str | None = None) -> str:
 
     Para un ``Document`` incluye toda la trivia; para otros nodos se omite la
     trivia previa del propio nodo. ``newline`` (por defecto el del documento o
-    ``"\\n"``) solo afecta al texto generado.
+    ``"\\n"``) solo afecta al texto generado. Ningún BOM forma parte del texto (las
+    posiciones del árbol no los cuentan): el de la codificación y los repetidos
+    (``Document.extra_boms``) los pone ``write_file``.
     """
     if isinstance(node, Document):
         writer = _Writer(node, newline or node.newline, node._indent_unit, False, True)
@@ -1323,17 +1350,37 @@ def _session_key(path) -> str:
     return os.path.normcase(os.path.abspath(path))
 
 
+def _repeated_boms(document: Document, encoding: str) -> str:
+    """Los BOM repetidos del documento si se guarda en la codificación en que se leyeron y esta lleva BOM.
+
+    Con cualquier otra no tienen sentido y se descartan. Una codificación desconocida no da error aquí:
+    si es la de destino, lo da ``encode_text``.
+    """
+    if not document.extra_boms:
+        return ""
+    try:
+        codec = normalize_encoding(encoding)
+        same = codec in BOM_ENCODINGS and normalize_encoding(document.encoding or GAME_ENCODING) == codec
+    except LookupError:
+        return ""
+    return BOM * document.extra_boms if same else ""
+
+
 def write_file(path: str | os.PathLike, document_or_result, *, encoding: str | None = None,
                backup: bool = True, verify: bool = True, expected=None) -> Path | None:
     """Escribe ``to_source`` de forma atómica; devuelve la copia de seguridad o None.
 
     La codificación por defecto es la del documento (``document.encoding``: la
-    detectada al leer; cp1252 para documentos nuevos). Con ``verify`` se comprueba
+    detectada al leer; cp1252 para documentos nuevos); los BOM repetidos del
+    documento (``extra_boms``) se escriben delante solo si se guarda en esa misma
+    codificación y lleva BOM (``encoding.BOM_ENCODINGS``). Con ``verify`` se comprueba
     antes que el texto se vuelve a leer como el árbol en memoria (con los mismos
     bloques sin cerrar) y sin errores de sintaxis que no estuvieran en lo leído (el
     ``ParseResult``; ninguno en un documento creado por código); si no, se lanza
     ``SourceMismatchError`` (con la ruta de la primera entrada distinta) y el
-    archivo no se toca. Con ``backup`` se guarda ``archivo.bak`` con lo que tenía
+    archivo no se toca. Es lo que pasa al editar junto a los errores de sintaxis de
+    un archivo (ver el docstring del módulo): el error lo indica (``near_errors``).
+    Con ``backup`` se guarda ``archivo.bak`` con lo que tenía
     el archivo antes de su primer guardado de la sesión (del proceso): los
     guardados siguientes no lo pisan, así que sigue siendo el original. Con
     ``expected`` (``ParseResult.stamp``) se lanza ``FileChangedError`` sin escribir
@@ -1357,10 +1404,15 @@ def write_file(path: str | os.PathLike, document_or_result, *, encoding: str | N
             if error is not None:
                 difference = _entry_at(reread.document, error.line), error.line
         if difference is not None:
-            raise SourceMismatchError(path, *difference)
+            if result is not None:
+                near_errors = any(d.severity is Severity.ERROR and d.code not in ENCODING_CODES for d in read)
+            else:
+                near_errors = bool(document.unclosed_blocks())
+            raise SourceMismatchError(path, *difference, near_errors)
     target = Path(path)
     session_key = _session_key(target)
-    data = encode_text(text, encoding or document.encoding or GAME_ENCODING)
+    codec = encoding or document.encoding or GAME_ENCODING
+    data = encode_text(_repeated_boms(document, codec) + text, codec)
     if backup and session_key in _SESSION_BACKUPS:
         atomic_write_bytes(target, data, expected=expected)
         existing = target.with_name(target.name + BACKUP_SUFFIX)

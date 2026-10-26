@@ -15,6 +15,7 @@ import tempfile
 import textwrap
 import threading
 import time
+import types
 import unittest
 import weakref
 from pathlib import Path
@@ -34,10 +35,12 @@ from vic2studio.ui.tasks import (  # noqa: E402
     GC_FREEZE_MIN_OBJECTS,
     POOL_IMAGES,
     POOL_PREVIEW,
+    POOL_RELEASE,
     POOL_VALIDATION,
     TaskFailure,
     TaskRunner,
     cancel_all,
+    release_in_background,
     thread_pool,
     wait_for_tasks,
 )
@@ -312,6 +315,35 @@ class LifetimeTests(TaskCase):
             tasks._dispatcher = original
 
 
+class HandoffTests(TaskCase):
+    def test_what_a_task_delivers_is_held_only_by_whoever_receives_it(self):
+        """Si la interfaz suelta lo que recibe, muere en el acto, aunque el hilo de la tarea aún no haya vuelto
+        de entregarlo. Antes su marco lo retenía hasta volver: soltarlo no lo liberaba (ni descongelaba nada)
+        y las pruebas del recolector fallaban de vez en cuando (2 de 30 veces en la base, solas)."""
+        runner, finished, failed = self.runner()
+        linger = self.event()
+        emit = runner._dispatcher.delivered.emit
+
+        def emit_and_linger(*args):
+            emit(*args)
+            linger.wait(TIMEOUT_MS / 1000)  # sin el GIL, como un hilo al que se lo quitan justo después
+
+        runner._dispatcher = types.SimpleNamespace(delivered=types.SimpleNamespace(emit=emit_and_linger))
+
+        def fail(ctx):
+            raise ValueError("fallo")
+
+        for work, received in ((lambda ctx: Result([1, 2, 3]), finished), (fail, failed)):
+            linger.clear()
+            with self.assertLogs("vic2studio.ui.tasks", "WARNING") if received is failed else contextlib.nullcontext():
+                runner.start(work)
+                self.wait(lambda: received, "la tarea no entregó nada")
+            delivered = weakref.ref(received.pop())
+            self.assertIsNone(delivered(), "el hilo de la tarea aún lo retiene")
+            linger.set()
+            self.assertTrue(wait_for_tasks(TIMEOUT_MS))
+
+
 class GarbageCollectorTests(TaskCase):
     def test_collector_is_paused_while_any_task_runs(self):
         first_in, second_in = self.event(), self.event()
@@ -580,6 +612,69 @@ class GarbageCollectorTests(TaskCase):
                   f"mayor hueco del hilo de la interfaz {max(gaps)} ms", file=sys.stderr)
             self.assertLess(max(gaps), STALL_LIMIT_MS, "la interfaz se congeló durante el análisis")
             finished.clear()
+
+
+def drain(items: list):
+    """Pasos de una liberación: vacía ``items`` de mil en mil."""
+    while items:
+        del items[-1000:]
+        yield
+
+
+class ReleaseTests(TaskCase):
+    """``release_in_background`` (NF-TREE-RELEASE): soltar algo grande sin parar el hilo de la interfaz."""
+
+    def test_a_value_is_released_in_steps_off_the_interface_thread(self):
+        steps, died = [], []
+
+        def dismantle(value):
+            for _ in drain(value):
+                steps.append(threading.get_ident())
+                yield
+
+        value = Result([i] for i in range(10_000))
+        weakref.finalize(value, lambda: died.append(threading.get_ident()))
+        release_in_background(value, dismantle)
+        del value  # la última referencia es suya
+        self.assertTrue(wait_for_tasks(TIMEOUT_MS), "wait_for_tasks no esperó a la liberación")
+        self.assertEqual(len(steps), 10)
+        self.assertEqual(len(died), 1)
+        self.assertNotIn(threading.get_ident(), set(steps + died), "se soltó en el hilo de la interfaz")
+        self.assertEqual(thread_pool(POOL_RELEASE).maxThreadCount(), 1, "las liberaciones van de una en una")
+
+    def test_a_frozen_result_released_in_the_background_thaws_the_rest(self):
+        """La vigilancia del recolector también se entera si el resultado muere en otro hilo."""
+        gc.collect()
+        gc.unfreeze()
+        freed, entered, release = [], self.event(), self.event()
+
+        def work(ctx):
+            make_cycle(freed, "con el resultado")
+            entered.set()
+            release.wait(TIMEOUT_MS / 1000)
+            return Result([i] for i in range(2 * GC_FREEZE_MIN_OBJECTS))
+
+        runner, finished, _ = self.runner()
+        runner.start(work)
+        self.assertTrue(entered.wait(TIMEOUT_MS / 1000))
+        release.set()
+        self.wait(lambda: finished, "la tarea no terminó")
+        self.assertGreaterEqual(gc.get_freeze_count(), 2 * GC_FREEZE_MIN_OBJECTS)
+        release_in_background(finished.pop(), drain)
+        self.assertTrue(wait_for_tasks(TIMEOUT_MS))
+        self.assertEqual(gc.get_freeze_count(), 0, "lo congelado con el resultado sigue congelado")
+        gc.collect()
+        self.assertEqual(freed, ["con el resultado"])
+
+    def test_a_failed_release_is_reported(self):
+        def broken(value):
+            yield
+            raise RuntimeError("no se pudo desmontar")
+
+        with self.assertLogs("vic2studio.ui.tasks", "WARNING") as logs:
+            release_in_background(Result([1, 2, 3]), broken)
+            self.assertTrue(wait_for_tasks(TIMEOUT_MS))
+        self.assertIn("no se pudo desmontar", "\n".join(logs.output))
 
 
 SHUTDOWN_SCRIPT = textwrap.dedent('''

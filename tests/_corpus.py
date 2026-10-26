@@ -17,12 +17,18 @@ import atexit
 import os
 import random
 import shutil
+import sys
 import tempfile
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT / "src") not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT / "src"))
+
+# Las extensiones Clausewitz son las del parser (map/default.map también): una sola definición.
+from vic2studio.core.clausewitz import CLAUSEWITZ_SUFFIXES  # noqa: E402, F401 - la usan las pruebas
+
 FIXTURE_ROOT = PROJECT_ROOT / "tests" / "fixtures" / "shago_mod_min"
-CLAUSEWITZ_SUFFIXES = {".txt", ".mod", ".gfx", ".gui", ".sfx", ".asset", ".map"}  # map/default.map también
 USER_MOD_NAME = "VSM"
 # Diario de desarrollo en prosa que Paradox dejó en history/units; solo está en el mod completo.
 DEV_DIARY = "history/units/v2dd2.txt"
@@ -38,7 +44,7 @@ def corpus_roots() -> list[Path]:
     return [p for p in candidates if p.is_dir()]
 
 
-def corpus_files(suffixes: set[str]) -> list[Path]:
+def corpus_files(suffixes: frozenset[str] | set[str]) -> list[Path]:
     files = []
     for root in corpus_roots():
         files.extend(p for p in root.rglob("*") if p.is_file() and p.suffix.lower() in suffixes)

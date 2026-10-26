@@ -28,6 +28,7 @@ from vic2studio.core.encoding import (  # noqa: E402
     encode_text,
     find_unencodable,
     has_stray_bom,
+    match_bom,
     normalize_encoding,
     split_bom,
     split_extra_boms,
@@ -228,6 +229,32 @@ class EncodingTests(unittest.TestCase):
             with self.subTest(name=name):
                 self.assertEqual(split_extra_boms(BOM + body, name), (BOM + body, 0))
         self.assertEqual(split_extra_boms(body + BOM, UTF8_BOM), (body + BOM, 0), "solo al principio")
+
+    def test_match_bom(self):
+        """NF-6: un codec explícito que quita el BOM no dice si lo había ni en qué orden de bytes; el
+        nombre que devuelve match_bom vuelve a escribir los mismos bytes que se leyeron."""
+        body = "K = Le\u00f3n\r\n"
+        cases = [
+            (codecs.BOM_UTF8 + body.encode("utf-8"), "UTF-8-SIG", UTF8_BOM),
+            (body.encode("utf-8"), "utf-8-sig", UTF8),
+            (codecs.BOM_UTF16_LE + body.encode("utf-16-le"), "utf-16", UTF16),
+            (codecs.BOM_UTF16_BE + body.encode("utf-16-be"), "utf-16", UTF16_BE_BOM),
+            (body.encode("utf-16-le" if sys.byteorder == "little" else "utf-16-be"), "UTF16",
+             UTF16_LE if sys.byteorder == "little" else UTF16_BE),
+            (codecs.BOM_UTF16_BE + body.encode("utf-16-be"), "utf-16-be-bom", UTF16_BE_BOM),
+            (body.encode("utf-16-be"), "utf-16-be-bom", UTF16_BE),
+        ]
+        for raw, explicit, expected in cases:
+            with self.subTest(raw=raw[:4], explicit=explicit):
+                decoded = decode_bytes(raw, explicit)
+                self.assertEqual(decoded.text, body)
+                self.assertEqual(match_bom(raw, explicit), expected)
+                self.assertEqual(encode_text(decoded.text, expected), raw)
+        # Las que dejan el BOM en el texto (las arregla split_bom) y las demás no cambian.
+        for name in (UTF8, UTF16_LE, UTF16_BE, GAME_ENCODING):
+            with self.subTest(name=name):
+                self.assertEqual(match_bom(codecs.BOM_UTF8 + b"K", name.upper()), name)
+        self.assertEqual(match_bom(b"K", "latin-1"), "iso8859-1")
 
     def test_only_text_encodings(self):
         """FC-5: base64 o rot13 pasaban la validación y fallaban después al escribir."""

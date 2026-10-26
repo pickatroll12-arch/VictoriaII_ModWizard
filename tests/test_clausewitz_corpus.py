@@ -9,7 +9,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from _corpus import CLAUSEWITZ_SUFFIXES, corpus_files  # noqa: E402
 from vic2studio.core.clausewitz import format_canonical, from_json, parse, parse_file, to_json, to_source  # noqa: E402
-from vic2studio.core.encoding import encode_text  # noqa: E402
+from vic2studio.core.encoding import BOM, encode_text  # noqa: E402
 
 # Errores genuinos de los archivos (revisados a mano), por sufijo de ruta: [(código, línea)].
 EXPECTED_ERRORS = {
@@ -65,7 +65,8 @@ class CorpusClausewitzTests(unittest.TestCase):
                 cls.crashes.append((path, repr(exc)))
                 continue
             parse_time += time.perf_counter() - t0
-            if encode_text(to_source(result.document), result.encoding) != raw:
+            # Los BOM repetidos no son del texto: write_file los vuelve a poner en su codificación.
+            if encode_text(BOM * result.document.extra_boms + to_source(result.document), result.encoding) != raw:
                 cls.roundtrip_failures.append(path)
             if result.errors:
                 cls.errors[path] = result.errors

@@ -19,6 +19,9 @@ SEVERITY_ICON = {ERROR: "error", WARNING: "warning", INFO: "info"}
 SEVERITY_COLOR = {ERROR: "danger", WARNING: "warning", INFO: "ink_soft"}
 SEVERITY_KEYS = {ERROR: N_("severity.error"), WARNING: N_("severity.warning"), INFO: N_("severity.info")}
 CORE_LANGUAGES = ("es", "en")
+# Lo que tiene que tardar una carga para que el visor muestre que está cargando: un reintento que falla
+# otra vez, o un archivo pequeño, responde antes y no hace parpadear la vista.
+LOADING_DELAY_MS = 150
 # Mensaje de cada error del sistema al abrir un archivo; los demás usan «file_error.generic».
 OS_ERROR_KEYS = (
     ((FileNotFoundError, NotADirectoryError), N_("file_error.not_found")),
@@ -92,22 +95,43 @@ def format_seconds(seconds: float) -> str:
 
 
 class ElidedLabel(QLabel):
-    """Una sola línea recortada con «…» si no cabe; ``text()`` conserva el texto completo."""
+    """Una sola línea recortada con «…» si no cabe; ``text()`` conserva el texto completo.
+
+    ``set_text(text, shrink)`` recorta primero ``shrink``, una parte de ``text`` (una ruta): así lo que la
+    sigue (la codificación, el tamaño…) no se pierde en medio del recorte.
+    """
 
     def __init__(self, parent: QWidget | None = None, mode: Qt.TextElideMode = Qt.TextElideMode.ElideMiddle):
         super().__init__(parent)
         self._mode = mode
+        self._shrink = ""
         self.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+
+    def set_text(self, text: str, shrink: str = "") -> None:
+        self._shrink = shrink
+        self.setText(text)
+        self.update()  # ``setText`` no repinta si el texto es el mismo y solo cambia lo que se recorta
 
     def minimumSizeHint(self) -> QSize:
         return QSize(16, super().minimumSizeHint().height())
 
+    def displayed_text(self) -> str:
+        """Lo que se pinta con el ancho actual."""
+        text, mode, metrics = self.text(), self._mode, self.fontMetrics()
+        width = self.contentsRect().width()
+        part = self._shrink
+        if part and part in text and metrics.horizontalAdvance(text) > width:
+            before, _, after = text.partition(part)
+            # Un par de píxeles de margen: el ancho del texto unido puede no ser la suma exacta de sus trozos.
+            room = width - metrics.horizontalAdvance(before + after) - 2
+            text = before + (metrics.elidedText(part, Qt.TextElideMode.ElideMiddle, room) or "…") + after
+            mode = Qt.TextElideMode.ElideRight  # si ni así cabe, se pierde el final y no lo de en medio
+        return metrics.elidedText(text, mode, width)
+
     def paintEvent(self, event) -> None:
         p = QPainter(self)
-        rect = self.contentsRect()
-        text = self.fontMetrics().elidedText(self.text(), self._mode, rect.width())
-        self.style().drawItemText(p, rect, int(self.alignment()), self.palette(), self.isEnabled(), text,
-                                  self.foregroundRole())
+        self.style().drawItemText(p, self.contentsRect(), int(self.alignment()), self.palette(), self.isEnabled(),
+                                  self.displayed_text(), self.foregroundRole())
 
 
 class ViewerHeader(QWidget):
@@ -140,12 +164,13 @@ class ViewerHeader(QWidget):
         self.badge.setVisible(False)
         row.addWidget(self.badge, 0, Qt.AlignmentFlag.AlignTop)
 
-    def set_file(self, path: Path | None, details: str = "") -> None:
+    def set_file(self, path: Path | None, details: str = "", shown_path: str = "") -> None:
         self.name.setText(path.name if path else "")
-        self.set_details(details)
+        self.set_details(details, shown_path)
 
-    def set_details(self, details: str) -> None:
-        self.details.setText(details)
+    def set_details(self, details: str, shown_path: str = "") -> None:
+        """``shown_path``, la ruta tal como aparece en ``details``, es lo primero que se recorta si no cabe."""
+        self.details.set_text(details, shown_path)
         self.details.setToolTip(details)
 
     def set_summary(self, level: str | None, text: str = "") -> None:

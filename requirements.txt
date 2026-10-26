@@ -1,6 +1,8 @@
 # Dependencias de ejecución de Victoria II Mod Studio (las mismas que pyproject.toml).
 # Python 3.10 o superior.
-PySide6>=6.5
+# PySide6 6.12.0 aborta con Python 3.10 y 3.11 (suelta referencias de más a None, True y False).
+PySide6>=6.5,<6.12; python_version < '3.12'
+PySide6>=6.5; python_version >= '3.12'
 numpy>=1.24
 Pillow>=10
 

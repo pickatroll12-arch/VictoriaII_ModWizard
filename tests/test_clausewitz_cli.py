@@ -1,3 +1,4 @@
+import codecs
 import json
 import os
 import subprocess
@@ -56,6 +57,33 @@ class CliCheckTests(unittest.TestCase):
         self.assertEqual(lines[0], f"{self.broken}:1:23: error: Block 'political_decisions' opened on line 1 "
                                    "is never closed (missing '}')")
         self.assertTrue(lines[1].startswith(f"{self.root / 'missing.txt'}: error: cannot read:"), lines[1])
+
+    def test_encodings_the_game_cannot_read(self):
+        """R1: la CLI no avisaba de un UTF-16 (ilegible para el juego) ni de un BOM UTF-8 delante de cp1252,
+        y salía con 0; ahora da los mismos diagnósticos que «Validar mod»."""
+        script = 'country_event = {\r\n\tid = 2\r\n}\r\n'
+        files = {
+            "le.txt": script.encode("utf-16"),
+            "no_bom.txt": script.encode("utf-16-le"),
+            "be.txt": codecs.BOM_UTF16_BE + script.encode("utf-16-be"),
+            "stray.txt": codecs.BOM_UTF8 + script.replace("2", '"Le\u00f3n"').encode("cp1252"),  # no es UTF-8
+        }
+        for name, data in files.items():
+            (self.root / name).write_bytes(data)
+        unreadable = run_cli("check", *(self.root / n for n in ("le.txt", "no_bom.txt", "be.txt")), "--lang", "en")
+        self.assertEqual(unreadable.returncode, 1)
+        self.assertEqual(unreadable.stdout.splitlines(), [
+            f"{self.root / name}:1:1: error: The file is encoded as {shown} (16-bit Unicode): Victoria II cannot "
+            "read it at all. Save it as Windows-1252 (ANSI)."
+            for name, shown in (("le.txt", "UTF-16"), ("no_bom.txt", "UTF-16-LE"), ("be.txt", "UTF-16-BE-BOM"))
+        ])
+        self.assertIn("3 file(s), 3 error(s), 0 warning(s)", unreadable.stderr)
+        stray = run_cli("check", self.root / "stray.txt")
+        self.assertEqual(stray.returncode, 0)
+        self.assertEqual([line.split(": aviso: ")[0] for line in stray.stdout.splitlines()],
+                         [f"{self.root / 'stray.txt'}:1:1"])
+        self.assertIn("'ï»¿'", stray.stdout)
+        self.assertIn("1 archivo(s), 0 error(es), 1 aviso(s)", stray.stderr)
 
     def test_tojson(self):
         commented = self.root / "commented.txt"

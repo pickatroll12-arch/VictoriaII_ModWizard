@@ -49,11 +49,50 @@ class NavButton(QAbstractButton):
         self._keyboard_focus = False
         super().mousePressEvent(event)
 
+    def _plate(self) -> QRectF:
+        return QRectF(self.rect()).adjusted(1.5, 1.5, -1.5, -1.5 - self.POINTER)
+
+    @staticmethod
+    def _icon_rect(plate: QRectF) -> QRectF:
+        return QRectF(plate.left() + 12, plate.center().y() - 12, 24, 24)
+
+    @staticmethod
+    def _number_rect(plate: QRectF) -> QRectF:
+        return QRectF(plate.right() - 26, plate.center().y() - 9, 18, 18)
+
+    @classmethod
+    def _text_rect(cls, plate: QRectF) -> QRectF:
+        left, right = cls._icon_rect(plate).right(), cls._number_rect(plate).left()
+        return QRectF(left + 10, plate.top(), right - left - 16, plate.height())
+
+    def label_text(self) -> str:
+        """El nombre tal como se pinta: en una línea; si no cabe, en dos partido entre palabras (con la ventana
+        al mínimo y en español no cabía ninguno: «Editor de …»); y si tampoco, recortado."""
+        plate = self._plate()
+        width = self._text_rect(plate).width()
+        metrics = QFontMetricsF(self.font())
+        text = self.text()
+        if metrics.horizontalAdvance(text) <= width:
+            return text
+        words = text.split()
+        best = None
+        for cut in range(1, len(words)):
+            lines = " ".join(words[:cut]), " ".join(words[cut:])
+            widest = max(metrics.horizontalAdvance(line) for line in lines)
+            # Mejor sin una palabra corta al final de la primera línea («Estudio / de Eventos», no
+            # «Estudio de / Eventos») y, entre esos, el corte más equilibrado.
+            rank = len(words[cut - 1]) <= 2, widest
+            if widest <= width and (best is None or rank < best[0]):
+                best = rank, "\n".join(lines)
+        if best is not None and 2 * metrics.lineSpacing() <= plate.height():
+            return best[1]
+        return metrics.elidedText(text, Qt.TextElideMode.ElideRight, width)
+
     def paintEvent(self, event) -> None:
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
         checked, hovered, pressed = self.isChecked(), self.underMouse(), self.isDown()
-        plate = QRectF(self.rect()).adjusted(1.5, 1.5, -1.5, -1.5 - self.POINTER)
+        plate = self._plate()
         g = QLinearGradient(plate.topLeft(), plate.bottomLeft())
         if checked:
             g.setColorAt(0.0, C("velvet_light"))
@@ -87,11 +126,11 @@ class NavButton(QAbstractButton):
             p.drawPolygon(QPolygonF([QPointF(cx - 8, bottom + 0.5), QPointF(cx + 8, bottom + 0.5),
                                      QPointF(cx, bottom + self.POINTER)]))
 
-        icon_rect = QRectF(plate.left() + 12, plate.center().y() - 12, 24, 24)
+        icon_rect = self._icon_rect(plate)
         icon_color = C("gold_pale") if checked else (C("gold_light") if hovered else C("gold"))
         draw_icon(p, self.icon_name, icon_rect, icon_color)
 
-        number_rect = QRectF(plate.right() - 26, plate.center().y() - 9, 18, 18)
+        number_rect = self._number_rect(plate)
         p.setPen(QPen(C("gold", 170) if checked else C("bronze"), 1.0))
         p.setBrush(C("wood_dark", 120))
         p.drawEllipse(number_rect)
@@ -99,11 +138,10 @@ class NavButton(QAbstractButton):
         p.setPen(C("gold_light") if checked else C("cream_muted"))
         p.drawText(number_rect, Qt.AlignmentFlag.AlignCenter, str(self.number))
 
-        text_rect = QRectF(icon_rect.right() + 10, plate.top(), number_rect.left() - icon_rect.right() - 16, plate.height())
+        text_rect = self._text_rect(plate)
         p.setFont(self.font())
         p.setPen(C("gold_pale") if checked else C("cream"))
-        text = QFontMetricsF(self.font()).elidedText(self.text(), Qt.TextElideMode.ElideRight, text_rect.width())
-        p.drawText(text_rect, int(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft), text)
+        p.drawText(text_rect, int(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft), self.label_text())
 
         if self.hasFocus() and self._keyboard_focus:
             p.setBrush(Qt.BrushStyle.NoBrush)

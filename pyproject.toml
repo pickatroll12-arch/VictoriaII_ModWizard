@@ -10,7 +10,10 @@ description = "Victoria II Mod Studio: editor visual de mods de Victoria II (mot
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
-    "PySide6>=6.5",
+    # PySide6 6.12.0 suelta referencias de más a None, True y False (en cada tarea de QThreadPool, entre otras).
+    # Desde Python 3.12 esos objetos son inmortales; con 3.10 y 3.11 el proceso aborta. La 6.11.3 va bien.
+    "PySide6>=6.5,<6.12; python_version < '3.12'",
+    "PySide6>=6.5; python_version >= '3.12'",
     "numpy>=1.24",
     "Pillow>=10",
 ]
