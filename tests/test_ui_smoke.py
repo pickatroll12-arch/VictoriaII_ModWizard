@@ -1,3 +1,4 @@
+import re
 import shutil
 import sys
 import tempfile
@@ -36,7 +37,9 @@ from vic2studio.ui.pages.project_page import (  # noqa: E402
     evaluate_mod,
     inspect_folder,
     name_filters,
+    same_folder,
 )
+from vic2studio.ui.tasks import wait_for_tasks  # noqa: E402
 from vic2studio.ui.widgets import icon_names  # noqa: E402
 from vic2studio.ui.widgets.icons import icon_pixmap  # noqa: E402
 
@@ -105,7 +108,10 @@ class UiTestCase(unittest.TestCase):
     def tearDown(self):
         for window in self.windows:
             window.close()
-            window.deleteLater()
+        self.assertTrue(wait_for_tasks(10000), "quedaron tareas en segundo plano")
+        _qt.process_events()
+        self.assertEqual(_qt.dispose(*self.windows), [], "ventanas de la prueba que siguen vivas")
+        self.assertEqual(_qt.live_main_windows(), [], "quedó viva otra ventana principal")
         _qt.process_events()
         set_language("es")
         _qt.process_events()
@@ -286,6 +292,7 @@ class ProjectPageTests(UiTestCase):
         self.assertTrue(_qt.wait_until(lambda: not project.is_busy()), "el explorador no terminó de cargar")
         self.assertEqual(project.explorer_root(), mod)
 
+        # Lo que se comprueba es lo que se ve: dentro de un QStackedWidget, isVisible() y no isVisibleTo().
         activated = []
         project.file_activated.connect(activated.append)
         target = mod / "common" / "countries.txt"
@@ -293,19 +300,46 @@ class ProjectPageTests(UiTestCase):
         _qt.process_events(50)
         self.assertEqual(activated, [target])
         self.assertIsInstance(activated[0], Path)
-        self.assertEqual(project.preview.name.text(), "countries.txt")
-        self.assertEqual(project.preview.form_values["path"].text(), "common/countries.txt")
-        self.assertIn("1252", project.preview.form_values["encoding"].text())
-        self.assertIn("Ñandú", project.preview.excerpt.toPlainText())
+        viewer = project.clausewitz_viewer
+        self.assertTrue(_qt.wait_until(lambda: viewer.current_load() is not None and not project.is_busy()))
+        self.assertIs(project.preview_widget(), viewer)
+        self.assertTrue(viewer.isVisible())
+        self.assertFalse(project.preview.isVisible())
+        self.assertEqual(viewer.header.name.text(), "countries.txt")
+        self.assertIn("common/countries.txt", viewer.header.details.text())
+        self.assertIn("1252", viewer.header.details.text())
+        self.assertIn("Ñandú", viewer.code.text_document().toPlainText())  # se cuelga al ver la pestaña
         self.assertIn("common/countries.txt", window.status_label.text())
         self.assertFalse(project.reveal_file(Path(tempfile.gettempdir())))
 
+        # Seleccionar una imagen en el explorador la muestra en ImageViewer, a su tamaño.
         self.assertTrue(project.reveal_file(mod / "gfx" / "flags" / "MIM.tga"))
-        _qt.wait_until(lambda: not project.is_busy())
-        self.assertEqual(project.preview.form_values["dimensions"].text(), "93 × 64 px")
-        self.assertTrue(project.preview.thumbnail.isVisibleTo(project.preview))
-        self.assertFalse(project.preview.thumbnail.pixmap().isNull())
-        self.assertFalse(project.preview.excerpt.isVisibleTo(project.preview))
+        image = project.image_viewer
+        self.assertTrue(_qt.wait_until(lambda: image.current_load() is not None and not project.is_busy()))
+        self.assertIs(project.preview_widget(), image)
+        self.assertTrue(image.canvas.isVisible())
+        self.assertFalse(project.preview.isVisible())
+        load = image.current_load()
+        self.assertEqual((load.width, load.height), (93, 64))
+        self.assertIn("93 × 64 px", image.header.details.text())
+        canvas = image.canvas.grab().toImage()
+        self.assertEqual(canvas.pixelColor(canvas.width() // 2, canvas.height() // 2).getRgb()[:3], (200, 30, 40))
+
+        # Una carpeta muestra la ficha, y la barra de estado la nombra.
+        self.assertTrue(project.reveal_file(mod / "common"))
+        _qt.process_events(20)
+        self.assertIsNone(project.preview_widget())
+        self.assertTrue(project.preview.isVisible())
+        self.assertEqual(project.preview.name.text(), "common")
+        self.assertEqual(project.preview.form_values["entries"].text(), "1 elemento")
+        self.assertEqual(window.status_label.text(), "Seleccionado: common")
+        # Un CSV de localización muestra su ficha con el extracto y el botón para abrirlo.
+        self.assertTrue(project.reveal_file(mod / "localisation" / "mimod.csv"))
+        _qt.process_events(20)
+        self.assertTrue(project.preview.excerpt.isVisible())
+        self.assertIn("Hola", project.preview.excerpt.toPlainText())
+        self.assertTrue(project.preview.csv_button.isVisible())
+        self.assertTrue(project.preview.note.isVisible())
 
         custom = QLabel("visor")
         project.set_preview_widget(custom)
@@ -315,7 +349,7 @@ class ProjectPageTests(UiTestCase):
         self.assertIs(project.preview_stack.currentWidget(), project.preview)
         self.assertIsNone(project.preview_widget())
 
-        project.filter_edit.setText("*.csv  countries")
+        project.filter_edit.setText("*.csv; countries")
         self.assertEqual(project.fs.nameFilters(), ["*.csv", "*countries*"])
         project.filter_edit.clear()
 
@@ -361,6 +395,33 @@ class ProjectPageTests(UiTestCase):
             self.assertTrue(project.tree.viewport().rect().intersects(project.tree.visualRect(current)),
                             "el archivo revelado no quedó a la vista")
 
+    def test_reveal_waits_until_the_folder_is_listed_and_sorted(self):
+        """El modelo ordena en diferido las filas nuevas de una carpeta; con la máquina cargada lo hacía cuando ya
+        había pasado la ventana para volver a centrar el archivo revelado, que quedaba fuera de la vista, y
+        ``is_busy()`` no esperaba a que se listara su carpeta. Ahora se ordena en cuanto se termina de listar."""
+        with tempfile.TemporaryDirectory() as tmp:
+            mod = Path(tmp) / "BigMod"
+            notes = mod / "notes"  # la única carpeta que falta listar: se termina con su directoryLoaded
+            notes.mkdir(parents=True)
+            for n in range(600):
+                (notes / f"N{n:03d}.lua").write_bytes(b"")  # sin visor propio: la vista previa no tarda nada
+            window = self.make_window()
+            project = window.page("project")
+            project.set_mod_path(mod)
+            self.assertTrue(_qt.wait_until(lambda: not project.is_busy()))
+            rows = []
+            project.fs.directoryLoaded.connect(  # después del de la página: ve lo que ella dejó hecho
+                lambda folder: rows.append(project.tree.currentIndex().row()) if same_folder(Path(folder), notes)
+                else None)
+            self.assertTrue(project.reveal_file(notes / "N450.lua"))
+            self.assertTrue(project.is_busy(), "mientras se lista su carpeta, la página está ocupada")
+            self.assertTrue(_qt.wait_until(lambda: not project.is_busy()))
+            self.assertEqual(rows, [450], "al terminar de listar su carpeta, el archivo ya está en su sitio")
+            _qt.process_events(50)
+            current = project.tree.currentIndex()
+            self.assertEqual(project.model.file_path(current), notes / "N450.lua")
+            self.assertTrue(project.tree.viewport().rect().intersects(project.tree.visualRect(current)))
+
     def test_folder_evaluation(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -393,6 +454,10 @@ class ProjectPageTests(UiTestCase):
         self.assertEqual(name_filters(""), [])
         self.assertEqual(name_filters("france"), ["*france*"])
         self.assertEqual(name_filters(" *.txt; ger ,a?c "), ["*.txt", "*ger*", "a?c"])
+        # Los espacios son parte del nombre (historia de provincias) y los corchetes se buscan tal cual.
+        self.assertEqual(name_filters("400 - Dunkirk"), ["*400 - Dunkirk*"])
+        self.assertEqual(name_filters("["), ["*[[]*"])
+        self.assertEqual(name_filters("a[1]"), ["*a[[]1[]]*"])
 
 
 class LocalisationPageTests(UiTestCase):
@@ -438,6 +503,14 @@ class ThemeTests(UiTestCase):
         for path in theme.glyph_dir().glob("*.png"):
             self.assertFalse(QImage(str(path)).isNull(), path)
         self.assertGreater(len(list(theme.glyph_dir().glob("*.png"))), 20)
+
+    def test_every_object_name_rule_has_a_widget(self):
+        """REG-4: una regla ``Tipo#nombre`` de style.qss cuyo objectName ya no pone nadie no se aplica a nada."""
+        sources = "\n".join(path.read_text(encoding="utf-8") for path in theme.STYLESHEET_PATH.parent.rglob("*.py"))
+        names = set(re.findall(r"\w#(\w+)", theme.STYLESHEET_PATH.read_text(encoding="utf-8")))
+        self.assertIn("folderChip", names)
+        unused = sorted(name for name in names if not re.search(rf"[\"']{name}[\"']", sources))
+        self.assertEqual(unused, [], "reglas para objectName que ningún widget usa")
 
     def test_fonts_resolve_to_serif(self):
         family = theme.resolve_family(theme.DISPLAY_FAMILIES + theme.BODY_FAMILIES)

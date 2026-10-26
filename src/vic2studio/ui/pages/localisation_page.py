@@ -2,10 +2,14 @@
 
 El CSV se lee en segundo plano (``load_localisation``) y se muestra en un
 ``LocalisationEditor`` de solo lectura en esta iteración (la edición llega en la
-iteración 2). Puntos de extensión:
+iteración 2). Mientras se lee otro, sigue a la vista el anterior; si no se puede
+abrir, el motivo traducido queda en la página (``error_badge``) hasta el
+siguiente intento. Puntos de extensión:
 
 * ``open_file(ruta, line=None)``: abre un CSV (diálogo, lista del mod o explorador
-  de «Proyecto y Archivos») y, si se indica, selecciona la fila de esa línea.
+  de «Proyecto y Archivos») y, si se indica, selecciona la fila de esa línea. Si
+  ya está abierto y no ha cambiado en disco, reutiliza la lectura; si cambió, lo relee.
+* ``reload_if_changed()``: relee el CSV abierto si cambió en disco (también al volver a la página).
 * ``open_requested(Path)``: se emite al pedir un CSV.
 * ``search_changed(str)``: texto del buscador (habilitado cuando hay un CSV abierto).
 * ``set_central_widget(widget)``: instala otro editor; ``None`` vuelve al estado vacío.
@@ -17,7 +21,7 @@ import os
 import time
 from pathlib import Path
 
-from PySide6.QtCore import QDir, QSize, Qt, QTimer, Signal
+from PySide6.QtCore import QDir, QSize, Qt, Signal
 from PySide6.QtGui import QAction
 from PySide6.QtWidgets import (
     QFileDialog,
@@ -38,16 +42,17 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from ...i18n import N_, tr, translator
+from ...core.csvloc import is_localisation_csv
+from ...i18n import N_, tr
 from .. import theme
 from ..tasks import TaskRunner
 from ..viewers import LocalisationEditor
+from ..viewers.common import ElidedLabel, describe_os_error, file_stamp, format_number, format_seconds
 from ..viewers.localisation_editor import LocalisationFailure, try_load_localisation
-from ..widgets import EmptyState, ParchmentCard, make_icon, mark_data, rich, show_in_stack
+from ..widgets import EmptyState, ParchmentCard, StatusBadge, make_icon, mark_data, rich, show_in_stack
 from .base import BasePage
 
 LOCALISATION_DIR = "localisation"
-SEARCH_DELAY_MS = 150
 
 
 class LocalisationPage(BasePage):
@@ -58,24 +63,20 @@ class LocalisationPage(BasePage):
 
     open_requested = Signal(object)  # Path
     search_changed = Signal(str)
-    file_loaded = Signal(object)  # LocalisationLoad
 
     def build(self) -> None:
         self._mod_path: Path | None = None
-        self._current_file: Path | None = None
+        self._current_file: Path | None = None  # el que se ve en el editor
+        self._loading: Path | None = None       # el que se está leyendo
+        self._failure: tuple[Path, BaseException] | None = None
         self._central: QWidget | None = None
         self._pending_line: int | None = None
         self._open_started = 0.0
         self._mod_files: list[Path] = []
-        self.last_open_seconds: float | None = None
 
         self._runner = TaskRunner(self)
         self._runner.finished.connect(self._on_loaded)
         self._runner.failed.connect(self._on_failed)
-        self._search_timer = QTimer(self)
-        self._search_timer.setSingleShot(True)
-        self._search_timer.setInterval(SEARCH_DELAY_MS)
-        self._search_timer.timeout.connect(self._apply_search)
 
         self.toolbar = QToolBar()
         self.toolbar.setObjectName("localisationToolbar")
@@ -92,7 +93,7 @@ class LocalisationPage(BasePage):
         self.mod_files_button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
         self.mod_files_button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
         self.mod_files_menu = QMenu(self.mod_files_button)
-        # Se rellena al abrirse: así siempre refleja la carpeta y no deja acciones con nombres de archivo.
+        # Se rellena al abrirse, volviendo a leer la carpeta: así siempre la refleja.
         self.mod_files_menu.aboutToShow.connect(self._fill_mod_files_menu)
         self.mod_files_button.setMenu(self.mod_files_menu)
         self.toolbar.addWidget(self.mod_files_button)
@@ -110,9 +111,14 @@ class LocalisationPage(BasePage):
         self.search_edit.textChanged.connect(self._on_search_text)
         self.search_edit.setEnabled(False)
         self.toolbar.addWidget(self.search_edit)
-        spacer = QWidget()
-        spacer.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
-        self.toolbar.addWidget(spacer)
+        # Ocupa el hueco restante y recorta con «…»: un nombre largo no desborda la barra a 1100 px.
+        self.file_label = ElidedLabel(mode=Qt.TextElideMode.ElideRight)
+        self.file_label.setObjectName("csvFileLabel")
+        self.file_label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+        self.file_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        self.file_label.setProperty("role", "caption")
+        self.file_label.setFont(theme.font("caption"))
+        self.toolbar.addWidget(self.file_label)
         self.loading_bar = QProgressBar()
         self.loading_bar.setObjectName("csvLoading")
         self.loading_bar.setRange(0, 0)
@@ -121,11 +127,11 @@ class LocalisationPage(BasePage):
         self.loading_bar.setMaximumHeight(12)
         self.loading_bar_action = self.toolbar.addWidget(self.loading_bar)
         self.loading_bar_action.setVisible(False)
-        self.file_label = QLabel()
-        self.file_label.setProperty("role", "caption")
-        self.file_label.setFont(theme.font("caption"))
-        self.toolbar.addWidget(self.file_label)
         self.body.addWidget(self.toolbar)
+        self.error_badge = StatusBadge()
+        self.error_badge.setObjectName("csvOpenError")
+        self.error_badge.setVisible(False)
+        self.body.addWidget(self.error_badge)
 
         self.stack = QStackedWidget()
         self.empty_card = ParchmentCard(padding=16)
@@ -219,18 +225,30 @@ class LocalisationPage(BasePage):
 
     def set_mod_path(self, path: Path | None) -> None:
         self._mod_path = Path(path) if path else None
-        self.files_list.clear()
-        self.mod_files_menu.clear()
+        self.refresh_mod_files()
+
+    def refresh_mod_files(self) -> None:
+        """Vuelve a listar los CSV de ``localisation/`` del mod: la carpeta cambia también fuera de la aplicación."""
         folder = self._mod_path / LOCALISATION_DIR if self._mod_path else None
-        files = sorted((p for p in folder.glob("*.csv") if p.is_file()), key=lambda p: p.name.lower()) \
-            if folder and folder.is_dir() else []
-        self._mod_files = files
-        icon = make_icon("file_table", "success", "cream")
-        for file in files:
-            item = QListWidgetItem(icon, file.name)
-            item.setData(Qt.ItemDataRole.UserRole, os.fspath(file))
-            item.setToolTip(os.fspath(file))
-            self.files_list.addItem(item)
+        try:
+            # iterdir y no glob("*.csv"): en Linux glob distingue mayúsculas, y el juego (Windows) carga «.CSV».
+            files = sorted((p for p in folder.iterdir() if is_localisation_csv(p) and p.is_file()),
+                           key=lambda p: p.name.lower()) if folder and folder.is_dir() else []
+        except OSError:
+            files = []
+        if files != self._mod_files or self.files_list.count() != len(files):
+            self._mod_files = files
+            current = self.files_list.currentItem()
+            selected = current.data(Qt.ItemDataRole.UserRole) if current else None
+            self.files_list.clear()
+            icon = make_icon("file_table", "success", "cream")
+            for file in files:
+                item = QListWidgetItem(icon, file.name)
+                item.setData(Qt.ItemDataRole.UserRole, os.fspath(file))
+                item.setToolTip(os.fspath(file))
+                self.files_list.addItem(item)
+                if item.data(Qt.ItemDataRole.UserRole) == selected:
+                    self.files_list.setCurrentItem(item)
         self.mod_files_button.setEnabled(bool(files))
         self.files_list.setVisible(bool(files))
         self.files_empty.setVisible(not files)
@@ -245,60 +263,98 @@ class LocalisationPage(BasePage):
             self.open_file(Path(chosen))
 
     def open_file(self, path: str | os.PathLike, line: int | None = None) -> None:
-        """Lee el CSV en segundo plano y lo muestra; ``line`` selecciona esa fila al terminar."""
+        """Lee el CSV en segundo plano y lo muestra; ``line`` selecciona esa fila al terminar.
+
+        Si ya se muestra y no ha cambiado en disco se reutiliza la lectura; si cambió
+        (o ya no se puede leer), se vuelve a leer.
+        """
         path = Path(path)
-        self._current_file = path
         self._pending_line = line
-        self._retranslate_file_label()
+        self._set_failure(None)
         self.open_requested.emit(path)
+        if self._runner.is_busy() and self._loading == path:
+            return  # la lectura en curso aplicará la línea
         load = self.editor.current_load()
-        if load is not None and load.path == path and not self._runner.is_busy():
+        if load is not None and load.path == path and load.stamp == file_stamp(path):
+            self._stop_loading()
             self.set_central_widget(self.editor)
             self._apply_pending_line()
             return
+        self._loading = path
         self._open_started = time.perf_counter()
         self.loading_bar_action.setVisible(True)
+        self._retranslate_file_label()
         self.request_status("status.csv_loading", name=path.name)
-        self._runner.start(lambda ctx: try_load_localisation(path))
+        self._runner.start(lambda ctx: try_load_localisation(path, ctx.cancelled))
+
+    def reload_if_changed(self) -> bool:
+        """Vuelve a leer el CSV abierto si cambió en disco (conservando la fila seleccionada); ``True`` si lo hace."""
+        load = self.editor.current_load()
+        if load is None or self._runner.is_busy() or self._central is not self.editor \
+                or load.stamp == file_stamp(load.path):
+            return False
+        self.open_file(load.path, line=self.editor.selected_line())
+        return True
 
     def close_file(self) -> None:
-        self._runner.cancel()
-        self.loading_bar_action.setVisible(False)
+        closed = self._current_file or self._loading
+        self._stop_loading()
+        self._pending_line = None
         self._current_file = None
         self.editor.set_load(None)
         self.set_central_widget(None)
         self._retranslate_file_label()
+        self.refresh_mod_files()
+        if closed is not None:
+            self.request_status("status.csv_closed", name=closed.name)
 
     # --- interno -------------------------------------------------------------------------
 
+    def showEvent(self, event) -> None:
+        super().showEvent(event)
+        self.refresh_mod_files()
+        self.reload_if_changed()
+
+    def _stop_loading(self) -> None:
+        self._runner.cancel()
+        self._loading = None
+        self.loading_bar_action.setVisible(False)
+        self._retranslate_file_label()
+
     def _on_loaded(self, load) -> None:
         if isinstance(load, LocalisationFailure):
-            self._show_failure(load.message)
+            self._show_failure(load.path, load.error)
             return
+        self._loading = None
+        self._current_file = load.path
+        self.loading_bar_action.setVisible(False)
         self.editor.set_load(load)
         self.editor.set_query(self.search_edit.text())
         self.set_central_widget(self.editor)
-        self.loading_bar_action.setVisible(False)
-        seconds = self.last_open_seconds = time.perf_counter() - self._open_started
         self._retranslate_file_label()
-        rows = self.editor.data_rows()
+        seconds = time.perf_counter() - self._open_started
         # Invocables: la barra de estado los vuelve a formatear si cambia el idioma.
-        self.request_status("status.csv_loaded", name=load.path.name,
-                            rows=lambda: translator().locale().toString(rows),
-                            seconds=lambda: translator().locale().toString(seconds, "f", 2))
+        self.request_status("status.csv_loaded", name=load.path.name, rows=lambda: format_number(load.data_rows),
+                            seconds=lambda: format_seconds(seconds))
         self._apply_pending_line()
-        self.file_loaded.emit(load)
 
     def _on_failed(self, failure) -> None:
-        self._show_failure(str(failure.exception))
+        self._show_failure(self._loading, failure.exception)
 
-    def _show_failure(self, message: str) -> None:
+    def _show_failure(self, path: Path, error: BaseException) -> None:
+        """Deja a la vista lo que se mostraba y explica en la página por qué no se pudo abrir ``path``."""
+        self._loading = None
+        self._pending_line = None
         self.loading_bar_action.setVisible(False)
-        failed = self._current_file
-        load = self.editor.current_load()
-        self._current_file = load.path if load is not None and self._central is self.editor else None
         self._retranslate_file_label()
-        self.request_status("status.csv_failed", name=failed.name if failed else "", error=message)
+        self._set_failure((path, error))
+        self.refresh_mod_files()  # quizá se borró: que la lista no lo siga ofreciendo
+        self.request_status("status.csv_failed", name=path.name, error=lambda: describe_os_error(error)[0])
+
+    def _set_failure(self, failure: tuple[Path, BaseException] | None) -> None:
+        self._failure = failure
+        self.error_badge.setVisible(failure is not None)
+        self._retranslate_failure()
 
     def _apply_pending_line(self) -> None:
         line, self._pending_line = self._pending_line, None
@@ -307,10 +363,7 @@ class LocalisationPage(BasePage):
 
     def _on_search_text(self, text: str) -> None:
         self.search_changed.emit(text)
-        self._search_timer.start()
-
-    def _apply_search(self) -> None:
-        self.editor.set_query(self.search_edit.text())
+        self.editor.queue_query(text)
 
     def _on_query_reset(self) -> None:
         self.search_edit.blockSignals(True)
@@ -319,6 +372,7 @@ class LocalisationPage(BasePage):
         self.search_changed.emit("")
 
     def _fill_mod_files_menu(self) -> None:
+        self.refresh_mod_files()
         self.mod_files_menu.clear()
         icon = make_icon("file_table", "success", "cream")
         for file in self._mod_files:
@@ -331,10 +385,23 @@ class LocalisationPage(BasePage):
         self.open_file(Path(item.data(Qt.ItemDataRole.UserRole)))
 
     def _retranslate_file_label(self) -> None:
-        if self._current_file:
-            self.file_label.setText(tr("localisation.current_file", name=self._current_file.name))
+        # Durante una lectura el editor aún muestra el archivo anterior: la etiqueta nombra los dos.
+        shown = tr("localisation.current_file", name=self._current_file.name) if self._current_file else None
+        if self._loading is not None:
+            loading = tr("status.csv_loading", name=self._loading.name)
+            text = f"{loading} · {shown}" if shown else loading
         else:
-            self.file_label.setText(tr("localisation.no_file"))
+            text = shown or tr("localisation.no_file")
+        self.file_label.setText(text)
+        self.file_label.setToolTip(text)
+
+    def _retranslate_failure(self) -> None:
+        if self._failure is None:
+            return
+        path, error = self._failure
+        reason, detail = describe_os_error(error)
+        self.error_badge.set_status("error", tr("status.csv_failed", name=path.name, error=reason))
+        self.error_badge.setToolTip(tr("file_error.detail", path=os.fspath(path), detail=detail))
 
     def _retranslate_files(self) -> None:
         count = self.files_list.count()
@@ -358,6 +425,7 @@ class LocalisationPage(BasePage):
         self.search_edit.setToolTip(tr("localisation.search_tooltip"))
         self.loading_bar.setToolTip(tr("localisation.loading"))
         self._retranslate_file_label()
+        self._retranslate_failure()
         self.empty.set_texts(tr("localisation.empty_title"), tr("localisation.empty_text"))
         self.empty_open.setText(tr("localisation.open"))
         self.empty_open.setToolTip(tr("localisation.open_tooltip"))

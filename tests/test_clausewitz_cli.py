@@ -70,6 +70,27 @@ class CliCheckTests(unittest.TestCase):
         self.assertIn(":1:23: error:", broken.stderr)
         self.assertEqual(json.loads(broken.stdout)["entries"][0]["key"]["text"], "political_decisions")
 
+    def test_tojson_deep_nesting(self):
+        # json.dump es recursivo: antes, a partir de ~330 niveles, RecursionError y JSON a medias (P6).
+        depth = 500
+        deep = self.root / "deep.txt"
+        deep.write_text("a = {\n" * depth + "b = c\n" + "}\n" * depth, encoding="cp1252")
+        done = run_cli("tojson", deep)
+        self.assertEqual((done.returncode, done.stderr), (0, ""))
+        self.assertEqual(done.stdout.count('"type": "block"'), depth + 1)
+        self.assertEqual(done.stdout.count("{"), done.stdout.count("}"))
+        self.assertTrue(done.stdout.endswith("}\n"))
+
+    def test_map_files_are_checked(self):
+        # map/default.map es un script Clausewitz (P11).
+        (self.root / "map").mkdir()
+        default = self.root / "map" / "default.map"
+        default.write_bytes(b"definitions = \"definition.csv\"\nsea_starts = {\n\t1 2\n")
+        done = run_cli("check", self.root / "map")
+        self.assertEqual(done.returncode, 1)
+        self.assertEqual([line.split(": error: ")[0] for line in done.stdout.splitlines()], [f"{default}:2:14"])
+        self.assertIn("1 archivo(s), 1 error(es)", done.stderr)
+
 
 class CliUserCorpusTests(unittest.TestCase):
     def test_user_broken_files(self):

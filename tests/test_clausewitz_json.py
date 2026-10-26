@@ -1,5 +1,7 @@
 import json
 import sys
+import time
+import tracemalloc
 import unittest
 from pathlib import Path
 
@@ -8,10 +10,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from vic2studio.core.clausewitz import (  # noqa: E402
     Block,
     Document,
+    EditError,
     Entry,
     Scalar,
     format_canonical,
     from_json,
+    iter_json,
     parse,
     simplify,
     to_json,
@@ -65,13 +69,33 @@ class ToJsonTests(unittest.TestCase):
         self.assertEqual(to_json(doc, include_comments=True), {
             "type": "block",
             "entries": [
-                {**E("a", S("1")), "comments": ["# cabecera"]},
+                {**E("a", S("1")), "comments": ["# cabecera"], "line_comment": "# sobre a"},
                 {**E("b", {"type": "block", "entries": [E("c", S("2"))], "trailing_comments": ["# fin de b"]}),
-                 "comments": ["# sobre a", "# antes de b"]},
+                 "comments": ["# antes de b"]},
             ],
             "trailing_comments": ["# fin"],
         })
         self.assertNotIn("comments", json.dumps(to_json(doc)))
+
+    def test_line_and_open_comments_belong_to_their_line(self):
+        # PE-08: el comentario de final de línea es de la entrada de esa línea, no de la siguiente.
+        text = "country = { # país\n\towner = GEL # dueño original\n\tcontroller = GEL\n} # fin del país\n"
+        doc = parse(text).document
+        country = doc.get("country")
+        self.assertEqual(country.find("owner").line_comment, "# dueño original")
+        self.assertEqual(country.find("controller").comments, [])
+        self.assertIsNone(country.find("controller").line_comment)
+        self.assertEqual(country.open_comment, "# país")
+        self.assertEqual(doc.find("country").line_comment, "# fin del país")
+        exported = to_json(doc, include_comments=True)
+        block = exported["entries"][0]["value"]
+        self.assertEqual(block["open_comment"], "# país")
+        self.assertEqual(block["entries"][0]["line_comment"], "# dueño original")
+        self.assertNotIn("comments", block["entries"][1])
+        self.assertEqual(exported["entries"][0]["line_comment"], "# fin del país")
+        self.assertEqual(to_source(from_json(exported)), text)
+        country.remove("controller")
+        self.assertEqual(to_source(doc), "country = { # país\n\towner = GEL # dueño original\n} # fin del país\n")
 
     def test_rejects_other_objects(self):
         with self.assertRaises(TypeError):
@@ -99,9 +123,7 @@ class FromJsonTests(unittest.TestCase):
         text = "# cabecera\na = 1 # sobre a\nb = {\n\tc = 2\n\t# fin de b\n}\n# fin\n"
         exported = to_json(parse(text).document, include_comments=True)
         doc = from_json(exported)
-        self.assertEqual(to_source(doc), (
-            "# cabecera\na = 1\n# sobre a\nb = {\n\tc = 2\n\t# fin de b\n}\n# fin\n"
-        ))
+        self.assertEqual(to_source(doc), text)
         self.assertEqual(to_json(parse(to_source(doc)).document, include_comments=True), exported)
         entry = {**E("a", S("1")), "comments": ["sin almohadilla", "# dos\n# tres"]}
         self.assertEqual(to_source(from_json(B(entry))), "# sin almohadilla\n# dos\n# tres\na = 1\n")
@@ -109,6 +131,8 @@ class FromJsonTests(unittest.TestCase):
     def test_validation_errors_report_path(self):
         cases = [
             ([], "$"),
+            (S("a"), "$"),
+            ({"entries": []}, "$"),
             ({"type": "block"}, "$.entries"),
             (B("x"), "$.entries[0]"),
             (B({"key": S("a"), "op": None, "value": S("1")}), "$.entries[0]"),
@@ -119,11 +143,55 @@ class FromJsonTests(unittest.TestCase):
             (B(E("a", {"type": "scalar", "text": 5})), "$.entries[0].value"),
             (B(E("a", B(E("b", {"type": "other"})))), "$.entries[0].value.entries[0].value"),
             (B({**E("a", S("1")), "comments": "no es lista"}), "$.entries[0].comments"),
+            (B({**E("a", S("1")), "comments": ["# a\x01"]}), "$.entries[0].comments"),
+            (B({**E("a", S("1")), "line_comment": 5}), "$.entries[0].line_comment"),
+            (B({**E("a", S("1")), "line_comment": "# uno\n# dos"}), "$.entries[0].line_comment"),
+            (B(E("a", {"type": "block", "entries": [], "open_comment": ["x"]})), "$.entries[0].value.open_comment"),
+            (B(E("a", {"type": "block", "entries": [], "trailing_comments": [1]})),
+             "$.entries[0].value.trailing_comments"),
+            (B(E("a", B(E("b", B(E("c", {"entries": []})))))), "$.entries[0].value.entries[0].value.entries[0].value"),
+            # Una ruta larga sale entera en el mensaje: el tramo final es el que localiza el error (R3).
+            (B(E("a", B(E("b", B(E("c", B(E("d", B(E("e", B({"key": None, "op": "=", "value": S("1")}))))))))))),
+             "$.entries[0].value.entries[0].value.entries[0].value.entries[0].value.entries[0].value.entries[0]"),
         ]
         for obj, where in cases:
-            with self.assertRaises(ValueError, msg=where) as ctx:
+            with self.assertRaises(EditError, msg=where) as ctx:
                 from_json(obj)
+            self.assertIsInstance(ctx.exception, ValueError)
+            self.assertEqual(ctx.exception.params["where"], where)
             self.assertTrue(str(ctx.exception).startswith(where + ":"), (where, str(ctx.exception)))
+            self.assertTrue(ctx.exception.message("es").startswith(where + ":"))
+
+    def test_validation_error_codes(self):
+        # PE-17: códigos estables y mensajes en los dos idiomas; un bloque sin "type" no se confunde con un escalar.
+        cases = [
+            ([], "json_expected_block"),
+            (B(E("a", {"entries": []})), "json_missing_type"),
+            (B(E("a", {"type": "lista"})), "json_unknown_type"),
+            (B({"key": B(), "op": "=", "value": S("1")}), "json_expected_scalar"),
+            (B(E("a", S("dos palabras"))), "needs_quotes"),
+            (B({"key": S("a"), "op": None, "value": S("1")}), "json_key_op"),
+            (B({"key": S("a"), "op": "=>", "value": S("1")}), "invalid_operator"),
+        ]
+        for obj, code in cases:
+            with self.assertRaises(EditError, msg=code) as ctx:
+                from_json(obj)
+            self.assertEqual(ctx.exception.code, code)
+            self.assertNotEqual(ctx.exception.message("es"), ctx.exception.message("en"))
+
+    def test_accepts_what_files_contain(self):
+        # Lo que se lee de un archivo vuelve por JSON aunque no se pudiera crear con set(): cadenas de
+        # varias líneas, palabras con caracteres invisibles y claves vacías entre comillas.
+        text = 'a = "uno\ndos"\nowner\xa0 = GER\n"" = 5\n'
+        exported = to_json(parse(text).document)
+        self.assertEqual(to_source(from_json(exported)), text)
+
+    def test_self_containing_input_is_rejected(self):
+        obj = B()
+        obj["entries"].append(E("a", obj))
+        with self.assertRaises(EditError) as ctx:
+            from_json(obj)
+        self.assertEqual((ctx.exception.code, ctx.exception.params["where"]), ("cycle", "$.entries[0].value"))
 
 
 class SimplifyTests(unittest.TestCase):
@@ -210,7 +278,7 @@ class CanonicalTests(unittest.TestCase):
                          "a = {\r\n  b = {\r\n    c = 1\r\n  }\r\n}\r\n")
         commented = parse("# uno\na = 1 # dos\nb = { # tres\n\tc = 2\n\t# cuatro\n}\n# cinco").document
         self.assertEqual(format_canonical(commented, comments=True),
-                         "# uno\na = 1\n# dos\nb = {\n\t# tres\n\tc = 2\n\t# cuatro\n}\n# cinco\n")
+                         "# uno\na = 1 # dos\nb = { # tres\n\tc = 2\n\t# cuatro\n}\n# cinco\n")
         self.assertEqual(format_canonical(commented), "a = 1\nb = {\n\tc = 2\n}\n")
 
     def test_lists_inline_or_wrapped(self):
@@ -234,6 +302,66 @@ class CanonicalTests(unittest.TestCase):
         self.assertEqual(format_canonical(Document()), "")
         self.assertEqual(to_source(doc.find("a")), "a = { b = 1 }")
         self.assertEqual(to_source(doc.get("a")), "{ b = 1 }")
+        # Con comments, una entrada suelta lleva su comentario de final de línea, como en el documento entero.
+        commented = parse("a = { b = 1 # uno\n} # dos\nc = 3 # tres\n").document
+        self.assertEqual(format_canonical(commented.find("a"), comments=True), "a = {\n\tb = 1 # uno\n} # dos")
+        self.assertEqual(format_canonical(commented.find("c"), comments=True), "c = 3 # tres")
+        self.assertEqual(to_source(commented.find("c")), "c = 3")
+
+
+class DeepNestingTests(unittest.TestCase):
+    """JSON a cualquier profundidad (P6) y sin costes cuadráticos en from_json ni en la memoria de walk (P7)."""
+
+    def test_iter_json_matches_json_dumps(self):
+        doc = parse(MESSY).document
+        deep = parse("a = {" * 60 + "b = c" + "}" * 60).document
+        values = [to_json(doc), to_json(doc, include_comments=True), simplify(doc), to_json(deep), [], {}, "x", 3,
+                  None, {"a": [], "b": {}, "c": [1, 2.5, None, True, False, 'ñ\n"x"\t\x01'], "d": (1, "t")}]
+        for value in values:
+            for indent in (2, 0, 4):
+                self.assertEqual("".join(iter_json(value, indent=indent)),
+                                 json.dumps(value, ensure_ascii=False, indent=indent))
+        loop = {"a": []}
+        loop["a"].append(loop)
+        with self.assertRaises(ValueError):
+            "".join(iter_json(loop))
+
+    def test_any_depth_without_recursion(self):
+        depth = 20000
+        doc = parse("a = {" * depth + "b = c" + "}" * depth).document
+        exported = to_json(doc)
+        text = "".join(iter_json(exported, indent=0))  # con sangría el texto crece con el cuadrado de la profundidad
+        self.assertEqual((text.count('"type": "block"'), text.count("{"), text.count("}")),
+                         (depth + 1, 3 * depth + 4, 3 * depth + 4))
+        self.assertEqual("".join(iter_json(simplify(doc), indent=0)).count("{"), depth + 1)
+        self.assertEqual(format_canonical(from_json(exported), indent=""), format_canonical(doc, indent=""))
+
+    def test_from_json_is_linear_in_depth(self):
+        # Antes componía la ruta de error de cada nivel ("$.entries[0].value...") aunque no hubiera errores.
+        depth = 40000
+        text = "a = {" * depth + "b = c" + "}" * depth
+        exported = to_json(parse(text).document)
+
+        def best(action):
+            times = []
+            for _ in range(2):
+                started = time.perf_counter()
+                action()
+                times.append(time.perf_counter() - started)
+            return min(times)
+
+        self.assertLess(best(lambda: from_json(exported)), 3 * best(lambda: parse(text)))
+
+    def test_walk_memory_is_linear_in_depth(self):
+        doc = parse("a = {" * 5000 + "b = c" + "}" * 5000).document
+        tracemalloc.start()
+        try:
+            count = sum(1 for _ in walk(doc))
+            peak = tracemalloc.get_traced_memory()[1]
+        finally:
+            tracemalloc.stop()
+        self.assertEqual(count, 5001)
+        self.assertLess(peak, 10_000_000)  # antes ~100 MB: una tupla con la ruta entera por cada nivel abierto
 
 
 if __name__ == "__main__":

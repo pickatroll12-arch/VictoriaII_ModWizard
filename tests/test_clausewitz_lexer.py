@@ -1,9 +1,12 @@
 import sys
+import time
 import unittest
 from pathlib import Path
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
+from vic2studio.core.clausewitz import lexer  # noqa: E402
 from vic2studio.core.clausewitz.lexer import (  # noqa: E402
     EOF,
     INVALID,
@@ -15,7 +18,9 @@ from vic2studio.core.clausewitz.lexer import (  # noqa: E402
     WORD,
     is_clean_trivia,
     last_line_indent,
+    line_start,
     newline_split,
+    position,
     tokenize,
     trivia_comments,
 )
@@ -99,9 +104,51 @@ class LexerTests(unittest.TestCase):
             [("a", 1, 1, 0), ("=", 1, 3, 2), ("{", 1, 5, 4), ("b", 2, 2, 8), ("=", 2, 4, 10),
              ("c", 2, 6, 12), ("}", 3, 1, 15), ("", 4, 1, 18)],
         )
-        # Un CR suelto no es salto de línea (igual que en encoding.find_unencodable).
-        lone_cr = tokenize("a\rb\nc")
-        self.assertEqual([(t.line, t.column) for t in lone_cr[:3]], [(1, 1), (1, 3), (2, 1)])
+        # Un CR suelto es un salto de línea, como en los editores de texto (Notepad++, VS Code, Qt).
+        lone_cr = tokenize("a\rb\nc\r\r\nd")
+        self.assertEqual([(t.line, t.column) for t in lone_cr], [(1, 1), (2, 1), (3, 1), (5, 1), (5, 2)])
+        self.assertEqual([(t.line, t.column) for t in tokenize('"x\ry" z')], [(1, 1), (2, 4), (2, 5)])
+
+    def test_line_numbers_match_str_splitlines(self):
+        text = "a = 1\r\n\rb = {\r\tc = 2 # x\r\n}\n\nd = \"e\rf\"\rg"
+        lines = text.splitlines()
+        for token in tokenize(text)[:-1]:
+            self.assertEqual(lines[token.line - 1][token.column - 1:].split()[0][:1], token.raw[:1], token)
+        self.assertEqual(position(text, text.index("g")), (len(lines), 1))
+        self.assertEqual(position(text, text.index("c")), (4, 2))
+        self.assertEqual(position("a\r\nb", 3), (2, 1))
+
+    def test_line_start_looks_back_only_to_the_previous_line(self):
+        cases = [("a\rb", 3), ("a\r\nb", 4), ("a\nb\rc", 5), ("abc", 2), ("a\n\rb", 4)]
+        self.assertEqual([line_start(text, offset) for text, offset in cases], [2, 3, 4, 0, 3])
+        # Buscar el CR suelto hasta el principio del archivo en cada llamada hacía cuadrático el análisis
+        # de un bloque grande sin cerrar (archivo de 20 MB: de 7 a 38 s).
+        text = "a" * 20_000_000 + "\nbc"
+        started = time.perf_counter()
+        for _ in range(1000):
+            self.assertEqual(line_start(text, len(text)), len(text) - 2)
+        self.assertLess(time.perf_counter() - started, 0.1)
+
+    def test_comments_end_at_any_line_break(self):
+        # Archivos solo con CR (11 del juego base, p. ej. map/region_sea.txt): el comentario no se traga el resto.
+        tokens = self.assertLossless("a = 1 # c\rb = 2\r# d\r\nc = 3")
+        self.assertEqual([t.raw for t in tokens], ["a", "=", "1", "b", "=", "2", "c", "=", "3", ""])
+        self.assertEqual((tokens[3].trivia, tokens[3].line), (" # c\r", 2))
+        self.assertEqual(trivia_comments(" # c\r# d\r\n\t"), ["# c", "# d"])
+
+    def test_tokens_do_not_depend_on_where_the_text_is_cut(self):
+        # El texto se analiza por tandas: palabras, operadores, cadenas y comentarios cortados por la mitad.
+        text = ('a = "una cadena\nlarga" # comentario\r\nfecha=1861.1.1 b<=c x!=y !z\r' * 3
+                + 'clave_muy_larga = { 1 2 } "sin cerrar\n final')
+
+        def scan():
+            return [(t.kind, t.raw, t.trivia, t.offset, t.line, t.column) for t in self.assertLossless(text)]
+
+        expected = scan()
+        self.assertEqual(expected[-2][0], OPEN_STRING)
+        for chunk in (1, 2, 3, 5, 8, 13):
+            with mock.patch.object(lexer, "_CHUNK", chunk):
+                self.assertEqual(scan(), expected, chunk)
 
     def test_lossless_on_odd_inputs(self):
         for text in ["", " ", "\n\n", "{", "}", "=", "!", '"', "#", "a=", "=a", "{ { a = b } { c = d } }",
@@ -113,8 +160,21 @@ class TriviaHelperTests(unittest.TestCase):
     def test_clean_trivia(self):
         self.assertTrue(is_clean_trivia(" \t\n# comentario\r\n  "))
         self.assertTrue(is_clean_trivia(""))
+        self.assertTrue(is_clean_trivia("# a\r# b"))
         self.assertFalse(is_clean_trivia(" a =\n"))
         self.assertFalse(is_clean_trivia("}"))
+        self.assertFalse(is_clean_trivia("# a\rb"))
+
+    def test_clean_trivia_has_no_catastrophic_backtracking(self):
+        # Antes: fullmatch con "(?:[ws]+|#...)*" probaba 2^n particiones de los blancos (cuelgue al editar);
+        # estos tamaños tardaban de 5 a 25 s cada uno. Ahora el coste es lineal.
+        cases = [" " * 26 + "a", "        # add_core = X0\r\n        # add_core = X1\r\n        controller =",
+                 " " * 50000 + "a", ("\t# comentario\r\n" * 5000) + "}"]
+        started = time.perf_counter()
+        for trivia in cases:
+            self.assertFalse(is_clean_trivia(trivia))
+            self.assertTrue(is_clean_trivia(trivia[: trivia.rfind("\n") + 1]))
+            self.assertLess(time.perf_counter() - started, 0.5, trivia[:30])
 
     def test_trivia_comments_skip_discarded_strings(self):
         self.assertEqual(trivia_comments(' # uno\r\n\t"a # b"\t# dos  \n'), ["# uno", "# dos"])
@@ -123,11 +183,16 @@ class TriviaHelperTests(unittest.TestCase):
     def test_newline_split(self):
         self.assertEqual(newline_split(" # c\r\n\t# d\n\t"), (" # c", "\r\n\t# d\n\t"))
         self.assertEqual(newline_split(" # c\r\n\t# d\n\t", last=True), (" # c\r\n\t# d", "\n\t"))
+        self.assertEqual(newline_split(" # c\r\t# d\r\n\t", last=True), (" # c\r\t# d", "\r\n\t"))
+        self.assertEqual(newline_split(" # c\r\t"), (" # c", "\r\t"))
+        self.assertEqual(newline_split("\r", last=True), ("", "\r"))
         self.assertIsNone(newline_split("  "))
+        self.assertIsNone(newline_split("  ", last=True))
 
     def test_last_line_indent(self):
         self.assertEqual(last_line_indent("\n\n\t\t"), "\t\t")
         self.assertEqual(last_line_indent("# x\n"), "")
+        self.assertEqual(last_line_indent("# x\r  "), "  ")
         self.assertIsNone(last_line_indent(" "))
         self.assertIsNone(last_line_indent("\n\t} "))
 

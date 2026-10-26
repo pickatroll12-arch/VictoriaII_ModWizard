@@ -3,6 +3,20 @@
 ``Severity`` es propio de este módulo para no depender del orden de
 construcción; tiene los mismos miembros que el de ``core.clausewitz`` y al
 integrar puede sustituirse por un alias de aquel.
+
+Columnas: los mensajes y los argumentos ``found_column`` y ``field`` numeran las
+columnas del CSV desde 0, como ``LANGUAGE_CODES``: 0 es la clave, 1..13 los
+idiomas y 14 (``END_MARKER_COLUMN``) el marcador "x". ``CsvDiagnostic.column``
+es otra cosa: la posición del carácter en la línea, desde 1.
+
+La gravedad depende de lo que ve el juego: a una fila sin las columnas de los
+idiomas que el juego no muestra (``clave;en;fr;de;;es;;;;;;x``, el formato de
+muchos archivos vanilla) o sin la "x" pero con los 13 idiomas (los del mod del
+usuario) solo le corresponde un ``missing_end_marker`` de gravedad INFO; los
+avisos quedan para las filas a las que les falta un idioma visible o que tienen
+las columnas desplazadas.
+
+``EDIT_MESSAGES`` traduce los códigos de ``model.InvalidFieldError``.
 """
 
 from __future__ import annotations
@@ -11,7 +25,19 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
 
-from .model import LANGUAGE_COLUMNS
+from .model import (
+    COMMENT_KEY,
+    INVALID_BLANK,
+    INVALID_COLUMN,
+    INVALID_COMMENT,
+    LANGUAGE_COLUMNS,
+    LANGUAGE_COUNT,
+    NEWLINE_IN_TEXT,
+    NOT_A_DATA_ROW,
+    NOT_A_LANGUAGE_COLUMN,
+    SEPARATOR_IN_TEXT,
+    UNKNOWN_LANGUAGE,
+)
 
 
 class Severity(Enum):
@@ -30,6 +56,8 @@ UNENCODABLE_CHARACTER = "unencodable_character"
 NON_GAME_ENCODING = "non_game_encoding"
 HEADER_ROW = "header_row"
 
+# Gravedad por defecto de cada código; ``lint`` baja ``missing_end_marker`` a INFO en las filas que el
+# juego ve enteras y sube ``non_game_encoding`` a ERROR con UTF-16, que el juego no puede leer.
 SEVERITIES = {
     MISSING_END_MARKER: Severity.WARNING,
     TOO_FEW_COLUMNS: Severity.WARNING,
@@ -56,13 +84,25 @@ _LANGUAGE_NAMES = {
 _KEY_COLUMN = {"en": "key", "es": "clave"}
 _OTHER_COLUMN = {"en": "column {0}", "es": "columna {0}"}
 
-# Variantes: "<código>.<variante>"; ``CsvDiagnostic.message`` elige la variante.
+# Variantes: "<código>.<variante>"; ``CsvDiagnostic.message`` elige la variante
+# según los argumentos: ``missing_end_marker`` con ``count`` (gravedad INFO) es
+# ".short" si faltan columnas de idiomas ocultos y ".unmarked" si solo falta la
+# "x"; con ``found_column``, ".misplaced". ``non_game_encoding`` con ``bom``,
+# ``stray_bom`` o ``utf16`` es ".bom", ".stray_bom" o ".utf16".
 MESSAGES = {
     "en": {
-        MISSING_END_MARKER: "Row '{key}' has no end marker 'x' in column 14.",
+        MISSING_END_MARKER: "Row '{key}' has no end marker 'x' in column 14 (after the key and the 13 languages).",
         MISSING_END_MARKER + ".misplaced": (
-            "Row '{key}' has the end marker 'x' in column {found_column} instead of 14: "
-            "columns are missing, or a text contains an extra ';' that shifts the following ones."
+            "Row '{key}' has the end marker 'x' in column {found_column} instead of 14 (counting the key "
+            "as column 0): columns are missing, or a text contains an extra ';' that shifts the following ones."
+        ),
+        MISSING_END_MARKER + ".short": (
+            "Row '{key}' has only {count} of the {expected} language columns. The missing ones are languages "
+            "the game does not show (English, French, German and Spanish are in place): this is harmless."
+        ),
+        MISSING_END_MARKER + ".unmarked": (
+            "Row '{key}' has no end marker 'x' in column 14, but its {expected} language columns are "
+            "complete: the game reads the columns by position, so this is harmless."
         ),
         TOO_FEW_COLUMNS: "Row '{key}' has only {count} of the {expected} language columns.",
         DUPLICATE_KEY: (
@@ -87,13 +127,29 @@ MESSAGES = {
             "The file is encoded as {encoding} with a BOM, but Victoria II reads localisation as "
             "{expected}: the first key gets invisible bytes and accented letters will look garbled."
         ),
+        NON_GAME_ENCODING + ".stray_bom": (
+            "The file starts with a UTF-8 BOM but the rest is in {expected}: the game glues the bytes "
+            "'ï»¿' to the first key ('{key}'). Save it again as {expected} (ANSI) without the BOM."
+        ),
+        NON_GAME_ENCODING + ".utf16": (
+            "The file is encoded as {encoding} (16-bit Unicode): Victoria II cannot read it at all. "
+            "Save it as {expected} (ANSI)."
+        ),
         HEADER_ROW: "Header row: the game loads it as an ordinary entry with key '{key}'. It is harmless.",
     },
     "es": {
-        MISSING_END_MARKER: "La fila '{key}' no tiene el marcador de fin 'x' en la columna 14.",
+        MISSING_END_MARKER: "La fila '{key}' no tiene el marcador de fin 'x' en la columna 14 (tras la clave y los 13 idiomas).",
         MISSING_END_MARKER + ".misplaced": (
-            "La fila '{key}' tiene el marcador de fin 'x' en la columna {found_column} en vez de la 14: "
-            "faltan columnas o algún texto tiene un ';' de más que desplaza las siguientes."
+            "La fila '{key}' tiene el marcador de fin 'x' en la columna {found_column} en vez de la 14 (contando "
+            "la clave como columna 0): faltan columnas o algún texto tiene un ';' de más que desplaza las siguientes."
+        ),
+        MISSING_END_MARKER + ".short": (
+            "La fila '{key}' solo tiene {count} de las {expected} columnas de idioma. Las que faltan son idiomas "
+            "que el juego no muestra (inglés, francés, alemán y español están en su sitio): es inofensivo."
+        ),
+        MISSING_END_MARKER + ".unmarked": (
+            "La fila '{key}' no tiene el marcador de fin 'x' en la columna 14, pero sus {expected} columnas de "
+            "idioma están completas: el juego lee las columnas por posición, así que es inofensivo."
         ),
         TOO_FEW_COLUMNS: "La fila '{key}' solo tiene {count} de las {expected} columnas de idioma.",
         DUPLICATE_KEY: (
@@ -118,11 +174,70 @@ MESSAGES = {
             "El archivo está codificado en {encoding} con BOM, pero Victoria II lee la localización en "
             "{expected}: la primera clave recibe bytes invisibles y las letras acentuadas se verán mal."
         ),
+        NON_GAME_ENCODING + ".stray_bom": (
+            "El archivo empieza por el BOM de UTF-8 pero el resto está en {expected}: el juego pega los bytes "
+            "'ï»¿' a la primera clave ('{key}'). Vuelve a guardarlo en {expected} (ANSI) sin el BOM."
+        ),
+        NON_GAME_ENCODING + ".utf16": (
+            "El archivo está codificado en {encoding} (Unicode de 16 bits): Victoria II no puede leerlo en "
+            "absoluto. Guárdalo en {expected} (ANSI)."
+        ),
         HEADER_ROW: "Fila de cabecera: el juego la carga como una entrada normal con la clave '{key}'. Es inofensiva.",
     },
 }
 
+# Errores de edición (``model.InvalidFieldError``). ``duplicate_key``, ``empty_key`` y
+# ``key_whitespace`` tienen el mismo código que los diagnósticos homónimos.
+EDIT_MESSAGES = {
+    "en": {
+        SEPARATOR_IN_TEXT: "A text cannot contain ';': the game has no escapes in the CSV and would split it.",
+        NEWLINE_IN_TEXT: (
+            "A text cannot contain line breaks: each CSV line is one entry (write the sequence \\n "
+            "for a line break in the game)."
+        ),
+        EMPTY_KEY: "The key cannot be empty.",
+        KEY_WHITESPACE: "The key '{key}' has spaces at the start or the end.",
+        COMMENT_KEY: "A key cannot start with '#': the game would read the line as a comment ('{key}').",
+        DUPLICATE_KEY: "The key '{key}' already exists in the file.",
+        UNKNOWN_LANGUAGE: "Unknown language: '{lang}'.",
+        INVALID_COLUMN: "Column {column} does not exist: columns are numbered from 0 (the key).",
+        NOT_A_LANGUAGE_COLUMN: "Column {column} is not a language column (1 to {last}).",
+        NOT_A_DATA_ROW: "Only the texts of data rows can be edited, not comments or blank lines.",
+        INVALID_COMMENT: "A comment must be a single line that starts with '#': '{text}'.",
+        INVALID_BLANK: "A blank line can only contain spaces: '{text}'.",
+    },
+    "es": {
+        SEPARATOR_IN_TEXT: "Un texto no puede contener ';': el juego no admite escapes en el CSV y lo partiría.",
+        NEWLINE_IN_TEXT: (
+            "Un texto no puede contener saltos de línea: cada línea del CSV es una entrada (escribe la "
+            "secuencia \\n para un salto de línea en el juego)."
+        ),
+        EMPTY_KEY: "La clave no puede estar vacía.",
+        KEY_WHITESPACE: "La clave '{key}' tiene espacios al principio o al final.",
+        COMMENT_KEY: "Una clave no puede empezar por '#': el juego leería la línea como un comentario ('{key}').",
+        DUPLICATE_KEY: "La clave '{key}' ya existe en el archivo.",
+        UNKNOWN_LANGUAGE: "Idioma desconocido: '{lang}'.",
+        INVALID_COLUMN: "La columna {column} no existe: las columnas se numeran desde 0 (la clave).",
+        NOT_A_LANGUAGE_COLUMN: "La columna {column} no es de idioma (1 a {last}).",
+        NOT_A_DATA_ROW: "Solo se pueden editar los textos de las filas de datos, no comentarios ni líneas vacías.",
+        INVALID_COMMENT: "Un comentario debe ser una sola línea que empiece por '#': '{text}'.",
+        INVALID_BLANK: "Una línea vacía solo puede tener espacios: '{text}'.",
+    },
+}
+
 DEFAULT_LANG = "en"
+
+
+def edit_message(code: str, lang: str = DEFAULT_LANG, params: dict[str, Any] | None = None) -> str:
+    """Texto de un error de edición en ``lang`` (inglés si no hay tabla para él)."""
+    table = EDIT_MESSAGES.get(lang, EDIT_MESSAGES[DEFAULT_LANG])
+    template = table.get(code)
+    if template is None:
+        return code
+    try:
+        return template.format(**(params or {}))
+    except (KeyError, IndexError, ValueError):
+        return f"{template} {params}"
 
 
 def column_name(index: int, lang: str = DEFAULT_LANG) -> str:
@@ -151,10 +266,16 @@ class CsvDiagnostic:
         return hash((self.code, self.line, self.column, self.path))
 
     def _variant(self) -> str:
-        if self.code == MISSING_END_MARKER and self.args.get("found_column"):
-            return MISSING_END_MARKER + ".misplaced"
-        if self.code == NON_GAME_ENCODING and self.args.get("bom"):
-            return NON_GAME_ENCODING + ".bom"
+        args = self.args
+        if self.code == MISSING_END_MARKER:
+            if args.get("count") is not None:
+                return MISSING_END_MARKER + (".short" if args["count"] < LANGUAGE_COUNT else ".unmarked")
+            if args.get("found_column"):
+                return MISSING_END_MARKER + ".misplaced"
+        if self.code == NON_GAME_ENCODING:
+            for variant in ("utf16", "stray_bom", "bom"):
+                if args.get(variant):
+                    return f"{NON_GAME_ENCODING}.{variant}"
         return self.code
 
     def message(self, lang: str = DEFAULT_LANG) -> str:
@@ -182,5 +303,6 @@ class CsvDiagnostic:
 
 
 def make(code: str, line: int | None = None, column: int | None = None,
-         path: str | None = None, **args: Any) -> CsvDiagnostic:
-    return CsvDiagnostic(code, SEVERITIES[code], line, column, args, path)
+         path: str | None = None, *, severity: Severity | None = None, **args: Any) -> CsvDiagnostic:
+    """Diagnóstico con la gravedad de ``SEVERITIES`` salvo que se indique otra."""
+    return CsvDiagnostic(code, severity or SEVERITIES[code], line, column, args, path)

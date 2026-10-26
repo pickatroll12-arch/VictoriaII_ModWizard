@@ -26,13 +26,14 @@ _CODE = re.compile(r"`([^`]+)`")
 
 
 def rich(text: str, code_point_size: float = 9.5) -> str:
-    """Texto de catálogo -> HTML: los fragmentos entre comillas invertidas se muestran como código."""
+    """Texto de catálogo -> HTML: los fragmentos entre comillas invertidas se muestran como código
+    y los saltos de línea se conservan."""
     family = theme.resolve_family(theme.MONO_FAMILIES) or "monospace"
 
     def code(match: re.Match) -> str:
         return (f"<span style=\"font-family:'{family}'; font-size:{code_point_size:g}pt;"
                 f" color:{theme.PALETTE['velvet_text']};\">{match.group(1)}</span>")
-    return _CODE.sub(code, html.escape(text, quote=False))
+    return _CODE.sub(code, html.escape(text, quote=False)).replace("\n", "<br>")
 
 
 def mark_data(widget: QWidget) -> QWidget:

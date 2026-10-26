@@ -6,7 +6,7 @@
 >
 > **Convenciones.** Identificadores en inglés; docstrings y comentarios en español, concisos. Núcleo sin Qt (`vic2studio.core`); interfaz en `vic2studio.ui`. Todo texto visible pasa por `tr()` con paridad ES/EN. Escritura atómica con `.bak`, en cp1252.
 >
-> **[verificar en juego]** marca una regla del motor que los archivos no demuestran. El código la modela como opción o como aviso, nunca como suposición silenciosa, y entra en la lista de comprobación manual que el usuario recibe al cerrar la iteración.
+> **[verificar en juego]** marca una regla del motor que los archivos no demuestran. El código la modela como opción o como aviso, nunca como suposición silenciosa, y entra en la lista de comprobación manual que el usuario recibe al final del proyecto (iteración 10, §24).
 
 ---
 
@@ -19,7 +19,7 @@
 5. **Una entidad nueva cuesta un esquema, sus textos y una prueba.** El marco `core/schema` (tipos ricos, disposición en archivos, historia fechada, colocación, compañeros) genera la lista, el formulario, la validación, las claves de localización, la documentación y las pruebas. La sección aparece sola en su sala.
 6. **Índice de símbolos y validación con línea base.** Los selectores, «dónde se usa», el renombrado, el buscador y la validación salen del índice, que es incremental, se guarda en caché por huella e incluye los cambios sin guardar. Lo que ya falla en vanilla se marca como heredado y se oculta.
 7. **El guion se describe con datos.** Un catálogo JSON de condiciones, efectos y ámbitos, con tipos y frases ES/EN. El árbol AND/OR/NOT edita el CST y conserva como «crudo» lo que no conoce.
-8. **Mapa en coordenadas del juego.** Ráster `uint16` (la fila de Pillow es la `y` del motor; solo la vista se voltea), modos por LUT, edición por clic y por brocha, y regiones con invariantes. El Taller de mapas genera todos los archivos coherentes y audita las dependencias.
+8. **Mapa en coordenadas del juego.** Ráster `uint16` (la fila de Pillow es la `y` del motor; solo la vista se voltea), modos por LUT, edición por clic y por brocha, y regiones con invariantes. El Taller de mapas genera un mapa al estilo de Azgaar's Fantasy Map Generator o lo importa desde bitmaps, calcula en un proceso trabajador, exporta todos los archivos coherentes en una transacción y audita las dependencias.
 9. **El arte del juego solo se usa en tiempo de ejecución.** Las vistas previas (ventanas `.gui`, eventos, banderas, iconos de CB) leen la instalación del usuario. La estética de la aplicación sigue siendo 100 % procedural y el repositorio no contiene nada de Paradox.
 10. **Pensado para 2 agentes.** Cada iteración empieza con un commit de contrato y reparte archivos disjuntos. Esquemas, salas, reglas y extractores se registran por descubrimiento, y los textos van en fragmentos JSON.
 
@@ -160,12 +160,17 @@ src/vic2studio/
 │   ├── schema/     types.py fields.py entity.py layouts.py record.py history.py placement.py companions.py
 │   │               recipes.py validate.py texts.py docgen.py registry.py __main__.py
 │   ├── schemas/    <kind>.py (una declaración por familia) · texts/<kind>.es.json · texts/<kind>.en.json
-│   ├── validate/   model.py registry.py context.py baseline.py fixes.py rules/*.py texts/issues.{es,en}.json
+│   ├── validate/   model.py registry.py context.py baseline.py fixes.py rules/*.py (también rules/mapforge.py)
+│   │               texts/issues.{es,en}.json texts/mapforge.{es,en}.json
 │   ├── script/     catalog.py tree.py scopes.py phrases.py mtth.py idalloc.py data/{triggers,effects,scopes}.json
 │   ├── domain/     province.py pops.py country.py tags.py
 │   ├── map/        bmp.py definition.py raster.py cache.py facts.py modes.py borders.py geometry.py
 │   │               adjacency.py positions.py groups.py coherence.py
-│   ├── mapforge/   project.py generate.py paint.py derive.py export.py audit.py palette.py colormap.py
+│   ├── mapforge/   params.py world.py pipeline.py worker.py edits.py project.py install.py graph.py relief.py
+│   │               climate.py hydro.py biomes.py partition.py rasterize.py reconcile.py textures.py names.py
+│   │               society.py economy.py validate.py export.py audit.py overlay.py paint.py
+│   │               steps/*.py imports/{bitmaps,heightmap,fmg_template,fmg_json}.py
+│   │               data/{templates,name_bases,biome_table}.py   (§18.7)
 │   ├── gfx/        flags.py images.py dds.py
 │   └── gui/        gfxdb.py guimodel.py layout.py bmfont.py textures.py
 ├── i18n/           __init__.py (fusiona i18n/<lang>/*.json + textos del núcleo) es.json en.json es/*.json en/*.json
@@ -184,10 +189,13 @@ src/vic2studio/
     ├── script/     trigger_builder.py effect_builder.py catalog_picker.py mtth_editor.py option_cards.py
     │               event_preview.py decision_preview.py picture_picker.py phrase_view.py
     ├── interface/  gui_canvas.py gui_tree.py sprite_browser.py import_dialog.py picture_manager.py
-    ├── mapforge/   wizard.py paint_canvas.py tools.py audit_view.py
+    ├── mapforge/   wizard.py preview.py brushes.py province_tools.py entity_tables.py import_panel.py
+    │               review.py audit_view.py flag_gallery.py worker_client.py steps/*.py
     ├── widgets/    (actuales) + icons_extra/<sala>.py + layer_badge.py
     └── viewers/    (actuales; ClausewitzViewer pasa a ser la pestaña «Código»)
 ```
+
+En la raíz del repositorio, `THIRD_PARTY_NOTICES.md` recoge el texto MIT de Azgaar's Fantasy Map Generator para los módulos portados del taller (§18.13).
 
 `pyproject.toml` amplía `package-data` con `i18n/*/*.json`, `core/schemas/texts/*.json`, `core/validate/texts/*.json` y `core/script/data/*.json`.
 
@@ -295,7 +303,7 @@ def rule_for(rel: VPath) -> LoadRule
 
 ### 5.3 `replace_path`
 
-`VirtualFS(..., replace_paths=..., replace_recursive=True)` oculta los archivos del juego bajo esas rutas: siguen accesibles con `stack()` para comparar, pero nunca se resuelven. Si afecta a las subcarpetas es [verificar en juego]; la opción es explícita y las pruebas cubren los dos valores. Reglas asociadas: `replace_path_empty` (error: el mod deja vacía una carpeta reemplazada; con `history/provinces` el juego se quedaría sin provincias) y `replace_path_hides_referenced` (error: p. ej. se reemplaza `history/units` y las historias siguen apuntando a OOB de vanilla).
+`VirtualFS(..., replace_paths=..., replace_recursive=True)` oculta los archivos del juego bajo esas rutas: siguen accesibles con `stack()` para comparar, pero nunca se resuelven. Si afecta a las subcarpetas es [verificar en juego]; la opción es explícita y las pruebas cubren los dos valores. **No oculta los archivos del propio mod:** los que el mod tenga bajo una ruta reemplazada se siguen cargando (el taller los manda a la papelera; regla `replace_path_mod_files_remain`, §18.11). Reglas asociadas: `replace_path_empty` (error: el mod deja vacía una carpeta reemplazada; con `history/provinces` el juego se quedaría sin provincias; es info cuando la carpeta se vació de forma intencionada y el taller la registró, como `history/wars` en «Solo mapa», §18.8) y `replace_path_hides_referenced` (error: p. ej. se reemplaza `history/units` y las historias siguen apuntando a OOB de vanilla).
 
 ### 5.4 Carpeta de proyecto `<mod>/.vic2studio/`
 
@@ -309,10 +317,11 @@ Se crea en el primer guardado. El juego solo recorre sus carpetas conocidas [ver
   originals/<rel>       estado de un archivo del mod antes de la primera escritura del Studio (nunca se sobrescribe)
   trash/<txid>/<rel>    «borrados»: nada se elimina de verdad
   recovery/<sesión>/    autoguardado de documentos sucios
-  mapforge/             proyecto del Taller de mapas (§18)
+  mapforge/<nombre>/    proyecto del Taller de mapas (§18.7): project.json, entities.json, edits.jsonl,
+                        cells.npz e imports/
 ```
 
-El bloqueo entre instancias (`<data_dir>/locks/<sha1(realpath(mod))>.lock`, con pid, host y hora) y las cachés (`<cache_dir>/index/…`, `<cache_dir>/raster/…`) viven fuera del mod. Si el mod es de solo lectura, `.vic2studio/` pasa a `<data_dir>/projects/<sha1>/`.
+El bloqueo entre instancias (`<data_dir>/locks/<sha1(realpath(mod))>.lock`, con pid, host y hora) y las cachés (`<cache_dir>/index/…`, `<cache_dir>/raster/…` y, para el taller, el perfil de la instalación y el ráster final en `<cache_dir>/mapforge/…`) viven fuera del mod. Si el mod es de solo lectura, `.vic2studio/` pasa a `<data_dir>/projects/<sha1>/`.
 
 ---
 
@@ -391,6 +400,7 @@ class Snapshot:
     rel: VPath
     before: bytes | None        # snapshot() comprimido con zlib; None = no existía
     after: bytes | None         # se rellena al cerrar la transacción
+    before_path: Path | None = None   # instantáneas de más de 8 MB y archivos movidos a la papelera: en disco
 
 @dataclass
 class RasterPatch:              # BMP: solo la caja envolvente, no la imagen
@@ -661,7 +671,6 @@ class Field:
     aliases: tuple[str, ...] = ()
     visible_if: "Condition | None" = None   # When("election", True)
     advanced: bool = False               # oculto en modo sencillo
-    since: "Expansion" = Expansion.BASE  # BASE | AHD | HOD
     ui: str | None = None                # "slider", "chips", "map_pick", "matrix"
     label: str = ""; help: str = ""      # por defecto "schema.<kind>.<key>" y ".help"
 
@@ -738,7 +747,6 @@ class EntitySchema:
     hall: str | None = None; section: str | None = None; order: int = 100   # dónde aparece en la interfaz
     icon: str = "file_text"; preview: str | None = None   # "event", "decision", "unit_card", "flag"…
     editable: bool = True                   # False: solo se indexa (tecnologías, ideologías, issues…)
-    since: "Expansion" = Expansion.BASE
 ```
 
 ### 10.4 Disposición en archivos (`layouts.py`)
@@ -932,7 +940,7 @@ class Problem:
     code: str; severity: Severity; rel: VPath | None; line: int | None; column: int | None
     ref: RecordRef | None = None; field: tuple[str, ...] = (); args: Mapping = MappingProxyType({})
     inherited: bool = False                     # también ocurre en la capa del juego (I11)
-    fixes: tuple[str, ...] = ()                 # claves de FIXES
+    fixes: tuple[str, ...] = ()                 # claves de FIXES; la primera es el SimpleFix
     def message(self, lang: str) -> str         # core/validate/texts/issues.{es,en}.json
     def fingerprint(self) -> tuple              # (code, rel, field, args sin línea)
 
@@ -948,9 +956,40 @@ def compute_baseline(game_only: ValidationContext) -> frozenset[tuple]   # cach�
 FIXES: dict[str, Callable[[Problem, "Project"], None]]          # cada arreglo es una transacción deshacible
 ```
 
-- Se ejecutan los validadores de cada esquema, las reglas globales de `core/validate/rules/{syntax,files,descriptor,countries,provinces,map,events,decisions,localisation,units,military,interface,history}.py` y la sintaxis actual (`modcheck.check_file` pasa a ser la familia «syntax»).
+- Se ejecutan los validadores de cada esquema, las reglas globales de `core/validate/rules/{syntax,files,descriptor,countries,provinces,map,events,decisions,localisation,units,military,interface,history,mapforge}.py` (`mapforge`: los códigos del taller, §18.11) y la sintaxis actual (`modcheck.check_file` pasa a ser la familia «syntax»).
 - **Línea base.** Las reglas se ejecutan en segundo plano sobre la capa del juego sola, con caché por instalación. En el informe del proyecto se marca `inherited=True` cuando la huella coincide. El panel oculta los heredados por defecto, con el conmutador «Mostrar heredados del juego base (n)».
 - **Integración.** `modcheck.Issue` gana `entity` y `fixes` con valores por defecto (compatible). «Validar mod» (F7) usa el validador global. Doble clic abre el editor de la entidad con el campo enfocado o, si no hay formulario, el código en esa línea.
+
+### 11.1 SimpleFix y explicador de conflicto (decisión del usuario, §24)
+
+Cada problema lleva dos botones: **[Arreglar]** (SimpleFix) y **[¿Por qué?]** (explicador de conflicto).
+
+```python
+@dataclass(frozen=True)
+class FixSpec:
+    key: str; label: str                         # «Registrar SIL en countries.txt»
+    safe: bool                                   # True: solo añade o restaura; False: borra o sustituye
+    plan: Callable[[Problem, "Project"], "ChangePlan"]    # vista previa: archivo · acción · diff
+    apply: Callable[[Problem, "Project"], None]           # una transacción con nombre, deshacible
+
+@dataclass(frozen=True)
+class ExplainStep:
+    layer: str                                   # "game" | "mod" | "replace_path" | "studio (sin guardar)"
+    rel: VPath | None; line: int | None; excerpt: str     # la línea real de cada capa
+    verdict: str                                 # "gana" | "pierde" | "oculto" | "no se carga" | "falta"
+
+@dataclass(frozen=True)
+class Explanation:
+    title: str; steps: tuple[ExplainStep, ...]   # en el orden en que el juego carga las capas
+    outcome: str                                 # qué verá el jugador, en frases ES/EN
+    fixes: tuple[FixSpec, ...]
+
+def explain(problem: Problem, ctx: ValidationContext) -> Explanation   # core/validate/explain.py
+```
+
+- **SimpleFix.** El botón aplica el primer arreglo de `fixes` (el más seguro). Antes muestra su plan de cambios (archivo · acción · diff) y espera confirmación; los demás arreglos van en el desplegable del botón. Nunca se aplica nada solo, ni siquiera al validar. Cada arreglo es una transacción deshacible en un paso. Un arreglo `safe=False` (borrar, sustituir) pide confirmación explícita y manda lo borrado a la papelera.
+- **Explicador de conflicto.** Reconstruye, con `VfsSnapshot.stack()`, el índice de símbolos y `LocalisationDB.source_of/overrides()`, qué capas definen lo mismo y en qué orden las carga el juego: archivo del mod que sustituye al de vanilla con la misma ruta, primera clave de localización que gana por orden alfabético de archivos, `replace_path` que oculta una carpeta, dos historias con el mismo id, TAG detrás de `dynamic_tags`, id de evento repetido… Cada capa se muestra con su línea real y su veredicto, y termina en una frase sobre el efecto en el juego («En partida verás "Capacit?" en francés porque tu text.csv sustituye al del juego») y en los arreglos disponibles.
+- Los problemas heredados (I11) también se explican, para que el modder entienda por qué se ocultan.
 
 Catálogo inicial (las capacidades añaden las suyas):
 
@@ -1175,7 +1214,7 @@ class EntityForm(QWidget):
 
 ### 13.9 Mensajes y arreglos
 
-Ejemplos de tono:
+Cada mensaje de problema lleva [Arreglar] (SimpleFix, con plan de cambios y confirmación) y [¿Por qué?] (explicador de conflicto), según §11.1. Ejemplos de tono:
 
 - «"PRU" ya lo usa Prusia (common/countries.txt, línea 10). Prueba "PRX" o "PRS".» [Usar PRX]
 - «"CON" no sirve: Windows no permite archivos llamados CON (la bandera sería CON.tga).»
@@ -1208,7 +1247,7 @@ Se reutilizan `ParchmentCard`, `OrnateFrame`, `RibbonBadge`, `StatusBadge`, `Med
 | 12 | Unidades navales | Guerra › Unidades navales | `unit` (vista naval) | 4 |
 | 13 | Culturas | Naciones › Culturas | `culture_group` + `Children(culture)` | 4 |
 | 14 | Regiones | Mapa › Regiones / Continentes y climas | `region`, `region_sea`, `continent`, `climate`, `map/groups` | 5 |
-| 15 | Mapa nuevo desde cero | Mapa › Taller de mapas | `core/mapforge`, receta `new_map` | 9 |
+| 15 | Mapa nuevo desde cero | Mapa › Taller de mapas | `core/mapforge` (pipeline, importación, exportación y auditoría) | 9a y 9b |
 
 ### 14.1 Generar el archivo `.mod`
 
@@ -1259,14 +1298,14 @@ Se reutilizan `ParchmentCard`, `OrnateFrame`, `RibbonBadge`, `StatusBadge`, `Med
 
   Archivos que toca: `common/countries.txt` (+1 línea antes de `dynamic_tags`), `common/countries/<Nombre>.txt`, `common/country_colors.txt` (opcional), `history/countries/<TAG> - <Nombre>.txt`, `history/units/<TAG>_oob.txt` (opcional), 5 `gfx/flags/<TAG>*.tga`, las `history/provinces/...` reasignadas y `localisation/00_<P>_countries.csv`.
 - **Controles especiales.** `TagPicker`, `FlagStudio` (`core/gfx/flags.py`: `fit_flag(img, *, mode="cover", focus=(0.5, 0.5))`, `make_flag_set(images) -> dict[str, bytes]`: TGA de 32 bits, 93×64, origen abajo a la izquierda, releídas con Pillow), `TechTreeDialog`, `IssuePicker`, `UpperHouseField`, `ColorField` y minimapa.
-- **Validaciones.** `tag_invalid`, `tag_taken`, `tag_not_registered`, `tag_after_dynamic_tags`, `country_file_missing`, `country_history_missing`/`_duplicate`, `ruling_party_not_of_country`, `ruling_party_ideology_not_allowed`, `ruling_party_inactive` (fechas del partido), `party_unknown_policy`, `party_missing_ideology` (info), `upper_house_sum`, `capital_not_owned`, `nationalvalue_unknown` y demás `*_unknown`, `flag_missing`/`flag_format`, `country_colors_missing` (info), `map_color_duplicate` (info), `oob_file_missing`, `army_location_sea`, `navy_location_inland` y `regiment_type_mismatch`.
+- **Validaciones.** `tag_invalid`, `tag_taken`, `tag_not_registered`, `tag_after_dynamic_tags`, `country_file_missing`, `country_history_missing`/`_duplicate`, `ruling_party_not_of_country`, `ruling_party_ideology_not_allowed`, `ruling_party_inactive` (fechas del partido), `party_unknown_policy`, `party_missing_ideology` (info), `upper_house_sum`, `capital_not_owned` (solo para los TAG con tierra: en vanilla, 90 de las 220 capitales están en provincias de otro país), `nationalvalue_unknown` y demás `*_unknown`, `flag_missing`/`flag_format`, `country_colors_missing` (info), `map_color_duplicate` (info), `oob_file_missing`, `army_location_sea`, `navy_location_inland` y `regiment_type_mismatch`.
 
 ### 14.3 Provincias (ver, crear y editar)
 
 - **Archivos y formato.** `history/provinces/<carpeta>/<id> - <Nombre>.txt` (`owner`, `controller`, `add_core`, `remove_core`, `trade_goods`, `life_rating`, `terrain`, `railroad`, `fort`, `naval_base`, `colonial`, `colony`, `is_slave`, `state_building`, `party_loyalty` y bloques fechados). `history/pops/<fecha>/<Zona>.txt` (`<id> = { <tipo_pop> = { culture religion size [militancy] [rebel_type] } }`). La fila de `map/definition.csv` (color y nombre), `map/positions.txt` y la clave `PROV<id>`.
 - **Ver y editar.** Mapa › Mundo. Un clic abre el panel de provincia con las pestañas Resumen · Historia · POPs · Edificios · Textos, en la fecha de trabajo. La brocha asigna dueño, controlador, núcleo, RGO, life rating, terreno, ferrocarril, fuerte o base naval con clic o arrastre. Mayúsculas + clic hace multiselección y «Rellenar estado» asigna toda la región. La línea temporal muestra los bloques fechados y permite editar un suceso concreto.
 - **POPs.** Tabla con tipo, cultura, religión, tamaño y totales, más «copiar POPs de la provincia…» y «escalar ×». Se edita el bloque en el archivo que lo define (al guardar se copia ese archivo de zona). Las provincias nuevas van a `history/pops/<fecha>/00_<P>_pops.txt`. Un bloque repetido (2482) se muestra dos veces y se edita el elegido.
-- **Crear.** Provincias nuevas en un mapa existente («Dividir provincia» y «Pintar provincia nueva») en la iteración 9 (§18.6). Una provincia sin historia recibe `history/provinces/<carpeta de su región o «studio»>/<id> - <Nombre>.txt`.
+- **Crear.** Provincias nuevas en un mapa existente («Dividir provincia» y «Pintar provincia nueva») en la iteración 9b (§18.10). Una provincia sin historia recibe `history/provinces/<carpeta de su región o «studio»>/<id> - <Nombre>.txt`.
 - **Controles especiales.** `ProvincePicker` con «Elegir en el mapa», `PopsEditor`, `TimelineBar` y deslizador de life rating; modo «IDs» que dibuja el número de cada provincia en su centroide (como la imagen de referencia de HoD del usuario).
 - **Validaciones.** `province_not_in_definition`, `province_history_duplicate`, `province_file_name` (info), `sea_province_has_owner`/`_has_pops`, `naval_base_inland` (sin vecino de mar en el ráster), nivel de edificio ≤ `max_level` de `buildings.txt`, `tag_unknown`, `goods_unknown`, `terrain_unknown`, `pop_size_invalid`, `pop_culture_unknown`/`_religion_unknown`/`pop_type_unknown` y `missing_prov_localisation`.
 
@@ -1359,9 +1398,53 @@ Ver §17. Archivos: `interface/*.gui`, `interface/*.gfx`, `gfx/interface/**`, `g
 
 - **Validaciones.** `land_province_without_region`, `province_multiple_regions`, `sea_in_region`, `province_without_continent`, `region_empty` (info), `region_not_contiguous` (info), `climate_layout` y `loc_key_missing`.
 
-### 14.15 Suite de creación de mapas nuevos desde cero y sus dependencias
+### 14.15 Taller de mapas: generar o importar un mapa nuevo y sus recursos
 
-Ver §18. Genera todo `map/` (BMP, `definition.csv`, `default.map`, posiciones, regiones, continentes, climas, adyacencias y texturas de color), las historias de provincia, la localización `PROV<id>`, los POPs opcionales y los `replace_path` del descriptor. Antes de confirmar audita todo lo que referencia ids o regiones antiguos.
+- **Archivos y formato.** La lista exacta, en orden y por nivel, está en §18.8:
+  - todo `map/` salvo lo que se hereda (`terrain.txt`, `trees.txt`, texturesheets y teselas);
+  - las 4 texturas `colormap*`, con las cabeceras de vanilla, y el minimapa;
+  - `history/provinces` y `history/pops`, OOB vacíos para cada `oob` citado y `capital` corregida en las historias de los TAG existentes;
+  - con el nivel Mundo, además: `common/countries.txt` (los TAG existentes se conservan), `common/countries/*`, `history/countries/*` nuevos, `common/cultures.txt` y las banderas TGA (5 por país);
+  - la cámara de `bookmarks.txt`, la localización (EN y ES, con copia opcional a FR y DE) y los `replace_path` del descriptor;
+  - el traslado a la papelera de los archivos del propio mod bajo las carpetas reemplazadas.
+  
+  Es una sola transacción con diario y `.bak`. Destino: este mod o un mod nuevo, que es el recomendado si el mod ya tiene `history/`.
+- **Ver, crear y editar.** Mapa › Taller de mapas. Hay tres niveles:
+  - **Solo mapa**: reparto entre TAG existentes (por defecto) o mapa base no jugable;
+  - **Mundo**;
+  - **Sobre vanilla**: provincias nuevas o un continente nuevo en una caja de océano.
+  
+  Y cuatro orígenes:
+  - **Generar**: pipeline procedural al estilo de Azgaar;
+  - **Importar bitmaps**: lo que falta se reconstruye;
+  - **Altura**: un PNG en gris;
+  - **FMG JSON**: «Export to JSON → Full» (iteración 9b).
+  
+  El asistente tiene un modo sencillo de 4 controles con «Generación rápida» y un modo avanzado. Hay vista previa en vivo a W/4 (1,6–1,75 s) y edición entre pasos: pinceles de relieve y tierra/mar, mover fronteras, dividir y fusionar, pintar dueños y culturas, renombrar y bloquear.
+  
+  Todo se calcula en un proceso trabajador: la interfaz nunca se bloquea más de 50 ms. El mundo se guarda en el proyecto y es determinista por semilla, también entre CPU distintas. El render final se puede cancelar (unos 15 s a 5616×2160). Después, el mapa se edita en el editor de mapa (§16); al volver al taller, los cambios se detectan por sha.
+- **Controles especiales.**
+  - Galería de plantillas y editor de plantillas con la sintaxis de FMG.
+  - Pinceles en coordenadas normalizadas.
+  - Tablas bioma → terreno, terreno → RGO y presencia de tipos de POP.
+  - Herramientas de provincia y enlace al editor de píxeles de §16.
+  - Selector de fuente de nombres por grupo y galería de banderas.
+  - Ranuras de importación con detección de orientación y matriz «lo que falta se reconstruye».
+  - Lista de estrechos sugeridos.
+  - Plan de cambios con clase A/B/C y movimientos a la papelera.
+  - Auditoría por carpeta y rol con [replace_path] [Vaciar] [Papelera] [Ignorar].
+- **Validaciones.** Las de §16.6 sobre el resultado, más la familia `mapforge` (§18.11), cada una con SimpleFix y explicador:
+  - de destino y jugabilidad: `replace_path_mod_files_remain` y `forge_no_owned_provinces`;
+  - del bitmap: `forge_orientation_suspect`, `forge_not_24bit`, `forge_size`, `forge_color_reserved`, `forge_tiny_province`, `forge_seam_province` y `province_isolated`;
+  - de tierra y mar: `forge_land_sea_unknown` y `forge_land_sea_ambiguous`;
+  - de terreno y ríos: `terrain_not_indexed`, `rivers_not_indexed`, `terrain_index_invalid`, `terrain_index_placeholder`, `rivers_diagonal`, `rivers_in_water` y `river_source_missing`;
+  - de altura y FMG: `heightmap_size`, `fmg_version_unknown` y `fmg_aspect`;
+  - de límites, ediciones y exportación: `forge_too_many_provinces`, `forge_edit_conflict`, `forge_env_changed`, `forge_export_conflict`, `forge_loc_shadowed` y `forge_overlay_sea_shrunk`.
+  
+  Antes de confirmar, la auditoría de dependencias (§18.9) recorre todo el índice por rol (provincia, estado, continente, TAG, cultura y religión).
+- **Iteraciones.**
+  - **9a:** mapa procedural, importación de bitmaps, Solo mapa jugable con TAG existentes y proceso trabajador.
+  - **9b:** Mundo, FMG JSON, banderas y Sobre vanilla.
 
 ### 14.16 Requisitos originales: dónde quedan cubiertos
 
@@ -1465,13 +1548,13 @@ class MapMode:
 
 ### 16.5 Rendimiento (criterios)
 
-- Primera carga del ráster de vanilla en segundo plano: ≤ 4 s. Medido: 0,9 s leyendo el BMP y traduciendo colores con una LUT densa `uint16` de 2^24 entradas (32 MB); con `np.searchsorted`, 1,5 s, y con `np.unique`, 3,2 s. Desde la caché `.npy`: ≤ 0,5 s.
+- Primera carga del ráster de vanilla en segundo plano: ≤ 4 s. Medido: 0,9 s leyendo el BMP y traduciendo colores con una LUT densa `uint16` de 2^24 entradas (32 MB); con `np.searchsorted`, 1,5 s, y con `np.unique(return_inverse=True)`, 3,2 s. El censo de colores de la importación del taller (§18.6) usa `np.unique` sin `return_inverse` más la misma LUT densa: 0,62–0,83 s con el BMP de vanilla. Desde la caché `.npy`: ≤ 0,5 s.
 - Cambio de modo ≤ 150 ms. Repintado tras cambiar un dueño ≤ 50 ms.
 - Los centroides (unos 0,9 s por eje con `bincount` ponderado) se calculan una vez y se guardan en la caché.
 
 ### 16.6 Invariantes de coherencia (`core/map/coherence.py: check_map(vfs) -> list[Problem]`)
 
-`bmp_size_mismatch`, `bmp_color_unmapped` (píxeles y muestra), `definition_color_duplicate`, `duplicate_id`, `definition_bad_number`, `definition_id_ge_max`, `province_without_pixels`, `max_provinces_too_small`, `sea_start_unknown`, `sea_start_duplicate`, `land_province_without_region`, `province_multiple_regions`, `sea_in_region`, `province_without_continent`, `climate_layout`, `positions_missing`, `missing_history`, `province_history_duplicate`, `province_file_name`, `adjacency_unknown_province`, `adjacency_through_not_sea`, `terrain_sea_mismatch`, `missing_prov_localisation` y `province_fragmented`. Sobre vanilla, el resultado se compara con una instantánea de «problemas conocidos» (la línea base).
+`bmp_size_mismatch`, `bmp_color_unmapped` (píxeles y muestra), `definition_color_duplicate`, `duplicate_id`, `definition_bad_number`, `definition_id_ge_max`, `province_without_pixels`, `max_provinces_too_small`, `sea_start_unknown`, `sea_start_duplicate`, `land_province_without_region`, `province_multiple_regions`, `sea_in_region`, `province_without_continent`, `climate_layout`, `positions_missing`, `missing_history`, `province_history_duplicate`, `province_file_name`, `adjacency_unknown_province`, `adjacency_through_not_sea`, `terrain_sea_mismatch`, `missing_prov_localisation` y `province_fragmented`. Sobre vanilla, el resultado se compara con una instantánea de «problemas conocidos» (la línea base). El taller añade la familia `mapforge` (§18.11).
 
 ---
 
@@ -1535,86 +1618,535 @@ class BMFont:                                          # gfx/fonts/*.fnt + .tga 
 
 - El ejecutable busca muchos elementos **por nombre**: borrar uno puede romper el juego. Se ofrece «ocultar» (mover fuera de la pantalla) y la regla `gui_named_element_removed` avisa.
 - No se pueden crear ventanas nuevas con función. Sí se puede mover, redimensionar, cambiar sprites, fuentes y textos, y añadir decoración (iconos y texto estático).
+- **Alcance decidido (§24, decisión 10).** La suite modifica las ventanas existentes (posición, tamaño, anclaje, sprites, fuentes, textos y decoración) y gestiona las imágenes del juego: sprites nuevos, imágenes de eventos y decisiones, banderas, iconos de CB, tecnologías y pantallas de carga. No crea ventanas nuevas, porque el ejecutable no las abriría; en su lugar ofrece «Duplicar como variante» para probar otra disposición sin perder la original, y explica el límite con el explicador (§11.1).
 
 ---
 
-## 18. Suite de mapas nuevos desde cero (Mapa › Taller)
+## 18. Taller de mapas: generar o importar un mapa y sus recursos (Mapa › Taller)
 
-### 18.1 Flujo del asistente
+> **Decisión del usuario (§24, n.º 9).** Una suite que genera el mapa y sus recursos de forma procedural, al estilo de Azgaar's Fantasy Map Generator (FMG), y la opción de importar recursos de mapa para quien sabe trabajar con bitmaps.
+>
+> **Base medida.**
+> - **R1**: formato real del mapa de HoD 3.04 (`prototipos/mapforge/r1-format/scripts/`, m01–m15).
+> - **R2**: estudio de FMG v1.156.0 (MIT) y su prototipo `prototipos/mapforge/r2-azgaar/proto/forge.py`.
+> - **Prototipos de este diseño** en `prototipos/mapforge/design/proto/`: `p0`–`p6` (versión 1) y `p7`–`p10` más `mf_lib.py` (versión 2, tras la verificación adversarial). `[pN]` indica el prototipo que da cada cifra. Cuando p1 y p7 discrepan, manda p7.
+> - Las rutas son relativas a `docs/diseno/`; `prototipos/mapforge/README.md` explica cómo se ejecutan.
+> - Todas las medidas se tomaron en 4 CPU compartidas, con Python 3.13, numpy 2.5 y Pillow 12.3, y se repitieron al menos 2 veces. Los mínimos del proyecto (numpy ≥ 1.24, Pillow ≥ 10) no se pudieron medir aquí: lo hace `bench_mapforge` en CI (§18.12).
 
-1. **Lienzo**: tamaño (5616×2160 como vanilla, 2808×1080 o personalizado, en múltiplos de 8), envoltura horizontal (sí por defecto) y origen: (a) importar un `provinces.bmp` dibujado fuera, que es lo más habitual; (b) partir de una máscara de tierra (PNG o pintada); (c) en blanco. Casilla «la imagen tiene el norte arriba» (marcada por defecto), con vista previa.
-2. **Tierra y mar**: brocha y relleno, o umbral sobre la imagen importada.
-3. **Provincias**: generación automática por semillas con un tamaño objetivo distinto para tierra y mar, o detección de colores de la imagen importada (cada color único es una provincia). Herramientas manuales: pincel con color de provincia, cuentagotas, dividir, fusionar, rellenar y «nueva provincia» (siguiente id y color único).
-4. **Ids y nombres**: tierra de 1 a L y mar de L+1 a N (`sea_starts` contiguo). Tabla editable de nombres ES/EN (→ `PROV<id>`) y colores.
-5. **Terreno** sobre `terrain.bmp`, con una paleta de `text_N` agrupada por categoría y el color de `terrain.txt`. El mar se pone solo en su índice (254 en vanilla).
-6. **Ríos** (opcional): herramienta de línea por anchos, nacimiento y confluencia, con los índices de vanilla (254 mar, 255 tierra, 0 nacimiento, 1 confluencia, 2–11 anchos).
-7. **Estados**: agrupación automática de provincias vecinas en estados de unas K provincias (BFS voraz), retocada luego con la brocha de regiones. Los estados marinos son opcionales.
-8. **Continentes y climas**: brocha o lazo.
-9. **Estrechos**: sugerencias de pares de tierra separados por una provincia de mar estrecha.
-10. **Historia inicial**: RGO y life rating por defecto o pintados; dueños opcionales con la brocha política.
-11. **Auditoría y exportación** (§18.4–18.5).
+Los dos caminos, generar e importar, llenan el mismo modelo (`ForgeWorld`). Desde ahí comparten la vista previa, las ediciones manuales, la validación con SimpleFix y el explicador, la auditoría de dependencias y la exportación en una sola transacción con diario. El resultado es un mapa normal del mod, que se sigue editando con el editor de mapa (§16).
 
-El trabajo se guarda en `<mod>/.vic2studio/mapforge/` (`project.json` con la tabla de provincias, más `provinces.png`, `land.png`, `terrain.png` y `rivers.png`) y se puede retomar.
+### 18.1 Alcance por niveles, destino y orígenes
 
-### 18.2 Modelo
+El usuario elige un **nivel** (qué se genera), un **destino** (en qué mod se escribe) y un **origen** (de dónde sale la geografía).
+
+| Nivel | Genera | Hereda o modifica | Para qué |
+|---|---|---|---|
+| **Solo mapa** (`Level.MAP`) | Todo `map/` (§18.8), los colormaps y el minimapa. Historias de provincia con `trade_goods`, `life_rating` y dueño según la opción «Dueños». POPs mínimas en cada provincia de tierra y en cada fecha de `history/pops`. `PROV<id>`, estados y cámara de los bookmarks | Países, culturas, religiones, tecnologías y el resto de `common/`. Modifica `capital` en las historias de los TAG que reciben tierra | Hacer un mapa jugable con los países existentes, o un mapa base para repartirlo después con la brocha política (§16) |
+| **Mundo** (`Level.WORLD`) | Lo de Solo mapa, más países nuevos (registro, archivo de país con partidos, historia y 5 banderas), dueños, controladores, núcleos y capitales, culturas (grupos nuevos), religiones (mapeadas a las existentes), POPs completas, RGO, life rating y la localización de todo | Gobiernos, ideologías, reformas, tecnologías, bienes, tipos de POP, culturas gráficas y conjuntos de unidades. **Los TAG existentes siguen registrados, sin tierra** (opción «Quitar los TAG existentes», con auditoría completa, §18.9) | Conversión total con un mundo jugable |
+| **Sobre vanilla** (`Level.OVERLAY`) | Sobre el mapa efectivo (vanilla + mod): provincias nuevas (dividir o pintar) o un continente o islas nuevos dentro de una caja de océano. Opcionalmente, países nuevos sobre la tierra nueva o reparto entre TAG existentes | Todo lo demás. **Los ids existentes no cambian** y solo se añade | Ampliar el mapa de vanilla sin romper eventos, decisiones ni OOB |
+
+**Opción «Dueños» de Solo mapa** (pantalla 7). Vanilla no puede jugarse sin provincias con dueño, así que hay que elegir:
+- **Repartir entre TAG existentes** (por defecto). Toma los K TAG con más provincias en la instalación efectiva (K = 60, editable) y reparte la tierra por expansión desde sus capitales nuevas (paso 12, con el 85 % de la tierra colonizada). Las provincias sin dueño toman la cultura y la religión del TAG más cercano (expansión sin tope). Las POPs de una provincia con dueño usan la `primary_culture` y la `religion` de su historia.
+- **Mapa base, no jugable.** No hay dueños. Las POPs usan una cultura y una religión de la instalación (por defecto, las más frecuentes en sus POPs de 1836, calculadas en tiempo de ejecución). La revisión muestra el aviso `forge_no_owned_provinces`, que exige confirmación explícita.
+
+**Capitales de los TAG sin tierra.** En vanilla, 90 de las 220 capitales ya están en provincias de otro país, porque son países que no existen al empezar (medido con un script sobre `history/countries` y `history/provinces`). Por eso un TAG sin tierra conserva su `capital` si el id sigue siendo una provincia de tierra del mapa nuevo. Si no lo es (id > N o de mar), se reescribe a la capital del país con tierra de su mismo grupo cultural o, si no hay ninguno, a la del país mayor [verificar en juego: liberación de esos TAG].
+
+**Destino.**
+- **Este mod.** Antes de exportar se cuentan los archivos que el mod ya tiene bajo las carpetas que el nivel reemplaza o regenera. Si los hay, se ofrece el destino «Mod nuevo» como recomendado. El caso real VSM es una copia completa: 2 705 historias de provincia, 358 de POPs, 265 OOB, 5 guerras y 4 diplomacias (`find`).
+- **Mod nuevo.** Usa el generador de `.mod` (§14.1). El mod nuevo hereda de la instalación, no del mod actual.
+
+| Origen | Qué aporta | Niveles | Iteración |
+|---|---|---|---|
+| **Generar** (`Origin.GENERATE`) | Pipeline procedural completo (§18.3) con plantilla de relieve y semilla | Todos (en Sobre vanilla, dentro de la caja) | 9a (Sobre vanilla, 9b) |
+| **Importar bitmaps** (`Origin.BITMAPS`) | `provinces.bmp`/PNG, `definition.csv`, `default.map`, `terrain.bmp`, `rivers.bmp`, mapa de altura, máscara y texto del mapa (§18.6). Lo que falte se reconstruye | Solo mapa y Mundo | 9a |
+| **Altura** (`Origin.HEIGHTMAP`) | PNG en gris (también el del editor de alturas de FMG) que sustituye al paso de relieve | Todos | 9a |
+| **FMG JSON** (`Origin.FMG_JSON`) | «Export to JSON → Full» o «PackCells» de FMG: celdas, alturas, biomas, ríos, culturas, estados, provincias, religiones y nombres | Solo mapa y Mundo | 9b: en la 9a el botón no aparece |
+
+### 18.2 Flujo del asistente
+
+**Disposición de todas las pantallas.**
+- **Izquierda:** la lista de pasos. Cada paso muestra su estado: pendiente, calculado, editado, importado o bloqueado.
+- **Centro:** la vista previa a W/4 (1404×540 con el tamaño de vanilla), con el norte arriba. Sus modos son relieve sombreado, tierra/mar, temperatura, precipitación, ríos, biomas, terreno (colores de `terrain.txt`), provincias, estados, continentes, climas, países, culturas, religiones, población y problemas.
+- **Derecha:** los parámetros y las herramientas del paso.
+- **Abajo:** la semilla (campo y botón «Aleatoria»), los botones «Regenerar este paso», «Regenerar desde aquí» y «Bloquear», Deshacer/Rehacer, la barra de progreso con Cancelar y el contador de problemas.
+
+**Modo sencillo** (por defecto, P4). Solo hay 4 controles: tamaño, plantilla, semilla y número de países (o «Dueños» en Solo mapa). El botón **«Generación rápida»** ejecuta todo con valores por defecto y salta a la pantalla 12. En el modo avanzado se ven el resto de parámetros (`advanced` en `ForgeParams`): cuantiles, exponentes, jitter, `blobPower`…
+
+Cada edición es una transacción del proyecto del taller y se puede deshacer (§6).
+
+| # | Pantalla | Controles | Edición manual en la vista previa |
+|---|---|---|---|
+| 0 | **¿Qué quieres hacer?** | Tres tarjetas de nivel, los botones de origen de la iteración en curso y el destino (este mod o un mod nuevo, con el recuento de archivos que se moverían a la papelera). Lista de proyectos del taller guardados | — |
+| 1 | **Lienzo** | Tamaño: 5616×2160 por defecto, 2808×1080 o personalizado en múltiplos de 24 (aviso [verificar en juego] si no es el de vanilla). Envoltura horizontal (sí). Semilla. Objetivos de provincias de tierra y mar, **escalados con el área** (2 700 y 545 a 5616×2160; 675 y 136 a 2808×1080), con la opción «mismo número que vanilla». **Densidad de celdas** (automática). **La rejilla queda fija al salir de esta pantalla** (§18.4) | — |
+| 2 | **Relieve** | Plantilla: 14 portadas de FMG, con miniaturas. Editor de texto con la sintaxis de FMG (`Hill 1 90-100 44-56 40-60`, con la y convertida, §18.5), validado por línea, con «Pegar plantilla de FMG» y «Guardar como plantilla». Deslizador de fracción de tierra (0,34): mueve solo el nivel del mar | Pinceles en coordenadas normalizadas: Subir, Bajar, Suavizar, Allanar, Tierra/Mar, Cordillera (trazo → `Range`) y Fosa (trazo → `Trough`), con radio y fuerza. Lazo para aplicar una operación de plantilla a una zona. Repintado de 13–21 ms (mediana) [p5] |
+| 3 | **Clima y agua** | Latitudes sur y norte (−60 y 75), temperaturas del ecuador y de los polos, precipitación, vientos por franja, tamaño mínimo de lago (4 celdas) y **Cantidad de ríos** (cuantil de caudal 0,75, que da unos 90 000 px a 5616×2160; vanilla tiene 104 071) | Pincel «quitar o forzar río»; clic en un lago para convertirlo en tierra o en mar |
+| 4 | **Terreno** | Tabla bioma → categoría de Victoria II (editable), umbrales de colinas (h ≥ 44) y montañas (h ≥ 67) y porcentaje de farmlands | Pincel de categoría por celdas |
+| 5 | **Provincias** | Objetivos de tierra y mar, variación de tamaño (exponente de idoneidad 0,75), coste de montañas y ríos, sesgo del mar hacia la costa | Mover frontera (a nivel de celda, unos 190 px a 5616×2160), Dividir (trazo), Fusionar, Añadir provincia (semilla), Quitar y Bloquear. Tabla con id provisional, nombre, área, terreno y estado. Para retoques al píxel, el enlace «Abrir en el editor de píxeles» lleva a §16 después de exportar |
+| 6 | **Estados, continentes y climas** | Provincias por estado (4,92), número de continentes y sus nombres (por defecto los de la instalación: 6 en vanilla, para que `pop_types`, los eventos y las tecnologías sigan valiendo) y umbrales de clima | Brochas de región, continente y clima de §14.14 sobre la vista previa |
+| 7 | **Dueños** (Solo mapa) / **Países** (Mundo) | Solo mapa: «Repartir entre TAG existentes» (K, % colonizado) o «Mapa base». Mundo: número de países (60), % colonizado (85 %), % civilizado, gobiernos permitidos, expansionismo, «Conservar los TAG existentes sin tierra» (sí) y plantilla de tecnologías | Pintar dueño, Mover capital y Editar país (TAG validado con `tag_invalid`/`tag_taken`, nombre EN/ES, color, gobierno y bandera). Bloquear país |
+| 8 | **Culturas y religiones** (Mundo) | Culturas (24), grupos (8), fuente de nombres por grupo (§18.5), `unit`/`leader` del grupo (de la instalación) y religiones mapeadas a las existentes | Pintar cultura y religión; renombrar |
+| 9 | **Población y economía** | Población total (250 M), fechas de POP (las carpetas efectivas de `history/pops`: `1836.1.1` y `1861.4.14` en vanilla), tabla de presencia de tipos de POP (§18.5), tabla terreno → RGO y distribución del life rating | Pincel de RGO y de life rating |
+| 10 | **Nombres** (9a) y **banderas** (9b) | Tabla de nombres (provincias, estados, países, adjetivos, culturas y grupos) EN/ES, con «Regenerar», «Bloquear», duplicados y comprobación de cp1252. Galería de banderas por país (5 variantes) | Doble clic en la vista previa para renombrar |
+| 11 | **Estrechos y detalles** | Estrechos sugeridos (con el hueco en px y «aceptar todos») y hueco máximo (8 px). Canales opcionales e `impassable` | Herramienta de estrechos de §16.4. Vista de los puntos `unit` y `naval_base` |
+| 12 | **Revisión y exportación** | Render final en el proceso trabajador con progreso por paso y Cancelar. Panel de problemas con [Arreglar] y [¿Por qué?] (§18.11). Auditoría (§18.9). Plan de cambios (archivo · acción · clase A/B/C · tamaño), incluidos los movimientos a la papelera, y Exportar | — |
+| 13 | **Hecho** | «Abrir en el editor de mapa» (Mapa › Mundo) y «Seguir en el taller» | — |
+
+- **Atajos por nivel.** Sobre vanilla empieza con «Elegir zona»: una caja sobre el mapa existente, con un buscador de cajas de océano libres. Después pasa por las pantallas 2–6 restringidas a la caja, la 7 opcional y la 12. El origen Importar bitmaps sustituye las pantallas 2–5 por «Importar recursos» (§18.6); cada paso cubierto por un archivo queda como «importado».
+- **Paso al editor de mapa (§16).** Tras exportar, el mapa es un mapa normal del mod. El proyecto del taller guarda el sha256 de cada archivo exportado. Si después se editan en §16 y se vuelve a exportar desde el taller, salta `forge_export_conflict` (§18.11), con el explicador y el arreglo «Reimportar al taller los cambios del editor»: los bitmaps del mod entran como capas importadas y bloqueadas.
+
+### 18.3 Pipeline procedural
+
+**Dos etapas.**
+- **Etapa de celdas** (pasos 1–17). Se calcula **una sola vez en las coordenadas finales**, sea cual sea la escala de la vista, y sus resultados se guardan en el proyecto (§18.4). Incluye todo lo que decide qué es cada cosa: relieve, agua, provincias **provisionales** sobre el grafo de celdas, estados, continentes, climas, países, culturas, religiones, población, RGO, life rating, nombres y banderas.
+- **Etapa de ráster** (pasos 18–27). Se ejecuta a la escala pedida: 4 para la vista previa y 1 para el final. Dibuja las provincias provisionales, arregla fragmentos y, en `reconcile`, hereda los atributos de cada provincia final de su provincia provisional.
+
+Por eso la vista previa y el final comparten el mismo mundo: los hashes de la etapa de celdas y del mundo son idénticos a escala 4 y a escala 1 [p7].
+
+**Principios.**
+- **Grafo de celdas.** Rejilla hexagonal con jitter 0,3: sus 6 vecinos implícitos son exactamente los de Voronoi (precisión y recobrado 1,0000 [R2]), sin Delaunator.
+- **La costura x = 0/W−1 es frontera.** Ninguna provincia ni estado la cruza, como en vanilla (0 provincias [R1]). La vecindad a través de ella se conserva: hay 33–34 pares de vecinos frente a los 28 de vanilla [p7].
+- **Un PRNG por paso.** Cada paso usa `np.random.default_rng([seed, crc32(step_id)])`, así que regenerar los ríos no cambia el relieve.
+- **Aritmética reproducible en las decisiones** (§18.4). No se usan ufuncs trascendentes de numpy (power, exp, log, arctan2, hypot), porque su resultado depende del SIMD de la CPU.
+  - Las potencias sobre enteros 0–255 van por una tabla calculada con `math.pow`.
+  - Pesos `suit^0,75 = sqrt(suit·sqrt(suit))`; distancias con `sqrt`, que es exacta en IEEE.
+  - Totales con `math.fsum`.
+  - Ordenaciones estables con el id como desempate.
+  - Centroides sin trigonometría: la costura es frontera.
+- **Pasos puros.** `ForgeWorld → ForgeWorld`, cancelables con `core/cancel.py`. Las ediciones manuales son `EditOp` que se reaplican después de su paso (§18.4).
+
+Tiempos de p7 (60 000 celdas, plantilla «continents» de 13 operaciones, semillas 11 y 7, más la 11 sin AVX-512). La vista previa es a 1404×540 y el final a 5616×2160; la etapa de celdas cuesta lo mismo en las dos.
+
+| # | id | Etapa | Qué hace | Parámetros | Vista previa / final (s) |
+|---|---|---|---|---|---|
+| 1 | `lattice` | celdas | Rejilla hexagonal con jitter 0,3, envoltura y vecinos implícitos; aristas de la costura marcadas | N = ⌈7,3 · L / f_tierra⌉ acotado a [10 000, 200 000] (unas 60 000), **fijado en la pantalla 1** | 0,025–0,035 |
+| 2 | `relief` | celdas | Plantilla FMG: Hill, Pit, Range, Trough, Strait, Mask, Invert, Add, Multiply y Smooth por anillos BFS, con el truncado a Uint8 de Hill [R2] | Plantilla, `blobPower`/`linePower` según N | 0,10–0,15 |
+| 3 | `sea_level` | celdas | Nivel del mar por cuantil para la fracción de tierra | `land_fraction` | incluido |
+| 4 | `features` | celdas | El océano es la mayor componente de agua. Lagos de ≥ 4 celdas → provincias de mar interior (así modela vanilla sus 38 lagos [R1]); los menores pasan a tierra. Islas | `min_lake_cells` | 0,013–0,018 |
+| 5 | `climate` | celdas | Temperatura por latitud de la fila (fila 0 = sur, H1) y −6,5 °C/km. Precipitación por vientos y franjas (FMG simplificado) | Latitudes, temperaturas, vientos | 0,12–0,18 los pasos 5–7 juntos |
+| 6 | `hydro` | celdas | *Priority-flood* y acumulación de flujo. Ríos en las celdas con flujo ≥ cuantil | `river_flux_quantile` 0,75 | ″ |
+| 7 | `biomes` | celdas | Matriz temperatura × humedad → categoría de Victoria II (tabla editable). h ≥ 67 → mountain; 44 ≤ h < 67 → hills. Farmlands en el 20 % más idóneo de plains y woods. Idoneidad al estilo de `rankCells` | Tabla y umbrales | ″ |
+| 8 | `provinces` | celdas | Provincias **provisionales**: Dijkstra multifuente vectorizado sobre el grafo **sin las aristas de la costura** y 2 iteraciones de Lloyd. Tierra con peso idoneidad^0,75 y coste ×2,5 en montaña y ×1,5 en río; mar uniforme. Cada isla recibe al menos 1. Empates por el id de semilla menor | L, S, `size_variance` | 0,26–0,36 |
+| 9 | `states` | celdas | Agrupa provincias provisionales vecinas (4,92 por estado, sin cruzar la costura). Una masa de menos de 3 provincias se une al estado más cercano (vanilla tolera 65 estados no conexos) | `provinces_per_state` | 0,013–0,021 los pasos 9–11 |
+| 10 | `continents` | celdas | k-medias de centroides; cada masa de tierra va entera a su continente mayoritario, salvo las que superan el 25 % de la tierra | Nombres | ″ |
+| 11 | `climates` | celdas | Temperatura e idoneidad medias → `mild`/`temperate`/`harsh`/`inhospitable` (nombres y modificadores de la instalación) | Umbrales | ″ |
+| 12 | `countries` | celdas | Centros por idoneidad con separación W/40 (÷1,2 si no caben, como FMG). Expansión Dijkstra sobre el grafo de provincias más los cruces de una celda de mar, con coste por terreno y tope de colonización. En Solo mapa, los centros son los K TAG existentes | Número, % colonizado, expansionismo | 0,06–0,12 los pasos 12–16 |
+| 13 | `cultures`, `religions` | celdas | El mismo esquema sin tope. Grupos por cercanía de centros. Religiones mapeadas a las existentes | Número, grupos | ″ |
+| 14 | `population` | celdas | Población ∝ área × idoneidad, normalizada con `fsum`. Tabla de presencia de tipos (§18.5) | Total | ″ |
+| 15 | `economy` | celdas | RGO por terreno, clima y azar (tabla validada contra los bienes del índice). Life rating por cuantiles de idoneidad sobre la distribución objetivo | Tablas | ″ |
+| 16 | `names` | celdas | Nombres de provincias, estados, países (con sufijos tipo `getState`), adjetivos y culturas (§18.5) | Fuente | ″ |
+| 17 | `flags` (Mundo) | celdas | 5 TGA por país (§18.5) | Estilo | 0,03 (300 TGA) [p1] |
+| 18 | `raster` | ráster | Campo de deformación ligado a la rejilla, costa por altura bilineal por píxel y vecino más cercano 3×3 restringido por clase | Amplitud | 0,28–0,31 / 4,9–5,5 |
+| 19 | `fix` | ráster | `fix_fragments2` **sin envoltura**: un trozo al otro lado de la costura es un fragmento. Un trozo menor se funde con el vecino de su clase. Un islote de menos de 40 px cambia de clase; uno mayor pasa a ser provincia hija de la suya | `islet_px` | 0,08–0,12 / 2,6–2,7 |
+| 20 | `ids` | ráster | Compacta los ids: tierra 1..L y mar L+1..N. `sea_starts` contiguo y `max_provinces` = N+1. Colores únicos | — | 0,13–0,15 con `reconcile` |
+| 21 | `reconcile` | ráster | Provincia final → provincia provisional madre. Una hija hereda estado, dueño, cultura, religión, continente, clima, RGO y life rating, y recibe nombre y POPs propios. Las provisionales que desaparecen se retiran; una capital desaparecida pasa a la mayor provincia del país y un estado vacío se elimina. En p7: 1–5 hijas, 1–6 desaparecidas de 3 253, 0 capitales reasignadas y 0 provincias de tierra sin estado, continente, clima o cultura | — | ″ |
+| 22 | `adjacency` | ráster | Vecinos del ráster (4-conexión, con la costura) y estrechos sugeridos (§18.5) | `strait_max_gap_px` 8 | 0,04–0,05 / 1,7 |
+| 23 | `positions` | ráster | §18.5 | — | 0,07–0,08 / 1,16–1,23 |
+| 24 | `terrain_px` | ráster | Categoría por píxel e índice de `terrain.bmp` por (estado, categoría) entre los índices que usa la instalación (§18.5) | — | 0,03 / 0,8–1,2 |
+| 25 | `rivers_px` | ráster | §18.5: 0, 1, 4-conexos y anchos de la instalación | — | 0,22–0,25 / 1,0–1,2 |
+| 26 | `textures` | ráster | `colormap` (paleta aprendida), `colormap_water` (10 mips), `colormap_no_shadow` (DXT3), `colormap_political` y minimapa, con cabeceras de vanilla (§18.5) | — | 0,04–0,05 / 0,75–1,4 |
+| 27 | `render` | ráster | Textos y codificación BMP/DDS/TGA | — | 0,08–0,09 / 0,3–0,4 (más 0,07–0,1 de textos de mundo [p1]) |
+| | **Total** | | | | **1,6–1,75 s**, RSS 176 MiB / **14,9–15,3 s**, RSS 604–611 MiB (en el proceso trabajador). Con escritura y fsync de unos 3 150 archivos (2,1–3,0 s [p1]), unos 17–18,5 s |
+
+- **Perfil de la instalación.** `learn_install()` lee de la instalación del usuario las paletas, las frecuencias de índices de `terrain.bmp` por categoría, los anchos de `rivers.bmp` y sus cuotas, y la paleta del colormap. Tarda 3,5–5,1 s [p7, p8]. Se calcula una vez por instalación y se cachea en `<cache_dir>/mapforge/install_<sha>.npz`, fuera del mod y del repositorio.
+- **Nota de medida.** Las cifras de R2 se tomaron con `tracemalloc` activo, que encarece los bucles en Python. Las de p7 se tomaron sin él.
+
+### 18.4 Determinismo, persistencia, ediciones, vista previa y procesos
+
+- **Lo que se guarda.** El proyecto guarda **los resultados** de la etapa de celdas, no solo los parámetros, en `cells.npz` (< 2 MB).
+  - Por celda: alturas, clase y categoría, ríos y provincia provisional.
+  - Por provincia provisional: estado, continente, clima, dueño, cultura, religión, RGO, life rating y población.
+  
+  Al abrir el proyecto no se recalcula nada de esa etapa; se recalcula solo al pulsar «Regenerar». Así, abrirlo en otro PC da el mismo mundo aunque cambie la CPU.
+- **Determinismo.**
+  - La misma semilla, los mismos parámetros, las mismas ediciones y la misma versión de cada paso dan **bytes idénticos**. p7 dio los mismos sha256 (etapa de celdas, mundo, ids, terrain, rivers y todos los archivos) con y sin AVX-512 (`NPY_DISABLE_CPU_FEATURES`). En las mismas condiciones, p1 daba un `region.txt` distinto [p7].
+  - `project.json` guarda `Step.version`, las versiones de numpy y Pillow, y huellas de los arrays clave. Si cambian, salta `forge_env_changed` (info): el mundo guardado sigue valiendo, y solo una regeneración podría dar otro resultado.
+  - El orden de las expansiones depende solo de arrays y de la semilla, nunca del orden de un `dict` ni del de un `set`.
+- **La rejilla es fija.** N, el tipo, el jitter y la semilla de la rejilla (`LatticeSpec`) se deciden en la pantalla 1 y se guardan aparte. La fracción de tierra y los objetivos de provincias solo mueven el nivel del mar y las cuotas. Cambiar la densidad es una acción explícita con aviso.
+- **Ediciones.** `EditOp(step, kind, payload, uid)`.
+  - Los pinceles de relieve y de tierra/mar guardan trazos en **coordenadas normalizadas** (x, y, r, fuerza), y se reproyectan sobre cualquier rejilla.
+  - Las operaciones por celda (mover frontera, pincel de categoría) referencian celdas de la `LatticeSpec` vigente. Si la densidad cambia, pasan a `forge_edit_conflict`.
+  - Las ediciones de entidades (países, culturas, nombres) van por uid, nunca por id de provincia, que se renumera.
+  - Al regenerar un paso se reaplican sus ediciones. Las que ya no aplican se listan con Descartar o Reintentar.
+  - **Bloquear** una entidad o una provincia la conserva al regenerar, como `lock` en FMG.
+- **Vista previa frente al final.** Comparten la etapa de celdas y el mundo (mismos hashes). El final solo difiere en las provincias que `fix` crea o retira (hijas 0–5, desaparecidas 1–6 de 3 253), resueltas por `reconcile` [p7]. La vista previa se recalcula desde el paso tocado con 300 ms de espera tras soltar el control.
+- **Pinceles en vivo.** La interfaz tiene una copia del ráster de celdas de la vista previa y de las capas por celda. Durante el arrastre repinta por LUT celda → color: 13–21 ms de mediana y 23–24 ms en el percentil 95 [p5]. Al soltar, el trabajador recalcula los pasos posteriores.
+- **Proceso trabajador** (`core/mapforge/worker.py`, multiprocessing `spawn`). Es persistente mientras el taller está abierto: guarda el `ForgeWorld` y ejecuta todos los pasos. La interfaz recibe la vista previa (1404×540 `uint16` y capas por celda) por una tubería.
+  - Medido con un hilo de interfaz que duerme 5 ms: con el pipeline en un hilo del mismo proceso, la interfaz se bloquea hasta 874 ms en la vista previa y 491 ms en el final. En el proceso trabajador, el máximo es de 8,3 y 42,9 ms y no hay ningún tick de más de 50 ms [p9].
+  - El proceso de la interfaz se queda en 33,5 MiB, frente a 177 y 602 MiB del trabajador.
+  - Arrancar el trabajador y el IPC cuestan 0,21–0,30 s.
+  - El criterio de la iteración 10 (< 600 MB en el proceso de la aplicación) no se ve afectado. El trabajador termina al cerrar el taller.
+- **Cancelación.** `cancelled` cruza el proceso con un `multiprocessing.Event`. Se comprueba entre pasos, en cada banda de 64 filas del ráster (unos 0,13 s), en cada pasada de erosión o dilatación y en cada ronda de fragmentos. Si en 2 s no responde, se termina el proceso, que se relanza desde `cells.npz`. Cancelar deja intacto el `ForgeWorld` anterior.
+
+### 18.5 Algoritmos de derivación (numpy y Pillow, sin dependencias nuevas)
+
+- **Orientación (H1, R1 §0.2).** El array guarda las coordenadas del juego: fila 0 = sur. Vanilla abierto en un editor de imágenes se ve con el sur arriba. Solo la vista se voltea. Las importaciones con el norte arriba (PNG, FMG) se voltean una sola vez con `np.flipud`. Los DDS se escriben con las filas en el orden del array. **Las plantillas de FMG** dan y en % desde arriba: el lector las convierte con y_juego = 100 − y, y la miniatura se dibuja con el norte arriba.
+- **Máscara de agua única (R1, R2).** `provinces.bmp`, el 254 de `terrain.bmp` y el 254 de `rivers.bmp` salen de `~is_sea[ids]` después de `fix`: 0 px de diferencia, frente a 9 008 en vanilla [p1, p7].
+- **Colores.** `rng.choice(2**24 − 2, N, replace=False) + 1`: únicos, sin (0,0,0) ni (255,255,255). En Sobre vanilla se excluyen además los colores de la `definition.csv` efectiva.
+- **Posiciones (`core/map/positions.py: generate(raster, is_sea, *, cap=24)`).** Medido: 100 % de `unit` y de los puntos secundarios dentro de su provincia, y `naval_base` en un píxel de mar contiguo en el 100 % de las costeras. Tarda 1,16–1,23 s a 5616×2160 [p7], y 3,0–3,4 s sobre vanilla, que tiene mares mayores [p8].
+  - *Centroides* por bandas de 256 filas con `bincount`, sin trigonometría. Solo en las provincias que tocan x = 0 y x = W−1 (posibles en un mapa importado) se suma W a las x < W/2.
+  - *Punto interior*: distancia al borde con tope de 24 erosiones 4-conexas (`uint8`, 25 cubos de histograma: 0..24). El máximo por provincia sale de un `bincount`; entre los empates gana el más cercano al centroide. Es `unit` y `text_position`.
+  - *Puntos secundarios*: dirección unitaria × min(d, r), con d = 6, 7, 8, 10 y 5 px para `building_construction`, `military_construction`, `factory`, `fort` y `railroad`, y r la distancia al borde de `unit` menos 1. Se prueban 8 direcciones, en un orden distinto por clave, hasta caer dentro con distancia al borde ≥ 2; si ninguna sirve, se usa `unit`.
+    - Medido a 5616×2160: entre el 0,8 y el 1,5 % de los puntos quedan a menos de 2 px de `unit`; medianas de 6, 7, 8, 10 y 5,7 px [p7]. En vanilla, las medianas van de 9,8 a 15,5 px [p0]: d es un parámetro calibrable.
+    - (La versión 1 elevaba el desplazamiento al cuadrado, y el 99,7–100 % de los puntos caía sobre `unit`.)
+  - *`naval_base`*: el píxel de mar contiguo más cercano a `unit` (`lexsort` sobre los pares de frontera). `building_rotation.naval_base` mira hacia tierra.
+  - *`text_scale`* = 0,749·área^0,214 (ajuste sobre vanilla, r = 0,889 [p0]), calculado con `math.pow` por provincia.
+  - *`text_rotation`*: el ángulo del eje principal (momentos por bandas), solo si la elongación es mayor que 4. En radianes, en [0, 2π).
+  - Las provincias de mar llevan `unit`, `text_position` y `text_scale`.
+- **Estrechos (`core/map/adjacency.py: suggest_straits(ids, is_sea, max_gap=8)`).**
+  - Las ids de tierra se propagan por el mar con D/2 dilataciones 4-conexas. Hay colisión donde dos píxeles de mar contiguos llevan tierras distintas y su hueco es ≤ D. `Through` es la provincia de mar del punto de colisión.
+  - Se descartan los pares ya vecinos por tierra.
+  - D = 8 px, porque es el percentil 90 de los huecos de las 63 adyacencias `sea` de vanilla [p0].
+  - Salen entre 12 y 26 sugerencias por semilla [p7]. El usuario las acepta.
+- **Terreno (`terrain_index_by_state_category`).**
+  - La categoría por píxel sale de la celda; la altura bilineal fuerza colinas y montañas, salvo en el ártico.
+  - **Índices candidatos:** solo los que la instalación usa de verdad, con al menos el 0,5 % de los píxeles de su categoría, ponderados por su frecuencia (aprendidos en tiempo de ejecución).
+    - En vanilla quedan fuera 52–59: coastal_desert y las teselas moradas de relleno.
+    - Entran el 4 (24 % del ártico de vanilla) y 60–63 (22 % de la montaña), aunque `terrain.txt` los comente como «unused», porque vanilla los pinta.
+  - **Un índice por (estado, categoría):** dentro de una provincia, cada categoría usa un solo índice. Así el índice mayoritario pertenece siempre a la categoría mayoritaria. Medido: 0 provincias en las que no ocurre, de 2 715 y de 2 702 (vanilla tiene 34) [p7]. Las dos reglas posibles del motor dan el mismo terreno (R1 §0.3).
+  - `terrain =` solo se escribe en las anulaciones que pinte el usuario (`explicit_terrain = "overrides_only"`; la opción `"always"` lo escribe en todas).
+  - Tierra con 0 px de 254 ni de índices ≥ 64. La categoría dominante tiene p5 = 55 % y mediana = 100 % [p7].
+- **Ríos (`draw_rivers`).**
+  - Cada nacimiento (celda de río sin río aguas arriba) inicia un tramo que sigue a los receptores hasta el agua.
+  - Los tramos se dibujan por caudal de desembocadura descendente: primero los troncos. Cada uno se dibuja como polilínea en escalera 4-conexa entre extremos enteros, sin huecos.
+  - **0** en el primer píxel. El tramo se detiene antes del primer píxel de agua (desembocadura, prolongado una celda si hace falta para llegar al agua del ráster) o al tocar otro río, y entonces marca **1** en su último píxel.
+  - Ancho por cuantil del caudal, con **los anchos y las cuotas de píxeles de la instalación** (vanilla: 2, 4, 6, 7, 10 y 11, con 44/34/15/5/1/1 %).
+  - Se quitan los píxeles aislados.
+  - Medido a 5616×2160 [p7]:
+    - 90 395–93 175 px de río (vanilla: 104 071); 1 018–1 243 nacimientos (0) y 586–604 confluencias (1);
+    - 0 px unidos solo en diagonal y 0 aislados;
+    - los extremos son nacimientos o tocan el agua, salvo 11–14 tramos abiertos;
+    - cuotas generadas 42/34/15/5/1/1 %.
+  - Sin ríos: 255 en tierra y 254 en agua.
+- **Texturas (`core/mapforge/textures.py`).**
+  - **Paleta aprendida de la instalación en tiempo de ejecución:** media de `colormap.dds` por categoría de `terrain.bmp`, y también **bajo el agua** (en vanilla, (134,129,89): el agua la dibuja otro shader).
+    - Medido: el fondo bajo el mar generado tiene una media de (134,129,89), frente a (133,130,90) de vanilla.
+    - La media de la tierra coincide con la prevista por la mezcla de categorías: (141,147,77) frente a (142,148,77). Difiere de la de vanilla (109,135,87) solo porque la mezcla de categorías es otra [p7].
+    - Sin instalación se usa una paleta procedural propia.
+  - Sobre ese color: sombreado del relieve (luz del noroeste, factor 0,7–1,25) y grano.
+  - **Cabeceras idénticas a las de vanilla** [p7]:
+    - A8R8G8B8 con `flags` 0x81007 (0xa1007 con mips) y `pitchOrLinearSize` = w·h·4;
+    - `colormap.dds` y `colormap_political.dds` de 1880×720 (5 414 528 B);
+    - `colormap_water.dds` de 936×360 con **10 mips hasta 1×1** (1 796 960 B, igual que vanilla);
+    - `colormap_no_shadow.dds` de 1872×720 en **DXT3** con un codificador numpy propio (extremos mín./máx. por bloque 4×4, alfa 0xF): 1 347 968 B, igual que vanilla, con un error medio de 1,2–1,4 por canal al releerlo con Pillow;
+    - `gfx/interface/minimap.dds` de 266×102 (108 656 B).
+  - `colormap` y `colormap_political` llevan 4 px de margen por lado copiados envolviendo el mapa [verificar en juego].
+- **Nombres (`core/mapforge/names.py: MarkovNames`).** Port de la cadena de pseudosílabas de `names-generator.ts`. Fuentes por grupo de cultura:
+  - `syllables` (propia; 9a, también en las pruebas);
+  - `custom` (lista pegada por el usuario; 9a);
+  - `fmg_bundled` (las 43 bases de FMG, MIT, 9 195 nombres en cp1252; 9b);
+  - `user_corpus` (entrenada en memoria con la instalación; nunca se guarda; 9b).
+  
+  Se filtran los duplicados por tipo, los nombres que no caben en cp1252 y los problemas de `windows_name_problems`.
+- **Nombres de archivo.** Se transliteran a ASCII (NFKD, solo `[A-Za-z0-9 _-]`): `history/provinces/<continente>/<id> - <Nombre ASCII>.txt`. Vanilla no tiene ningún nombre de archivo no ASCII. El nombre acentuado queda solo en la localización. Medido: 0 rutas no ASCII [p7].
+- **CSV del motor sin comentarios.** `definition.csv` empieza por su cabecera en la línea 1, como vanilla, que no tiene líneas `#`. Los CSV de localización no llevan cabecera ni comentario. `adjacencies.csv` lleva en la línea 1 la cabecera comentada de vanilla (`#From;To;Type;Through;Data;Comment`). El comentario «Generado por…» solo va en los `.txt` de Clausewitz. La procedencia queda en `project.json`.
+- **Banderas (`core/gfx/flags.py: procedural_flag(spec)`, 9b).**
+  - Estilos propios: tribanda, bicolor, cruz, cruz nórdica, aspa, cantón, disco y cheurón.
+  - Variantes por `flagType` (H16).
+  - Las escribe `make_flag_set`: TGA de 32 bits, 93×64, origen abajo a la izquierda (H22).
+  - De un escudo de FMG solo se importan los colores.
+- **Historias.** Formato de §14.3: `owner`, `controller` y `add_core` si hay dueño, `trade_goods` y `life_rating` (y `colonial` si así se pide).
+- **POPs.** `history/pops/<fecha>/00_<P>_mapforge.txt` para cada fecha efectiva; la segunda fecha es una copia escalada. **Tabla de presencia** (en lugar de una POP de cada tipo):
+  - sin dueño: farmers (o labourers si el RGO es minero), artisans, clergymen, aristocrats y soldiers;
+  - con dueño: además bureaucrats y officers;
+  - capital de un país civilizado: además craftsmen, clerks y capitalists.
+  
+  Medido: 0 POPs urbanas en provincias sin dueño y craftsmen solo en las 28 capitales civilizadas; total de 250 M [p7]. En vanilla 1836 hay craftsmen en 33 provincias.
+
+### 18.6 Importación de recursos (para quien domina el bitmap)
+
+Pantalla «Importar recursos»: una ranura por archivo, que admite arrastrar y soltar. Cada ranura muestra su estado (válido o con n problemas), una miniatura con «N» para la orientación y el conmutador «Voltear».
+
+Debajo está la **matriz «Lo que falta se reconstruye»**: para cada paso dice si sale de un archivo, de un paso generado o de una regla, y se actualiza al añadir o quitar archivos. Un paso cubierto por un archivo queda «importado y bloqueado». Se puede importar un solo archivo sobre un proyecto generado; por ejemplo, un `terrain.bmp` pintado a mano.
+
+**Bitmaps con provincias ya dibujadas.** Las provincias provisionales son las del bitmap y no hay etapa de celdas para la partición. Estados, continentes, climas y mundo se calculan sobre el grafo de provincias del ráster (§16.1). En ese caso, `reconcile` no hace nada.
+
+| Recurso | Formatos aceptados | Validación (códigos de §18.11) | Si no se aporta |
+|---|---|---|---|
+| Provincias | BMP de 24 bits o PNG RGB. W y H múltiplos de 24 | `forge_not_24bit`, `forge_size`, `forge_color_reserved` (vanilla: 7 px negros y 1 blanco [p2]), `bmp_color_unmapped`, `definition_color_duplicate`, `forge_tiny_province` (< 6 px; vanilla tiene 13), `province_fragmented` (info; 615 en vanilla), `forge_seam_province` (info), `province_isolated` y `forge_orientation_suspect` | Pipeline procedural |
+| `definition.csv` | `;`, cp1252, tolerante (§16.1) | Las de §16.6 | Ids nuevos (tierra primero) y nombres generados |
+| `default.map` | Clausewitz | `sea_start_unknown`, `sea_start_duplicate`, `max_provinces_too_small` | `max_provinces` y `sea_starts` de la clasificación tierra/mar |
+| Tierra/mar | Por prioridad: `sea_starts` › mayoría del 254 de `terrain.bmp` › mayoría de `rivers.bmp` › mapa de altura › máscara PNG › clic | `forge_land_sea_unknown` y `forge_land_sea_ambiguous`: entre el 30 y el 70 % de agua, **o menos de 50 px con mezcla**. Así se detecta la 533 de vanilla (12 px, 75 % de agua), el único error de la mayoría del 254 [p0, p8] | Obligatoria si se importan provincias |
+| `terrain.bmp` | BMP de 8 bits con paleta. Un BMP RGB se convierte con la paleta de la instalación (0 px de diferencia sobre vanilla [p0, p2]) | `terrain_not_indexed`, `terrain_index_invalid`, `terrain_index_placeholder` y `terrain_sea_mismatch` | Pasos 5–7 y 24 |
+| `rivers.bmp` | Igual que `terrain.bmp` | `rivers_not_indexed`, `rivers_diagonal`, `rivers_in_water` y `river_source_missing` | Pasos 6 y 25 sobre el relieve o el pseudorrelieve, o «sin ríos» |
+| Altura | PNG o BMP en gris de 8 o 16 bits, de cualquier tamaño, remuestreado a las celdas. El PNG del editor de alturas de FMG (`v = h/100·255`, agua ÷ 1,5) se reconoce y se invierte | `heightmap_size` (info) | Procedural, o **pseudorrelieve** si hay `terrain.bmp`: mountain 75, hills 50, resto 30 y agua 10, suavizado 3 veces |
+| Máscara tierra/mar | PNG de 2 colores | — | — |
+| `positions.txt`, `adjacencies.csv`, `region.txt`, `continent.txt`, `climate.txt` | Texto del juego | Se conservan si `check_map` no da errores con los ids importados; si no, se pregunta si regenerarlos | Pasos 9–11, 22 y 23 |
+| `colormap*.dds` | DDS | Tamaño proporcional (R1 §1.10); si no, se regenera | Paso 26 |
+| FMG «JSON Full» o «PackCells» (9b) | JSON de `export-json.ts` | `fmg_version_unknown` y `fmg_aspect` | — |
+| Plantilla de relieve de FMG | Texto `tipo n alto x y` (y desde arriba) | Línea inválida, con la columna marcada | — |
+| `.map` de FMG y GeoJSON | **Fuera de alcance**, en pendientes [R2] | — | — |
+
+- **Orientación.**
+  - Por defecto, `.bmp` se trata como orientación del juego y `.png`, `.jpg` y FMG como norte arriba.
+  - Con `positions.txt` hay detección automática: vanilla da 100 % de `unit` dentro tal cual frente a 1,27 % volteado, en 0,01 s [p0, p2].
+  - Sin posiciones, se muestra la miniatura con «N» y el conmutador.
+- **Coste medido de extremo a extremo [p8].** Entrada: solo `provinces.bmp`, `terrain.bmp` y `rivers.bmp` de vanilla. Reconstruye ids, tierra/mar, fragmentos, vecinos, posiciones, estrechos, estados, continentes, climas, texturas con pseudorrelieve y textos, todo en memoria.
+  - Total: **6,9–8,7 s**, sin contar el perfil de la instalación (cacheado). RSS 470 MiB.
+  - Ids por censo con `np.unique` más una LUT densa de 2^24: 0,62–0,83 s. Es mejor que `return_inverse` (2,7 s [p2]) y que `bincount` de 2^24 (0,9 s [p0]).
+  - Posiciones 3,0–3,4 s; estrechos 1,1–1,4 s.
+- **Ida y vuelta.** Exportar → importar `provinces.bmp`, `definition.csv` y `default.map` da los mismos ids (sha igual), 0 colores sin id, 0 ids sin píxeles y `sea_starts` contiguo [p2].
+- **FMG JSON (9b).** Se procesa en este orden:
+  1. **Encaje.** Escalar uniformemente rellenando con océano (por defecto) o estirar (con aviso). Voltear y. Si hay tierra en las columnas 0 o W−1 con envoltura, se ofrece un margen de océano.
+  2. **Rasterizar** los polígonos de `pack` con `ImageDraw.polygon` (60 000 en 0,19 s [R2]), con el mar profundo de `grid`. Después, `fill_gaps` y `fix_fragments2` sin envoltura.
+  3. **Agrupar** en provincias de Victoria II dentro de cada provincia de FMG. Las provincias de FMG pasan a ser estados (troceados por encima de 8 provincias) y los estados de FMG, países.
+  4. **Ríos** desde `rivers[].cells`.
+  
+  Un JSON Full de 60 000 celdas pesa unos 33 MB y se lee en 1,05 s, con 303 MiB [p4].
+
+### 18.7 Modelo, módulos y API
 
 ```python
+# core/mapforge/params.py
+class Level(Enum): MAP = "map"; WORLD = "world"; OVERLAY = "overlay"
+class Origin(Enum): GENERATE = "generate"; BITMAPS = "bitmaps"; HEIGHTMAP = "heightmap"; FMG_JSON = "fmg_json"
+class Owners(Enum): EXISTING_TAGS = "existing_tags"; NONE = "none"           # opción «Dueños» de Solo mapa
+@dataclass(frozen=True)
+class ExportTarget: kind: str = "this_mod"; new_mod_name: str | None = None   # "this_mod" | "new_mod"
+@dataclass(frozen=True)
+class LatticeSpec:                               # fija desde la pantalla 1
+    cells: int; seed: int; kind: str = "hex"; jitter: float = 0.3; wrap_x: bool = True
+@dataclass(frozen=True)
+class ForgeParams:
+    level: Level = Level.MAP; origin: Origin = Origin.GENERATE; target: ExportTarget = ExportTarget()
+    size: tuple[int, int] = (5616, 2160); seed: int = 0; lattice: LatticeSpec | None = None   # None = automática
+    template: str = "continents"; template_text: str | None = None; land_fraction: float = 0.34
+    lat_south: float = -60.0; lat_north: float = 75.0; temp_equator: float = 27.0; temp_poles: tuple[float, float] = (-30.0, -25.0)
+    precipitation: float = 1.0; river_flux_quantile: float = 0.75; min_lake_cells: int = 4
+    land_provinces: int | None = None; sea_provinces: int | None = None   # None = 2 700/545 escalados con el área
+    size_variance: float = 0.75; provinces_per_state: float = 4.92; continents: tuple[str, ...] = ()
+    strait_max_gap_px: int = 8; explicit_terrain: str = "overrides_only"; terrain_min_index_share: float = 0.005
+    owners: Owners = Owners.EXISTING_TAGS; existing_tags: int = 60
+    countries: int = 60; colonized_fraction: float = 0.85; civilized_fraction: float = 0.5; keep_existing_tags: bool = True
+    cultures: int = 24; culture_groups: int = 8; religion_mode: str = "map_existing"
+    total_population: int = 250_000_000; name_source: str = "syllables"; flag_style: str = "simple"
+    secondary_point_px: Mapping[str, int] = MappingProxyType({"building_construction": 6, "military_construction": 7, "factory": 8, "fort": 10, "railroad": 5})
+    ADVANCED: ClassVar[frozenset[str]] = frozenset({...})       # todo salvo size, template, seed, countries/owners
+    def validate(self, rules: "GameRules") -> list[Problem]     # múltiplos de 24, ids ≤ 65 535…
+
+# core/mapforge/world.py
 @dataclass
-class ProvinceRecord:
-    id: int; rgb: tuple[int, int, int]; name: dict[str, str]; is_sea: bool
-    region: str | None; sea_region: str | None; continent: str | None; climate: str | None
-    terrain_override: str | None; trade_goods: str | None; life_rating: int | None; owner: str | None
+class CellLayers: pts; nbr; seam_edge; h; land; feature; temp; prec; flux; recv; river; category; suit; province0   # (N,) / (N, 6)
+@dataclass
+class ProvisionalTable:                          # por provincia provisional (etapa de celdas)
+    is_sea; state; continent; climate; owner; culture; religion; goods; life_rating; population; locked
+@dataclass
+class ForgeRaster:                               # coordenadas del juego (H1), a una escala
+    ids: np.ndarray                              # (H, W) uint16 compactados: tierra 1..L, mar L+1..N
+    parent: np.ndarray                           # (N+1,) provincia provisional madre (reconcile)
+    terrain: np.ndarray; rivers: np.ndarray; h_px: np.ndarray | None; scale: int
+@dataclass
+class ForgeWorld:
+    params: ForgeParams; cells: CellLayers; provisional: ProvisionalTable
+    entities: dict[str, dict[str, "ForgeEntity"]]   # "country" | "culture" | "culture_group" | "religion" | "state" | "name"
+    imported: dict[str, "ImportedLayer"]; raster: ForgeRaster | None; steps: dict[str, "StepState"]
+    install: "InstallProfile"                       # paletas, índices por categoría, anchos de río, colores (en memoria)
 
+# core/mapforge/pipeline.py
+@dataclass(frozen=True)
+class Step:
+    id: str; deps: tuple[str, ...]; levels: frozenset[Level]; stage: str        # "cells" | "raster"
+    version: int; run: Callable[[ForgeWorld, "StepContext"], ForgeWorld]
+@dataclass(frozen=True)
+class StepContext:
+    rng: np.random.Generator                     # default_rng([seed, crc32(step_id)])
+    scale: int; progress: "ProgressFn | None"; cancelled: CancelCheck | None
+def steps() -> tuple[Step, ...]                 # registro: core/mapforge/steps/*.py
+def run_cells(world, *, from_step=None, until=None, progress=None, cancelled=None) -> ForgeWorld
+def run_raster(world, *, scale: int, progress=None, cancelled=None) -> ForgeWorld   # 18–27, incluido reconcile
+def reconcile(world: ForgeWorld) -> tuple[ForgeWorld, "ReconcileReport"]          # hijas, desaparecidas, capitales
+
+# core/mapforge/worker.py: proceso persistente (multiprocessing spawn)
+class ForgeWorker:
+    def start(self, project_dir: Path, install: "InstallProfile") -> None
+    def submit(self, cmd: "ForgeCommand") -> "Future[ForgeReply]"   # run_cells/run_raster/apply_edit/export_bytes
+    def cancel(self) -> None                     # Event; terminate() si no responde en 2 s
+    def close(self) -> None
+# ForgeReply: vista previa (ids 1404×540, LUT de colores, capas por celda) o carpeta temporal con bytes y sha256
+
+# core/mapforge/edits.py
+@dataclass(frozen=True)
+class EditOp:
+    step: str; kind: str; payload: Mapping[str, object]; uid: str
+    # relief_stroke{tool, pts_norm, r_norm, strength} · landsea_stroke{pts_norm, r_norm, to}   (independientes de la rejilla)
+    # assign_cells{lattice_sha, cells, province_uid} · paint_category{lattice_sha, cells, cat}       (ligados a la rejilla)
+    # split{province_uid, line_norm} · merge{a, b} · rename · recolor · set_owner · move_capital · paint_culture · lock
+def apply_edits(world, step_id, edits) -> tuple[ForgeWorld, list["EditConflict"]]
+
+# core/mapforge/project.py: <mod>/.vic2studio/mapforge/<nombre>/
 class MapForgeProject:
-    size: tuple[int, int]; wrap_x: bool
-    provinces: dict[int, ProvinceRecord]
-    layers: dict[str, np.ndarray]      # "province_ids" uint16, "land" bool, "terrain" uint8, "rivers" uint8
-    def save(self, ws: Workspace) -> None
+    name: str; params: ForgeParams; lattice: LatticeSpec; edits: list[EditOp]; locks: set[str]
+    imports: dict[str, "ImportRef"]; exported: dict[VPath, str]; env: dict[str, str]   # numpy, Pillow, huellas
     @classmethod
-    def load(cls, ws: Workspace) -> "MapForgeProject"
+    def open(cls, ws: Workspace, name: str) -> "MapForgeProject"   # carga cells.npz: no recalcula la etapa de celdas
+    # project.json, entities.json, edits.jsonl (UTF-8 sin BOM), cells.npz (< 2 MB) e imports/
 
-def export_plan(project: MapForgeProject, vfs: VirtualFS, index: SymbolIndex) -> "ChangePlan"
-def export(project: MapForgeProject, ctx: "RecipeContext") -> list[RecordRef]   # una transacción
+# core/mapforge/imports/{bitmaps,heightmap,fmg_template,fmg_json}.py
+@dataclass
+class ImportSet: files: dict[str, Path]; flip_y: bool | None = None
+def inspect(files: ImportSet, ctx: ValidationContext, *, progress=None, cancelled=None) -> "ImportReport"
+def build_world(files: ImportSet, report: "ImportReport", params: ForgeParams) -> ForgeWorld
+def heights_from_image(img, cells, *, fmg: bool | None = None) -> np.ndarray
+def read_fmg_json(path) -> "FmgWorld"; def fmg_to_world(fmg, params) -> ForgeWorld          # 9b
+
+# core/mapforge/{install,export,audit,overlay}.py
+def learn_install(vfs: VirtualFS, *, cache_dir: Path) -> "InstallProfile"     # 3,5–5,1 s la primera vez
+def export_plan(world, project, ctx: "RecipeContext") -> "ChangePlan"         # archivo · acción (G/M/T/E) · clase · tamaño
+def export(world, project, ctx) -> list[RecordRef]                            # una transacción
 class DependencyAudit:
-    def __init__(self, vfs: VirtualFS, index: SymbolIndex, new_ids: Collection[int], new_regions: Collection[str]) -> None
-    def run(self) -> list["OrphanGroup"]   # por carpeta, con acciones: replace_path, vaciar, ignorar
+    def __init__(self, vfs, index: SymbolIndex, level: Level, *, new_ids, new_regions, kept_tags, removed_tags,
+                 renamed_continents, replaced_paths) -> None
+    def run(self) -> list["OrphanGroup"]          # por carpeta y rol: replace_path · vaciar · papelera · ignorar · ver usos
+def find_ocean_boxes(base, is_sea, size) -> list[tuple[int, int, int, int]]
+def overlay_world(base, box, params) -> ForgeWorld                             # 9b
 ```
 
-### 18.3 Algoritmos (numpy, sin dependencias nuevas)
+**Módulos del núcleo** (todos en numpy; los portados llevan la cabecera `# Port of Azgaar's Fantasy Map Generator <ruta>.ts (MIT, © Max Haniyeu)`):
+- `core/mapforge/{params,world,pipeline,worker,edits,project,install,graph,relief,climate,hydro,biomes,partition,rasterize,reconcile,textures,names,society,economy,validate,export,audit,overlay,paint}.py`;
+- `core/mapforge/steps/*.py`, `core/mapforge/imports/*.py` y `core/mapforge/data/{templates,name_bases,biome_table}.py`.
 
-- **Semillas en rejilla con desplazamiento aleatorio** (celda ≈ √área objetivo) y **vecino más cercano por cubos**: cada píxel compara solo las 9 semillas de las celdas vecinas, en 9 pasadas vectorizadas. Se descarta el *jump flooding*: en las mediciones del diseño tardó 6,5 s en un cuarto del mapa.
-- Tierra y mar van por separado (distancia infinita a semillas de la otra clase). Los píxeles sin asignar se rellenan por dilatación dentro de su máscara.
-- **Fragmentos**: componentes conexas por provincia, propagando etiquetas dentro de su caja. Los pequeños se funden con el vecino o pasan a ser una provincia nueva.
-- **Colores únicos** deterministas (con semilla), lejos del negro, del blanco y de los colores ya presentes, con distancia mínima entre ellos.
-- **Posiciones** (`core/map/positions.py: generate(raster)`): `unit`, `text_position`, `building_construction`, `military_construction`, `factory` y `building_position.{fort, railroad}` en y alrededor del punto interior (máximo de una transformada de distancia de chaflán dentro de la caja); `naval_base` en el píxel costero más cercano; `text_scale` según el área; `text_rotation` según el eje principal (PCA con `np.linalg.eigh`, en radianes, como vanilla). Todo en coordenadas del juego.
-- **Vecinos** por comparación de desplazamientos, incluida la columna 0 frente a la W-1 si hay envoltura.
-- **Texturas de color**: `colormap.dds` y `colormap_water.dds` a partir del color de categoría de `terrain.txt` más ruido, con las medidas de H8.
+Se reutilizan:
+- `core/map/{bmp,definition,raster,positions,adjacency,groups,coherence}.py` (§16);
+- `core/gfx/{dds,flags}.py` (D11, iteración 6; `dds.py` gana mips y DXT3);
+- la receta `new_country` (iteración 6).
 
-### 18.4 Archivos generados y orden (una sola transacción con diario)
+**Interfaz.** `ui/mapforge/{wizard,preview,brushes,province_tools,entity_tables,import_panel,review,audit_view,flag_gallery,worker_client}.py`, `ui/mapforge/steps/*.py`, `ui/halls/map/forge.py` y `ui/map/split_tool.py`. `preview.py` reutiliza el lienzo de §16.3 (LUT, volteo solo en la vista). `worker_client.py` adapta `ForgeWorker` a las señales de `ui/session.py`.
 
-1. `map/provinces.bmp` (24 bits) y `map/definition.csv` (`province;red;green;blue;x;x` + `id;r;g;b;Nombre;x`), juntos porque son el invariante central.
-2. `map/default.map`: `max_provinces = N+1`, `sea_starts`, nombres de archivo y `border_heights`, `terrain_sheet_heights`, `tree` y `border_cutoff` copiados de la instalación del usuario.
-3. `map/terrain.bmp` y `map/rivers.bmp` (8 bits con paleta: la del juego del usuario si existe; si no, una propia con la misma semántica de índices).
-4. `map/terrain.txt` y `map/trees.txt` (heredados salvo que se editen) y `map/province_flag_sprites` (vacío o heredado).
-5. `map/positions.txt`.
-6. `map/adjacencies.csv`.
-7. `map/region.txt`, `map/region_sea.txt`, `map/continent.txt` y `map/climate.txt` (bloque de modificadores + bloque de provincias).
-8. `map/terrain/colormap.dds` y `map/terrain/colormap_water.dds`.
-9. `history/provinces/<carpeta>/<id> - <Nombre>.txt` por cada provincia de tierra.
-10. `history/pops/<fecha>/00_<P>_pops.txt` (opcional).
-11. `localisation/00_<P>_map.csv` (`PROV<id>`, estados y continentes).
-12. Descriptor `.mod`: `replace_path` para `history/provinces`, `history/pops` y, según la auditoría y con confirmación, `history/units`, `history/wars` y `history/diplomacy`.
-13. Cachés: `map/cache` del mod (si existe) va a la papelera, y se explica cómo borrar la caché del `user_dir`.
+### 18.8 Exportación: archivos en orden (una sola transacción con diario)
 
-Los archivos de texto generados llevan en la primera línea `# Generado por Victoria II Mod Studio (Taller de mapas)`, de modo que se sabe que se pueden regenerar. Los mapas que no proceden del taller se editan siempre por CST (§16).
+Leyenda:
+- **Acciones:** G = generar; M = modificar (copia desde el juego si hace falta, §5.2); H = heredar (no se escribe); T = mover a la papelera (`.vic2studio/trash/<txid>/`); E = archivo vacío en la misma ruta.
+- **Clase (R1 §4):** A = el juego no carga sin él; B = no se puede jugar; C = calidad.
 
-### 18.5 Auditoría de dependencias
+| # | Archivo | Clase | Solo mapa | Mundo | Sobre vanilla | Notas |
+|---|---|---|---|---|---|---|
+| 0 | **Archivos del mod bajo cada carpeta reemplazada** (`history/provinces`, `history/pops`, `history/units`, `history/wars`, `history/diplomacy`) | A | T | T | — | `replace_path` no oculta los archivos del propio mod (§5.3). Sin este paso, en VSM seguirían cargándose 2 705 historias (por ejemplo, `549 - Berlin.txt` con `owner = PRU` sobre la provincia nueva 549: `province_history_duplicate`) y 358 archivos de POPs. Mover 3 337 archivos tarda 0,05 s en Linux [p10]. Con el destino «Mod nuevo» no hace falta |
+| 1 | `map/provinces.bmp`, `map/definition.csv` | A | G | G | M | 24 bits, datos en el byte 54. `definition.csv` sin comentarios, con la cabecera en la línea 1 |
+| 2 | `map/default.map` | A | G | G | M | `max_provinces` = N+1 y `sea_starts`. El resto de claves (12 archivos y alturas de cámara, H5) se copian de la instalación |
+| 3 | `map/terrain.bmp`, `map/rivers.bmp` | A/B | G | G | M (caja) | 8 bits, cabecera de 1 078 B, paletas de la instalación |
+| 4 | `map/positions.txt` | A/B | G | G | M | Sobre vanilla: bloques nuevos y reescritura de los mares tocados |
+| 5 | `map/adjacencies.csv` | A | G | G | M | Cabecera de vanilla en la línea 1 más los estrechos aceptados |
+| 6 | `map/region.txt`, `map/continent.txt`, `map/climate.txt` | B | G | G | M (CST) | En `climate.txt`, los bloques de modificadores de la instalación y las listas nuevas (H7) |
+| 7 | `map/region_sea.txt` | A | H, o G vacío si la efectiva cita ids | ídem | H | — |
+| 8 | `map/terrain.txt`, `trees.txt`, `province_flag_sprites/`, `texturesheet*.tga` y las otras 36 texturas | A | H | H | H | No se copian |
+| 9 | `map/terrain/colormap.dds`, `colormap_water.dds` | C (A si cambia el tamaño [verificar en juego]) | G | G | M (caja) | Cabeceras de vanilla; agua con 10 mips |
+| 10 | `map/terrain/colormap_no_shadow.dds` (DXT3), `colormap_political.dds` | C | G | G | M (caja) | — |
+| 11 | `history/provinces/<continente>/<id> - <Nombre ASCII>.txt` | B | G | G | G (nuevas) | Una por provincia de tierra |
+| 12 | `history/pops/<fecha>/00_<P>_mapforge.txt` | B | G | G | G (nuevas) | Una por fecha efectiva; tabla de presencia |
+| 13 | `history/units/<ruta>` de cada `oob` citado | A | E | E | — | Un archivo vacío por cada ruta `oob` citada en las historias de país efectivas que exista en la vista efectiva (vanilla: 342 rutas distintas citadas, 247 existentes). Así `replace_path history/units` no dispara `replace_path_hides_referenced` |
+| 14 | `history/countries/<TAG> - <Nombre>.txt` de TAG existentes | A/B | M (`capital` de los K TAG con tierra y de los TAG sin tierra con capital inválida) | M (ídem) | — | CST: solo la clave `capital` |
+| 15 | `common/countries.txt` | A | H | M | M si hay países nuevos | Se conservan todos los TAG existentes (también los propios del mod) y `REB`/`dynamic_tags`; los TAG nuevos van antes de `dynamic_tags` (D7). «Quitar los TAG existentes» los retira con auditoría completa |
+| 16 | `common/countries/<TAG>.txt`, `history/countries/<TAG> - <Nombre>.txt` nuevos | A/B | — | G | G | Receta `new_country` |
+| 17 | `common/cultures.txt` | A si se cita | — | M (añade grupos) | M | WHOLE_FILE: copia completa (aviso) |
+| 18 | `common/religion.txt` | A | — | H (M solo con religiones nuevas [verificar en juego]) | H | — |
+| 19 | `gfx/flags/<TAG>[_communist\|_fascist\|_monarchy\|_republic].tga` | C | — | G | G | 5 por país |
+| 20 | `common/bookmarks.txt` (`cameraX`/`cameraY`) | C | M | M | H | Centro del país mayor o de la masa de tierra mayor |
+| 21 | `gfx/interface/minimap.dds` | C | G | G | M | 266×102 |
+| 22 | `localisation/00_<P>_map.csv` y `00_<P>_world.csv` | C | G | G | G | Sin cabecera ni comentario. `PROV<id>` (también las de mar), estados, continentes y climas nuevos, `TAG`, `TAG_ADJ`, `TAG_<gobierno>`, partidos, culturas y grupos. EN y ES rellenos; FR y DE copiados con `copy_en_to`. Las claves `PROV`/estado de otros CSV del mod dan `forge_loc_shadowed` |
+| 23 | Descriptor `.mod` (`replace_path`) | A | `history/provinces`, `history/pops`, `history/units`, `history/wars` y `history/diplomacy` | ídem | — | Con confirmación. El taller registra el vaciado de `units`/`wars`/`diplomacy` como intencionado: `replace_path_empty` pasa a info en esas carpetas y sigue siendo error en `history/provinces` y `history/pops` |
+| 24 | `map/cache` del mod | — | T | T | T | Y se explica cómo vaciar la caché de `user_dir` |
+| 25 | `.vic2studio/mapforge/<nombre>/` | — | G | G | G | No lo carga el juego; la exportación del mod lo excluye |
 
-Con un mapa nuevo, todo lo que referencia ids o regiones antiguos queda huérfano. `DependencyAudit` recorre las referencias del índice con rol de provincia o región: `capital` de las historias de país, `owns`, `province_id`, `location` y `home` de los OOB, `state_province_id`, ámbitos `<id> = { }`, regiones usadas como ámbito, `through` de adyacencias y canales. El resultado se agrupa por carpeta («history/units: N regimientos con `home` en provincias que ya no existen») con las acciones [Añadir replace_path] [Vaciar] [Ignorar]. Al terminar, `check_map` debe dar 0 errores. El tamaño y las texturas de un mapa distinto de 5616×2160 son [verificar en juego] y el asistente lo advierte.
+- **Una transacción (§6.5).** Para Mundo: unos 3 150 archivos y 88 MB; el fsync de todos tarda 2,1–3,0 s en Linux [p1]. Los movimientos a la papelera entran en el mismo diario. En Windows (NTFS y antivirus) no se pudo medir aquí: lo mide la iteración 10 con `tools/bench_mapforge.py`.
+- **Bytes desde el trabajador.** El render final escribe los bytes y sus sha256 en una carpeta temporal de `<cache_dir>`. La transacción del proceso de la interfaz los adopta como documentos de bytes ya verificados: el texto se reparsea en segundo plano antes de confirmar (I9) y los BMP, DDS y TGA se releen con Pillow.
+- **Deshacer.** La exportación es un `UndoStep`. Las instantáneas `before` de más de 8 MB y los archivos movidos a la papelera se guardan como rutas (`Snapshot.before_path`, §6.3) en lugar de en memoria, para no agotar el límite de 256 MB.
+- **Antes de exportar.** `check_map`, la validación global y la auditoría. Los errores no bloquean (I10), pero se muestran en la revisión con su SimpleFix. `replace_path_mod_files_remain` y `forge_no_owned_provinces` exigen confirmación explícita.
 
-### 18.6 Provincias nuevas en un mapa existente
+### 18.9 Auditoría de dependencias
 
-«Dividir provincia» (trazar una línea) y «Pintar provincia nueva» usan `core/mapforge/paint.py` y escriben en el mod `provinces.bmp` (36 MB: hay que copiarlo entero, con aviso previo), la fila de `definition.csv`, `max_provinces`, la región, el continente y el clima, la posición generada, la historia y `PROV<id>`. Después se ejecuta `check_map`. La edición del BMP entra en la pila de deshacer como `RasterPatch`.
+`DependencyAudit` recorre **todas** las referencias del índice (§7) por rol: id de provincia, estado, continente, TAG, cultura y religión, en `common/*`, `events`, `decisions`, `news`, `history/*`, `interface` y localización. Los huérfanos se agrupan por carpeta y rol. Acciones: [Añadir replace_path], [Vaciar] (un archivo vacío con la misma ruta), [Mover a la papelera] (archivos del propio mod), [Ignorar] y [Ver usos].
+
+| Nivel | Qué audita | Volumen en vanilla |
+|---|---|---|
+| Solo mapa y Mundo | Archivos del propio mod bajo carpetas reemplazadas | VSM: 2 705 + 358 + 265 + 5 + 4 |
+| | `oob` de las historias de país (con `history/units` reemplazado) | 345 citas en 216 archivos; 342 rutas distintas |
+| | `home` y `location` de los OOB (si no se vacían) | 2 604 y 658 |
+| | `capital` de las historias de país | 222 (90 de las 220 de vanilla ya están en provincias de otro país) |
+| | `events` | `province_id` 201, `owns` 58, `capital` 22, ámbitos `<id>` 26 y de estado 6 |
+| | `decisions` | `owns` 173, ámbitos `<id>` 93, `province_id` 14, `capital` 7, `controls` 4 y de estado 27 |
+| | Canales: `decisions/Canals.txt` y `province_flag_sprites` | 3 |
+| | Continentes renombrados | `events` 184, `poptypes` 33, `pop_types.txt` 5, `rebel_types` 1, `technologies` 1, `decisions` 1 |
+| | Claves de localización `PROV`/estado de otros archivos del mod | — |
+| Mundo con «Quitar los TAG existentes» | Citas de TAG en todo el índice | `events`/`decisions` 572 en 80 archivos; `cultures.txt` (`union` 12, `primary` 1); `rebel_types.txt` (`controlled_by` 25, `tag` 12, `is_core` 2, `release_vassal` 2, `exists` 1); `cb_types.txt` (`tag` 11); `news` 64; `history/diplomacy` 78; `history/wars` 30 |
+| | Culturas y religiones citadas | — |
+| Sobre vanilla | Nada queda huérfano (los ids se conservan) | Comprueba los mares recortados (§18.10) |
+
+Con «Conservar los TAG existentes» (por defecto), las citas de TAG siguen siendo válidas: esos países existen, pero sin tierra, como los TAG que vanilla no hace existir en 1836. En `cultures.txt`, el SimpleFix «Quitar `union`/`primary` de TAG inexistentes» actúa sobre la copia del mod. Al terminar, `check_map` debe dar 0 errores nuevos respecto a la línea base.
+
+### 18.10 Sobre vanilla: provincias y continentes nuevos (iteración 9b)
+
+- **Dividir provincia** (trazar una línea) y **Pintar provincia nueva** (`core/mapforge/paint.py`, `ui/map/split_tool.py`). Escriben en el mod `provinces.bmp` (copia entera, con aviso), la fila de `definition.csv`, `max_provinces`, la región, el continente y el clima, la posición generada, la historia y `PROV<id>`. Después se ejecuta `check_map`. La edición del BMP entra en la pila de deshacer como `RasterPatch`.
+- **Continente o islas en una caja de océano.**
+  - `find_ocean_boxes` busca cajas sin tierra con margen de mar (imagen integral a 1/8: 0,009 s).
+  - El pipeline corre en la caja con la misma densidad de celdas. Medido con 720×480: relieve y provincias en 0,03 s, ráster y fusión en 0,09 s y fragmentos en 0,06 s, más 1,1 s de carga del ráster de vanilla [p3]. La caja no puede cruzar la costura.
+  - Las provincias nuevas toman ids desde `max_provinces`; la convención de poner la tierra antes que el mar no se mantiene (H5).
+  - Los mares existentes conservan su id y pierden los píxeles que pasan a tierra. En la prueba conservaron entre el 13,6 % y el 100 % de su área. Por debajo del 50 % salta `forge_overlay_sea_shrunk`.
+- **Invariante: los píxeles de tierra existentes no cambian.** El prototipo sin restringir cambió 10 px de tierra de vanilla [p3]. Por eso el arreglo de fragmentos solo actúa sobre las ids nuevas y el mar de la caja (`locked_mask`), y una prueba lo fija.
+- **Deshacer.** Con `RasterPatch` de la caja ampliada: 1,97 MB [p3]. `positions.txt`, `region.txt`, `continent.txt` y `climate.txt` se editan por CST con `ProvinceGroups` (§14.14).
+
+### 18.11 Problemas del taller (SimpleFix y explicador, §11.1)
+
+Familia `core/validate/rules/mapforge.py`, más las de §16.6 sobre el resultado. Cada código tiene su texto ES/EN, un arreglo con vista previa y el explicador por capas.
+
+| Código | Gravedad | Detecta | SimpleFix (primero = el seguro) | Qué enseña el explicador |
+|---|---|---|---|---|
+| `replace_path_mod_files_remain` | error | El mod tiene archivos bajo una carpeta que la exportación reemplaza o regenera | Moverlos a la papelera / Exportar a un mod nuevo | Recuento por carpeta y un ejemplo de colisión por id (p. ej. `549 - Berlin.txt` con la provincia nueva 549) |
+| `forge_no_owned_provinces` | aviso (con confirmación) | Ninguna provincia con dueño: no se podrá elegir país | Repartir entre TAG existentes | Por qué vanilla necesita provincias con dueño |
+| `forge_orientation_suspect` | aviso | Con posiciones: < 50 % de `unit` dentro tal cual y > 90 % volteado | Voltear la imagen | Los dos porcentajes y una miniatura con «N» |
+| `forge_not_24bit` | error | Provincias con paleta, en 32 bits o con alfa | Convertir a RGB de 24 bits | Modo y profundidad |
+| `forge_size` | aviso | W o H no múltiplos de 24, o tamaño distinto de 5616×2160 [verificar en juego] | Ampliar con mar hasta el múltiplo | Medidas de las texturas resultantes |
+| `forge_color_reserved` | aviso | (0,0,0) o (255,255,255) en el BMP | Fundir con el vecino mayoritario | Píxeles y muestra |
+| `forge_tiny_province` | aviso | < 6 px | Fundir con el vecino de su clase con más frontera | Área frente al mínimo de vanilla |
+| `forge_seam_province` | info | Una provincia importada con píxeles en x = 0 y x = W−1 (vanilla: ninguna) | Partirla por la costura | Filas afectadas [verificar en juego] |
+| `province_isolated` | error | Provincia sin vecinos | Fundir con la más cercana de su clase | Vecinos del ráster |
+| `forge_land_sea_unknown` | error | Ninguna fuente de tierra/mar | Elegir la fuente | Fuentes y prioridad |
+| `forge_land_sea_ambiguous` | aviso | 30–70 % de agua, o < 50 px con mezcla | Marcar tierra con `terrain =` / Marcar mar | Recuento por capa y el caso vanilla 533 |
+| `terrain_not_indexed`, `rivers_not_indexed` | error | BMP RGB en lugar de 8 bits con paleta | Convertir con la paleta de la instalación | Colores fuera de la paleta |
+| `terrain_index_invalid` | aviso | Tierra con 254 o con un índice ≥ 64; agua sin 254 | Alinear con la máscara de `provinces.bmp` | Píxeles por provincia |
+| `terrain_index_placeholder` | aviso | Índices que la instalación no usa (< 0,5 % de su categoría; en vanilla, 52–59) | Cambiar al índice usado más frecuente de la misma categoría | Frecuencias de la instalación y la tesela |
+| `rivers_diagonal`, `rivers_in_water`, `river_source_missing` | aviso, aviso, info | Unión solo en diagonal / río sobre agua / tramo sin 0 | Insertar la esquina / Quitar / Marcar los nacimientos | Píxeles afectados |
+| `heightmap_size` | info | El tamaño de la altura no coincide | (se remuestrea) | Tamaños |
+| `fmg_version_unknown`, `fmg_aspect` | aviso, info | Versión de FMG posterior a la probada / proporción distinta | Importar igualmente / Rellenar con océano | Versión y campos / proporción |
+| `forge_too_many_provinces` | error, o aviso por encima de 2× vanilla | > 65 535 ids (`uint16`; textura de 256×256 [R1]) | Reducir el objetivo | Límite [verificar en juego] |
+| `forge_edit_conflict` | aviso | `EditOp` que ya no aplica | Descartar / Reintentar | Edición y paso |
+| `forge_env_changed` | info | Versiones de numpy o Pillow, o huellas, distintas de las guardadas | (ninguno: el mundo guardado manda) | Versiones antes y después |
+| `forge_export_conflict` | aviso | Archivos exportados que cambiaron después (sha) | Reimportar al taller / Sobrescribir (con papelera) | Diff por archivo y capa |
+| `forge_loc_shadowed` | aviso | Claves `PROV<id>` o de estado nuevas también definidas en otros CSV del mod | Quitar esas claves de los otros CSV | Archivos y orden de carga [verificar en juego] |
+| `forge_overlay_sea_shrunk` | aviso | Mar existente que conserva < 50 % | Repartir el mar de la caja | Área antes y después |
+
+### 18.12 Rendimiento: criterios y cifras medidas
+
+| Operación | Criterio | Medido |
+|---|---|---|
+| Vista previa completa (W/4, 60 000 celdas, etapa de celdas incluida) | ≤ 3 s | 1,6–1,75 s, RSS 176 MiB [p7] |
+| Bloqueo máximo de la interfaz durante cualquier cálculo | ≤ 100 ms | 8,3 ms (vista previa) y 42,9 ms (final) con el trabajador; en un hilo, 874 y 491 ms [p9] |
+| Pincel de relieve con repintado a W/4 | ≤ 50 ms | Mediana 13–21 ms, p95 23–24 ms [p5] |
+| Regenerar un paso de mundo | ≤ 0,5 s | 0,06–0,12 s los pasos 12–16 [p7] |
+| Render final 5616×2160 en memoria | ≤ 25 s | 14,9–15,3 s [p7]; con escritura y fsync, unos 17–18,5 s [p1] |
+| Memoria pico del trabajador | ≤ 1,2 GiB | 604–611 MiB [p7, p9] |
+| Memoria del proceso de la interfaz durante el render | sin aumento | 33,5 MiB en la prueba [p9] |
+| Perfil de la instalación (una vez, cacheado) | ≤ 8 s | 3,5–5,1 s [p7, p8] |
+| Importar 3 bitmaps del tamaño de vanilla y reconstruir lo que falta | ≤ 10 s | 6,9–8,7 s de extremo a extremo [p8] |
+| Leer un JSON Full de FMG de 60 000 celdas | ≤ 3 s | 1,05 s, 33 MB, 303 MiB [p4] |
+| Continente en una caja de 720×480 sobre vanilla | ≤ 3 s, más la carga del ráster | 0,2 s + 1,1 s [p3] |
+| Respuesta a Cancelar | ≤ 1 s (≤ 2 s con terminate) | Comprobación cada ≤ 0,13 s en el ráster |
+
+- **Memoria.** Ids en `uint16`; centroides, momentos y posiciones por bandas de 256 filas; liberación del campo de deformación y de la altura ampliada tras el ráster.
+- **Versiones mínimas.** `bench_mapforge` corre en CI con numpy 1.24 y Pillow 10, los mínimos de `pyproject.toml`. Si no cumple los criterios, se sube el mínimo a numpy ≥ 2.0 (decisión de la iteración 9a; la ordenación SIMD de numpy 2 es la que da los 0,6–0,8 s del censo).
+
+### 18.13 Licencias y datos
+
+- **FMG** es MIT, con una cláusula de obras derivadas libres. Se portan algoritmos y código con cabecera por módulo y el texto MIT íntegro en `THIRD_PARTY_NOTICES.md`.
+  - Se incluyen las 14 plantillas de relieve y las 43 bases de nombres.
+  - **No** se incluyen las cargas heráldicas SVG (licencia no demostrada) ni los PNG de alturas del mundo real.
+- **Paradox:** nada en el repositorio. En tiempo de ejecución, `learn_install()` lee de la instalación del usuario:
+  - las paletas de `terrain.bmp` y `rivers.bmp`, las frecuencias de índices y los anchos de río;
+  - `terrain.txt`, `trees.txt` y las claves de `default.map`;
+  - los bloques de clima;
+  - la paleta del colormap y el color medio del agua;
+  - las listas de bienes, tipos de POP, gobiernos, reformas y tecnologías;
+  - la fuente de nombres `user_corpus`.
+  
+  El perfil se cachea en `<cache_dir>`, fuera del mod y del repositorio. Las pruebas usan `syllables` y una instalación sintética.
 
 ---
 
@@ -1680,7 +2212,123 @@ Con `VIC2_CORPUS` y/o `VIC2_GAME`:
 - **Interfaz offscreen** (`tests/_qt.py`): cada sala y sección se construyen y se retraducen ES/EN sin claves crudas; Ctrl+1..7, Ctrl+K, Ctrl+S/Z/Y; los asistentes de país, guerra, evento y mapa, de principio a fin sobre el minijuego, crean exactamente los archivos de su plan.
 - **Capturas**: `tools/screenshot.py` admite `--hall`, `--section`, `--entity kind:id`, `--wizard country --step N`, `--map-mode` y `--no-game-art` (por defecto en `docs/capturas`). En cada iteración se revisan en ES y EN a 1100×700 y 1920×1080.
 - **Verificación adversarial**: al cerrar cada iteración, un verificador por componente reproduce cada hallazgo antes de reportarlo, y cada corrección lleva su prueba de regresión.
-- **Lista de comprobación en el juego**: el usuario la recibe en las iteraciones 2, 5, 6, 7 y 9 (por ejemplo: «el país nuevo aparece jugable en 1836», «la guerra está activa en 1836», «el mapa nuevo carga»), junto con las reglas [verificar en juego] pendientes.
+- **Lista de comprobación en el juego**: por decisión del usuario (§24) se entrega una sola vez, al final (iteración 10). Reúne todas las reglas [verificar en juego] y las pruebas de flujo («el país nuevo aparece jugable en 1836», «la guerra está activa en 1836», «el mapa nuevo carga»), incluidas las 28 comprobaciones del taller de mapas (§19.7). Mientras tanto, cada regla dudosa se modela como opción explícita y las pruebas cubren sus dos variantes.
+
+### 19.6 Pruebas del taller de mapas (§18)
+
+Las reparte el plan de las iteraciones 9a y 9b; cada archivo de prueba tiene un dueño.
+
+#### Añadidos a §19.1 (fixtures)
+
+- **`tests/_mapforge_fixtures.py`** (todo generado por código, sin datos de Paradox ni de FMG):
+  - `tiny_params(seed, size=(288, 144), cells=2000, land=40, sea=10)` y `tiny_world(seed, level=Level.MAP)`. 288×144 es múltiplo de 24: W/3+8 = 104 y W/6 = 48 son enteros. `bad_size_params()` (256×128) existe solo para probar `forge_size`;
+  - `synthetic_install(root)`, que añade al minijuego:
+    - `terrain.txt` con 13 categorías y `text_0…63`;
+    - un `terrain.bmp` sintético con frecuencias conocidas (índices 52–59 sin usar, para `terrain_index_placeholder`);
+    - un `rivers.bmp` con anchos 2/4/6 y paletas de 256 entradas;
+    - `climate.txt` con claves emparejadas, 2 carpetas de POP y un `colormap.dds` y un `colormap_water.dds` de muestra;
+    - `common/countries.txt` con `REB`, 3 TAG y `dynamic_tags`;
+    - historias de país con `capital` y `oob`;
+    - un OOB por TAG;
+    - `cultures.txt` con `union` y `primary`, y `rebel_types.txt` con `controlled_by`;
+  - `full_copy_mod(root)`: un mod que copia `history/` completo del minijuego (el caso VSM);
+  - bitmaps de importación de 72×48, derivados del `provinces.bmp` asimétrico del minijuego:
+    - la versión «norte arriba» en PNG;
+    - un `terrain.bmp` RGB;
+    - un `rivers.bmp` con uniones en diagonal y un río sobre agua;
+    - un BMP con píxeles (0,0,0) y una provincia de 3 px;
+    - otro con una provincia partida;
+    - otro con una provincia en x = 0 y x = W−1;
+    - una provincia de 12 px con el 75 % de agua (caso 533);
+    - una altura PNG en gradiente de 16 bits y una máscara tierra/mar;
+  - `fmg_json_full(n_cells=200)`: JSON con la forma de `getFullDataJson` (3 estados, 6 provincias, 2 culturas, 1 río e `info.version` configurable);
+  - `FakeForgeWorker`: devuelve `tiny_world` sin proceso, para las pruebas de interfaz.
+- **Fuente de nombres de prueba:** `syllables`. Ninguna prueba depende de las bases de FMG ni de la instalación.
+
+#### Añadidos a §19.2 (pruebas por riesgo)
+
+| Riesgo | Pruebas | Qué afirman |
+|---|---|---|
+| Mapa incoherente | `test_mapforge_props.py` (semillas 0–19 sobre `tiny_world`; 3 semillas a 5616×2160 con la marca `slow`) | Cada provincia de tierra en exactamente 1 estado, 1 continente y 1 clima; el mar en ninguno. Colores únicos sin negro ni blanco. Biyección `definition.csv` ↔ BMP. Ids contiguos con la tierra primero; `sea_starts` = L+1..N; `max_provinces` = N+1. 0 partidas, 0 aisladas y 0 provincias en x = 0 y x = W−1 a la vez, con ≥ 1 par de vecinos a través de la costura. Adyacencias simétricas; `Through` es mar y toca a los dos extremos. Misma máscara de agua en las tres capas |
+| `reconcile` | `test_mapforge_reconcile.py` | Tras el render final, cada provincia de tierra tiene estado, continente, clima, historia, POPs y `PROV<id>`. Las hijas heredan los atributos de su madre. Una capital desaparecida se reasigna a una provincia del mismo país. Un estado vacío se elimina |
+| Terreno | `test_mapforge_terrain.py` | Índice mayoritario ∈ categoría mayoritaria en el 100 % de las provincias. Solo índices con ≥ 0,5 % en la instalación sintética. Tierra con índices < 64 y sin 254 |
+| Ríos | `test_mapforge_rivers.py` | 4-conexos (0 píxeles unidos solo en diagonal) y 0 aislados. Cada tramo empieza en 0. Cada final es 1 junto a otro río o tierra junto al agua (≤ 2 % de tramos abiertos). El ancho no disminuye río abajo. Solo anchos de la instalación |
+| Posiciones | `test_mapforge_positions.py` | 100 % de los puntos dentro de su provincia. < 5 % de puntos secundarios a menos de 2 px de `unit`; medianas en [5, 16] px a 5616×2160. `naval_base` en mar contiguo en cada costera. `text_rotation` en [0, 2π). Un bloque por provincia, también las de mar |
+| Formato | `test_mapforge_textures.py`, `test_mapforge_export.py::formats` | DDS con medidas, mips, `flags`, `pitchOrLinearSize` y tamaño exactos (a 5616×2160: 5 414 528 / 1 796 960 con 10 mips / 1 347 968 en DXT3 / 108 656 B); DXT3 releído con Pillow con un error medio ≤ 3. Línea 1 de `definition.csv` = cabecera; CSV de localización sin comentarios; 0 rutas no ASCII |
+| POPs | `test_mapforge_owners.py` | Con «Repartir», ≥ 1 TAG con tierra y capital propia; la cultura y la religión de las POPs con dueño son las del TAG. 0 POPs urbanas en provincias sin dueño. «Mapa base» da `forge_no_owned_provinces` |
+| No determinismo | `test_mapforge_determinism.py` | Dos ejecuciones dan el mismo sha256 en todos los archivos. Una ejecución en un subproceso con `NPY_DISABLE_CPU_FEATURES="AVX512F AVX512CD AVX512_SKX X86_V4"` da los mismos hashes (se salta si la CPU no tiene AVX-512). Abrir un proyecto no recalcula la etapa de celdas. Regenerar `hydro` o `countries` no cambia `provinces.bmp`. Una provincia bloqueada conserva sus celdas. Mover `land_fraction` después de pintar no da conflictos de trazo |
+| La vista previa engaña | `test_mapforge_preview.py` | Los hashes de la etapa de celdas y del mundo son iguales a escala 4 y a escala 1. Las provincias provisionales sin correspondencia son ≤ 1 % |
+| Orientación y plantillas | `test_mapforge_import.py::orientation`, `test_mapforge_relief.py::fmg_template_y` | El PNG con el norte arriba se voltea; con `positions.txt` se detecta solo. Un `Hill` en y = 10 (arriba en FMG) queda en la parte norte del array (filas altas) |
+| Importación | `test_mapforge_import.py` | Un fixture por código de §18.11 con su SimpleFix y su explicador. La conversión RGB → paleta es exacta. La matriz de reconstrucción es correcta para cada combinación de ranuras. Ida y vuelta con bytes idénticos. La provincia de 12 px con el 75 % de agua da `forge_land_sea_ambiguous` |
+| Mod de destino | `test_mapforge_export.py::full_copy_mod` | Tras exportar sobre `full_copy_mod`: 0 archivos del mod anterior en `history/provinces`, `history/pops`, `history/units`, `history/wars` e `history/diplomacy` (están en la papelera y vuelven al deshacer). 0 `replace_path_hides_referenced`. `replace_path_empty` en info solo para las carpetas vaciadas de forma intencionada |
+| Exportación a medias | `test_mapforge_export.py` | Plan de §18.8 por nivel. Fallo inyectado en cada paso, incluidos los movimientos a la papelera: todo antes o todo después. `map/cache` a la papelera. Deshacer con `before_path` |
+| Huérfanos | `test_mapforge_audit.py`, `test_mapforge_audit_tags.py` (9b) | Cada rol (OOB, `capital`, `owns`, ámbito `<id>`, ámbito de estado, canal, continente renombrado, localización) en su grupo. Con «Quitar los TAG existentes», además `union`/`primary` de `cultures.txt` y `controlled_by` de `rebel_types.txt` |
+| Interfaz | `test_mapforge_worker.py`, `test_mapforge_cancel.py` | Con el trabajador real sobre `tiny_world` escalado, un hilo de ticks de 5 ms no ve ningún retraso > 100 ms. Cancelar en cada paso responde en ≤ 1 s (≤ 2 s con terminate) y deja el `ForgeWorld` anterior. El trabajador se relanza desde `cells.npz` |
+| FMG (9b) | `test_mapforge_fmg_json.py` | Ninguna provincia cruza una provincia de FMG ni la costura; estados → países; y volteada; versión posterior → `fmg_version_unknown` |
+| Mundo jugable (9b) | `test_mapforge_world.py` | Dueños antes de `dynamic_tags`; `REB`, D01–D50 y TAG existentes conservados; capital propia; `ruling_party` admitido; POPs con presencia; culturas con nombres; TAG válidos; localización EN/ES |
+| Sobre vanilla (9b) | `test_mapforge_overlay.py` | Ids desde `max_provinces`; 0 px de tierra existente cambian; los mares tocados conservan su id; `forge_overlay_sea_shrunk`; `RasterPatch` deshace exactamente |
+| Licencias | `test_third_party_notices.py`, `test_no_install_content.py` | Cabecera de cada módulo portado y texto MIT. Ninguna línea de más de 20 caracteres ni ningún archivo del repositorio coincide con la instalación de prueba; `data/name_bases.py` está en lista blanca (sus topónimos reales coinciden por naturaleza) |
+
+#### Añadidos a §19.4 (corpus, opcionales)
+
+- Importar `provinces.bmp`, `definition.csv` y `default.map` de vanilla da 27 colores sin id (8 834 px), 1 `sea_start` repetido (2800), 0 ids sin píxeles y 0 colores repetidos.
+- Tierra/mar por la mayoría del 254 de `terrain.bmp`: 1 provincia distinta (533), detectada por `forge_land_sea_ambiguous`.
+- Orientación: 100 % de `unit` dentro tal cual frente a 1,27 % volteado.
+- `terrain.bmp` y `rivers.bmp` pasados a RGB y reconvertidos: 0 px de diferencia.
+- Perfil de la instalación de vanilla:
+  - índices candidatos sin 52–59 y con 4 y 60–63;
+  - anchos de río 2/4/6/7/10/11 con cuotas 44/34/15/5/1/1 %;
+  - color bajo el agua ≈ (134,129,89).
+- Importación de extremo a extremo de los 3 bitmaps de vanilla en ≤ 10 s.
+- Continente en una caja de océano de vanilla: 0 px de tierra existente cambiados.
+- Los DDS generados a 5616×2160 tienen el mismo tamaño en bytes y los mismos `flags` que los de vanilla.
+
+#### Rendimiento (`tools/bench_mapforge.py`, local y en CI con los mínimos de `pyproject.toml`)
+
+Con 5616×2160, 60 000 celdas y 3 semillas, en el proceso trabajador, comprueba:
+- vista previa ≤ 3 s;
+- render final en memoria ≤ 25 s;
+- RSS del trabajador ≤ 1,2 GiB;
+- bloqueo de la interfaz ≤ 100 ms;
+- pincel ≤ 50 ms;
+- perfil de la instalación ≤ 8 s;
+- importación de 3 bitmaps ≤ 10 s;
+- JSON de FMG ≤ 3 s.
+
+Se mide sin `tracemalloc`; la memoria se mide en una ejecución aparte.
+
+### 19.7 Comprobaciones en el juego del taller de mapas
+
+Forman parte de la lista única de la iteración 10 (§19.5). Cada una cubre una regla [verificar en juego] de §18; mientras no haya respuesta, la opción correspondiente sigue siendo explícita y las pruebas cubren sus variantes.
+
+1. Un mapa generado de 5616×2160 con «Solo mapa → Repartir entre TAG existentes» carga, permite elegir un país con tierra y se juega un mes sin errores; el mapa base sin dueños carga hasta el selector.
+2. Tras exportar, borrar `map/cache` del mod y de `user_dir` basta para que el juego use el mapa nuevo.
+3. Un TAG existente sin tierra cuya capital es una provincia de otro país (como 90 de las 220 de vanilla) no da error y se puede liberar con su capital reescrita.
+4. Los archivos OOB vacíos escritos en las rutas citadas por `oob =` (con `replace_path` `history/units`) se aceptan sin errores ni unidades fantasma.
+5. `history/wars` e `history/diplomacy` reemplazadas y vacías: el juego empieza sin guerras ni relaciones y no se cierra.
+6. Un mapa de 2808×1080 con `colormap` de (W/3+8)×H/3, `colormap_water` de W/6×H/6 con 10 mips y minimapa nuevo carga y se ve alineado (margen de 4 px por lado, envuelto).
+7. `colormap_no_shadow.dds` escrito con el codificador DXT3 propio y `colormap_political.dds` regenerado se cargan sin artefactos.
+8. Con un índice de textura por (estado, categoría), el terreno que muestra el juego coincide con la categoría mayoritaria; una anulación `terrain =` gana sobre `terrain.bmp`.
+9. Los índices de `terrain.bmp` aprendidos de la instalación (incluidos 4 y 60–63, sin 52–59) se dibujan con texturas normales, sin teselas moradas.
+10. Los ríos generados (0 en el nacimiento, 1 en la confluencia y anchos 2/4/6/7/10/11) se dibujan continuos, con el ancho creciente río abajo, y desembocan bien en la costa.
+11. No hay ninguna provincia que cruce la costura x=0/W−1 y los 33 pares de vecinos a través de ella permiten mover ejércitos y flotas de un borde al otro (envoltura).
+12. Lagos generados como provincias de mar sin vecino de mar (en `sea_starts`, índice 254) se dibujan bien en `colormap_water` y no son navegables desde el océano.
+13. Los estrechos generados (`sea` con `Through` en la provincia de mar del hueco) permiten cruzar ejércitos; un `adjacencies.csv` con la cabecera de vanilla y sin filas es válido.
+14. `naval_base` en un píxel de mar contiguo con `building_rotation` hacia tierra: el puerto aparece y se puede construir en cada costera generada.
+15. Los puntos secundarios de `positions.txt` (fuerte, fábrica, construcción) aparecen separados de la unidad y dentro de la provincia.
+16. `text_scale` = 0,749·área^0,214 y `text_rotation` solo en provincias alargadas: los nombres se leen sin solaparse en el zoom por defecto.
+17. `definition.csv` con la cabecera en la línea 1 y sin comentarios, y los CSV de localización sin cabecera: el juego no crea ninguna provincia fantasma ni claves vacías.
+18. La localización `00_<P>_map.csv` gana sobre claves PROV/estado repetidas en otros CSV del mod (orden de carga), o hace falta el SimpleFix de `forge_loc_shadowed`.
+19. Las historias con nombre de archivo ASCII se cargan por su id y el nombre acentuado aparece en la localización.
+20. País generado con la receta `new_country` (partidos, `ruling_party` admitido, reformas y tecnologías de plantilla) es jugable en 1836 y celebra elecciones si su gobierno las tiene.
+21. Las 5 banderas procedurales (TAG, _communist, _fascist, _monarchy, _republic) se muestran al cambiar de gobierno.
+22. Un grupo cultural nuevo con unit y leader de un grupo existente usa sus gráficos de unidades y retratos.
+23. Un continente con nombre nuevo carga y se localiza; los continentes con los nombres de la instalación conservan los efectos de `pop_types`.
+24. Sobre vanilla: las provincias nuevas creadas desde `max_provinces` son colonizables u ocupables, y las provincias de mar recortadas siguen siendo navegables con su posición regenerada.
+25. Un mapa con muchas más provincias que vanilla (p. ej. 6 000) carga; límite práctico de ids por debajo de 65 536.
+26. `common/countries.txt` del nivel Mundo con los TAG existentes conservados, `REB` y el bloque `dynamic_tags` de la instalación: los dominios D01–D50 siguen funcionando.
+27. Las POPs con tabla de presencia (sin craftsmen, clerks ni capitalists fuera de las capitales civilizadas) no producen paro ni militancia anómalos en el primer año.
+28. La cámara de `bookmarks.txt` (cameraX/cameraY generados) centra la vista en el país elegido al empezar.
 
 ---
 
@@ -1712,7 +2360,7 @@ Con `VIC2_CORPUS` y/o `VIC2_GAME`:
 | `ui/viewers/clausewitz_viewer.py` | `StructureIndex` y `build_index` se reutilizan en la pestaña «Código» y para navegar a un campo; la edición de texto emite `replace_model`. |
 | `ui/main_window.py`, `ui/pages/__init__.py` | `PAGE_CLASSES` → `HALLS` (7 salas), acciones globales, paneles de problemas e historial, selector de mod, contador de cambios y `closeEvent`. |
 | `ui/pages/planned.py`, `map_page.py`, `countries_page.py`, `events_page.py` | Se retiran cuando exista su sala; `RoadmapStrip` pasa a Inicio. |
-| `ui/tasks.py` | Se mantiene su API (`TaskRunner`, `TaskContext` y cancelación con `core/cancel.py`). El índice, el mapa, la línea base y el taller lo usan, cada uno con su propio grupo de hilos. |
+| `ui/tasks.py` | Se mantiene su API (`TaskRunner`, `TaskContext` y cancelación con `core/cancel.py`). El índice, el mapa y la línea base lo usan, cada uno con su propio grupo de hilos. El taller calcula en un proceso trabajador propio (§18.4) y `ui/mapforge/worker_client.py` lleva sus resultados a las señales de `ui/session.py`. |
 | `tests/test_ui_smoke.py` | Las expectativas pasan de 5 páginas a 7 salas. |
 | `tests/_corpus.py` | `vanilla_root()`, `user_mod_full()` y `.map` en `CLAUSEWITZ_SUFFIXES`. |
 | `pyproject.toml` | `package-data` con los nuevos JSON (§4.1). |
@@ -1733,8 +2381,11 @@ Cada iteración sigue el ritmo de §20 (contrato, trabajo en paralelo, integraci
 | 6 | Naciones y guerra: asistente de países, ficha nacional, banderas, OOB, diplomacia y guerras de inicio | 2, 8 |
 | 7 | Event Studio y decisiones: catálogo, constructor AND/OR/NOT, MTTH, opciones | 5, 7 |
 | 8 | Suite de interfaces (.gui/.gfx) e imágenes | 6 |
-| 9 | Taller de mapas nuevos y provincias nuevas en el mapa existente | 15 |
+| 9a | Taller de mapas: mapa procedural, importación de bitmaps y «Solo mapa» jugable | 15 (mapa) |
+| 9b | Taller de mapas: mundo, importación de FMG JSON, banderas y «Sobre vanilla» | 15 (mundo y mapa existente) |
 | 10 | Pulido, rendimiento, exportación y empaquetado | — |
+
+La 9b depende de la receta `new_country` de la iteración 6.
 
 ### Iteración 2 — Cimientos: VFS, proyecto transaccional, generador .mod, arreglo CR y armazón de 7 salas
 
@@ -1776,10 +2427,10 @@ Cada iteración sigue el ritmo de §20 (contrato, trabajo en paralelo, integraci
 **Entregables.**
 
 - `core/index/{model,cache,builder,index}.py` con extractores de países, partidos, provincias, mapa, culturas, religiones, gobiernos, ideologías, reformas, tecnologías, invenciones, bienes, edificios, tipos de POP, unidades, CB, eventos, decisiones, bookmarks, guerras, sprites, imágenes y localización. Caché JSON-lines por capa e índice incremental.
-- `core/validate/{model,registry,context,baseline,fixes}.py` y reglas `{syntax,files,descriptor,countries,provinces,localisation,events,decisions}` con los textos `issues.{es,en}.json`. `modcheck.Issue` gana `entity` y `fixes`.
+- `core/validate/{model,registry,context,baseline,fixes,explain}.py` (SimpleFix y explicador de conflicto, §11.1) y reglas `{syntax,files,descriptor,countries,provinces,localisation,events,decisions}` con los textos `issues.{es,en}.json`. `modcheck.Issue` gana `entity` y `fixes`.
 - `core/rules/{game,ids,names,colors}.py`, `core/lua_defines.py` y `core/locsync.py` (política de §8).
-- Arreglos rápidos: registrar el TAG antes de `dynamic_tags`, convertir a cp1252, «Añadir `}` al final» y «Recuperar las filas de vanilla» (`loc_copy_degraded`).
-- Interfaz: sala Textos (modelo editable, añadir clave, filtros «creadas por el Studio», «sin traducir», «sustituye a vanilla» y «degradadas»), Proyecto › Validación (columnas de entidad, conmutador de heredados y [Arreglar]), panel de problemas y paleta Ctrl+K.
+- SimpleFix (§11.1): registrar el TAG antes de `dynamic_tags`, convertir a cp1252, «Añadir `}` al final», «Recuperar las filas de vanilla» (`loc_copy_degraded`) y «Mover a la papelera las copias idénticas» (`mod_shadow_identical`), todos con plan de cambios previo y confirmación. Explicador de conflicto para cada código del catálogo.
+- Interfaz: sala Textos (modelo editable, añadir clave, filtros «creadas por el Studio», «sin traducir», «sustituye a vanilla» y «degradadas»), Proyecto › Validación (columnas de entidad, conmutador de heredados, [Arreglar] y [¿Por qué?] con el panel del explicador), panel de problemas y paleta Ctrl+K.
 
 **Reparto entre los 2 agentes.** Agente A: `core/index/**`, `core/validate/**`, `core/rules/**`, `core/lua_defines.py`, `core/modcheck.py` y `tests/test_{index_*,validate_*,rules_*,lua_defines}.py`. Agente B: `core/locsync.py`, `ui/halls/localisation/**`, `ui/viewers/localisation_editor.py`, `ui/pages/localisation_page.py`, `ui/halls/project/validation.py`, `ui/shell/{command_palette,problems_dock}.py`, `i18n/{es,en}/{localisation,validation,palette}.json` y `tests/test_{locsync,loc_effective,ui_loc_edit,ui_validation,ui_palette}.py`. Contrato: Symbol, SymbolRef, SymbolIndex, Problem y el decorador `rule`. B usa un índice en memoria construido sobre el minijuego.
 
@@ -1789,7 +2440,7 @@ Cada iteración sigue el ritmo de §20 (contrato, trabajo en paralelo, integraci
 2. Construcción en frío del índice de vanilla en segundo plano en menos de 6 s y menos de 1 s desde la caché. Cambiar un archivo reprocesa solo ese archivo (contador de parseos) y subir la versión de un extractor invalida solo su caché.
 3. Validar VSM: los errores no heredados son exactamente `tag_not_registered` (SIL), `nationalvalue_unknown` ×4 (GEL, MAJ, SOM y WRL) y 2 `unclosed_block`. Los avisos incluyen `ruling_party_ideology_not_allowed` (SOM_socialist), `party_unknown_policy` (`social_policy`), `government_election_without_duration` (`absolute_monarchy`) y `loc_copy_degraded` (`text.csv`, 3 429 filas). Cualquier otro aviso se revisa en la verificación adversarial y se clasifica.
 4. Los problemas de vanilla salen como heredados y ocultos por defecto: 13 partidos, 50 `civilized`, 27 colores, 1396/1397, `HAI_oob.txt`, el evento 11108 y `annex`.
-5. «Registrar SIL» inserta la línea justo antes de `dynamic_tags`, delante de los comentarios que lo preceden (diff de 1 línea); revalidar quita el error y Ctrl+Z lo deshace.
+5. «Registrar SIL» inserta la línea justo antes de `dynamic_tags`, delante de los comentarios que lo preceden (diff de 1 línea); revalidar quita el error y Ctrl+Z lo deshace. El explicador de `tag_not_registered` muestra las capas (historia, archivo de país, banderas y dueño en 682–685 frente a `countries.txt`) y el de `loc_copy_degraded` muestra que el `text.csv` del mod sustituye al del juego.
 6. Minijuego con mod vacío: editar una clave cuyo ganador es del juego crea `localisation/00_<P>_overrides.csv` con esa fila y no copia el CSV del juego. En VSM, que tiene su propio `text.csv`, la fila se edita en esa copia con un diff de 1 línea.
 7. Ctrl+K encuentra «549», «Berlín», «PRU» y «north_german» y abre el archivo en su línea (o el editor de la entidad cuando exista).
 8. Capturas ES/EN de Textos, Validación y la paleta; verificación adversarial con hallazgos reproducidos.
@@ -1912,28 +2563,153 @@ Cada iteración sigue el ritmo de §20 (contrato, trabajo en paralelo, integraci
 4. Vistas previas a 1024×768 y 1920×1080. Sin juego configurado se usa la alternativa procedural, y una prueba confirma que el repositorio no contiene recursos del juego.
 5. Capturas ES/EN (con `--no-game-art`) y verificación adversarial.
 
-### Iteración 9 — Taller de mapas nuevos y provincias nuevas en el mapa existente
+### Iteración 9a — Taller de mapas: mapa procedural, importación de bitmaps y «Solo mapa» jugable
 
-**Objetivo.** Crear un mapa desde cero (importado o generado) y exportar en una sola transacción todos los archivos coherentes y sus dependencias, con una auditoría de lo que queda huérfano. Además, dividir o pintar provincias nuevas en el mapa existente. Cubre la capacidad 15.
+**Objetivo.** Generar un mapa al estilo de Azgaar, o importarlo desde bitmaps, editarlo entre pasos con vista previa en vivo y exportarlo con el nivel «Solo mapa»:
+- todo `map/` y las texturas;
+- historias de provincia con dueño, repartido entre los TAG existentes, o el mapa base sin dueño;
+- POPs mínimas con tabla de presencia, RGO, life rating, nombres (`syllables`/`custom`) y localización;
+- OOB vaciados, `capital` corregida, `replace_path`, papelera de los archivos del mod y auditoría.
+
+Todo el cálculo va en un proceso trabajador. Cubre la capacidad 15 (parte de mapa).
 
 **Entregables.**
 
-- `core/mapforge/{project,generate,paint,derive,export,audit,palette,colormap}.py`, el generador de posiciones y la coherencia completa en `core/map/{positions,coherence}.py`, y la receta `new_map`.
-- `ui/mapforge/{wizard,paint_canvas,tools,audit_view}.py` y la sección Mapa › Taller de mapas.
-- Herramientas «Dividir provincia» y «Pintar provincia nueva» (`ui/map/split_tool.py`) sobre el mapa existente.
+- **Paso 0, commit de contrato.** `core/mapforge/{params,world,pipeline,worker,edits,project}.py` con las firmas de §18.7: `ForgeParams`, `LatticeSpec`, `ExportTarget`, `Owners`, `ForgeWorld`, `ProvisionalTable`, `ForgeRaster`, `Step`, `StepContext`, `ForgeWorker`/`ForgeCommand`/`ForgeReply`, `EditOp`, `MapForgeProject`, `ImportSet`/`ImportReport`, `export_plan`/`export` y `DependencyAudit`.
+- **Pipeline.**
+  - `core/mapforge/{install,graph,relief,climate,hydro,biomes,partition,rasterize,reconcile,textures,names,society,economy,validate,export,audit}.py`;
+  - todos los pasos de §18.3 salvo `flags`;
+  - `society.py` solo con la expansión (países sobre TAG existentes y zonas culturales); `economy.py` con RGO, life rating y la tabla de presencia de POPs; `names.py` con las fuentes `syllables` y `custom`;
+  - `core/mapforge/data/{templates,biome_table}.py`: 14 plantillas portadas de FMG, con la y convertida.
+- **Importación.** `core/mapforge/imports/{bitmaps,heightmap,fmg_template}.py`: ranuras, orientación, matriz de reconstrucción, conversión RGB → paleta y pseudorrelieve.
+- **Derivados.** `core/map/positions.py` (`generate` de §18.5), `core/map/adjacency.py` (`suggest_straits`) y `core/map/coherence.py` completo.
+- **Texturas.** `core/gfx/dds.py`: mips hasta 1×1, cabecera de vanilla (`LINEARSIZE`) y codificador DXT3.
+- **Deshacer.** `core/project/undo.py`: `Snapshot.before_path` para instantáneas de más de 8 MB y archivos movidos a la papelera (§6.3).
+- **Validación.** `core/validate/rules/mapforge.py` y los textos `core/validate/texts/mapforge.{es,en}.json`. `replace_path_empty` pasa a info en las carpetas vaciadas de forma intencionada (§5.3).
+- **Licencias y medidas.** `THIRD_PARTY_NOTICES.md` (FMG, MIT) y `tools/bench_mapforge.py`, también en CI con numpy 1.24 y Pillow 10.
+- **Interfaz.**
+  - `ui/mapforge/{wizard,preview,brushes,province_tools,entity_tables,import_panel,review,audit_view,worker_client}.py`;
+  - las pantallas 0–7 (7 = «Dueños»), 9, 10 (solo nombres), 11, 12 y 13 en `ui/mapforge/steps/*.py`, con modo sencillo y «Generación rápida»;
+  - `ui/halls/map/forge.py`.
+  - El origen FMG JSON no aparece.
 
-**Reparto entre los 2 agentes.** Agente A: `core/mapforge/**`, `core/map/{positions,coherence}.py` y `tests/test_mapforge_*.py` (mapas sintéticos de 256×128 y 1404×540). Agente B: `ui/mapforge/**`, `ui/halls/map/forge.py`, `ui/map/split_tool.py`, `i18n/{es,en}/mapforge.json` y `tests/test_ui_mapforge.py`. Contrato: MapForgeProject, ProvinceRecord, `export_plan`/`export` y DependencyAudit.
+**Reparto entre los 2 agentes.**
+- **Agente A (núcleo):**
+  - `core/mapforge/**` (salvo `imports/fmg_json.py`, `overlay.py`, `paint.py` y `data/name_bases.py`);
+  - `core/map/{positions,adjacency,coherence}.py`, `core/gfx/dds.py`, `core/project/undo.py` (`before_path`) y `core/validate/rules/mapforge.py` con sus textos;
+  - `THIRD_PARTY_NOTICES.md` y `tools/bench_mapforge.py`;
+  - `tests/_mapforge_fixtures.py` y `tests/test_mapforge_{pipeline,determinism,preview,raster,reconcile,positions,straits,rivers,terrain,textures,import,export,audit,owners,worker,cancel,props}.py`, más `tests/test_third_party_notices.py` y `tests/test_no_install_content.py`.
+- **Agente B (interfaz):** `ui/mapforge/**`, `ui/halls/map/forge.py`, `i18n/{es,en}/mapforge.json` y `tests/test_ui_mapforge.py`.
+- **Cómo trabaja B antes de la integración:** con el contrato y un `ForgeWorker` falso que devuelve un `ForgeWorld` del fixture `tiny_world` (288×144, 2 000 celdas). La vista previa reutiliza el lienzo de §16.3 sin modificarlo; si hace falta un gancho, se pide por el orquestador al dueño de `ui/map/canvas.py`.
 
 **Criterios de aceptación.**
 
-1. Un mapa sintético de 256×128 con 12 provincias exporta todos los artefactos de §18.4 en una transacción con diario; `check_map` da 0 errores y el resultado se abre en el editor de la iteración 5.
-2. Importar un BMP con el norte arriba lo voltea, numera la tierra antes que el mar y no produce colores repetidos.
-3. Las posiciones generadas ponen el 100 % de los puntos `unit` dentro de su provincia.
-4. `terrain.bmp` y `rivers.bmp` generados son de 8 bits con cabecera de 1 078 bytes; `colormap.dds` y `colormap_water.dds` tienen las medidas de H8 para el tamaño de vanilla.
-5. La auditoría lista los huérfanos por carpeta (OOB, capitales, guerras y ámbitos) y ofrece `replace_path`.
-6. Generar un mapa del tamaño de vanilla termina en ≤ 20 s y se puede cancelar.
-7. Dividir una provincia de vanilla crea el id nuevo con todas sus dependencias (`definition.csv`, `max_provinces`, región, continente, clima, posición, historia y `PROV<id>`), y `check_map` no empeora la línea base.
-8. Capturas ES/EN de cada paso; verificación adversarial; lista de comprobación en el juego (el mapa nuevo carga).
+1. Propiedades sobre `tiny_world` (288×144) con las semillas 0–19 y sobre un render de 5616×2160 con 3 semillas (§19):
+   - cada provincia de tierra en exactamente 1 estado, 1 continente y 1 clima, y el mar en ninguno;
+   - colores únicos, sin negro ni blanco; biyección entre `definition.csv` y el BMP;
+   - ids contiguos con la tierra primero y `max_provinces` = N+1;
+   - 0 provincias partidas y 0 aisladas; 0 provincias con píxeles en x = 0 y x = W−1, con vecinos a través de la costura;
+   - adyacencias simétricas;
+   - la misma máscara de agua en las tres capas;
+   - índice mayoritario ∈ categoría mayoritaria en el 100 % de las provincias, y solo índices que la instalación usa;
+   - ríos 4-conexos, con 0 en cada nacimiento y 1 en cada confluencia;
+   - tras `reconcile`, cada provincia de tierra tiene estado, historia, POPs y `PROV<id>`;
+   - `check_map` da 0 errores y el resultado se abre en el editor de la iteración 5.
+2. Determinismo:
+   - la misma semilla, parámetros y ediciones dan el mismo sha256 en todos los archivos, también con `NPY_DISABLE_CPU_FEATURES` (sin AVX-512);
+   - abrir un proyecto no recalcula la etapa de celdas;
+   - regenerar `hydro` deja `provinces.bmp` y `definition.csv` idénticos;
+   - una provincia bloqueada conserva sus celdas;
+   - mover el deslizador de tierra después de pintar no produce `forge_edit_conflict` en los trazos de pincel.
+3. La vista previa y el final comparten los hashes de la etapa de celdas y del mundo. Las diferencias solo afectan a provincias hijas o desaparecidas de `fix` (≤ 1 % de las provisionales).
+4. `tools/bench_mapforge.py`, con 5616×2160, 60 000 celdas y 4 CPU:
+   - vista previa ≤ 3 s;
+   - render final en memoria ≤ 25 s;
+   - RSS del trabajador ≤ 1,2 GiB;
+   - bloqueo máximo de la interfaz ≤ 100 ms (hilo de ticks de 5 ms);
+   - pincel ≤ 50 ms;
+   - Cancelar ≤ 1 s, o ≤ 2 s con terminate, dejando el mundo anterior intacto.
+5. Formatos:
+   - `provinces.bmp` de 24 bits con los datos en el byte 54;
+   - `terrain.bmp` y `rivers.bmp` de 8 bits con cabecera de 1 078 B y las paletas de la instalación (sintéticas en el fixture);
+   - DDS con las medidas, el número de mips, los `flags` y el tamaño exacto de vanilla a 5616×2160: 5 414 528 / 1 796 960 (10 mips) / 1 347 968 (DXT3) / 5 414 528 / 108 656 B;
+   - `definition.csv` con la cabecera en la línea 1 y CSV de localización sin comentarios; 0 nombres de archivo no ASCII;
+   - positions: 100 % de `unit` dentro; < 5 % de puntos secundarios a menos de 2 px de `unit`, con medianas en [5, 16] px; `naval_base` sobre mar contiguo en el 100 % de las costeras;
+   - 0 POPs urbanas en provincias sin dueño.
+6. Importación:
+   - un PNG con el norte arriba se voltea; con `positions.txt` se detecta solo (corpus: 100 % frente a 1,27 %);
+   - con solo `provinces.bmp` y una altura se genera el resto y se cumple el criterio 1;
+   - un `terrain.bmp` RGB se convierte con 0 px de diferencia;
+   - ida y vuelta con bytes idénticos;
+   - cada código de §18.11 tiene un fixture, y su SimpleFix y su explicador funcionan;
+   - 3 bitmaps del tamaño de vanilla se importan en ≤ 10 s.
+7. Exportación de «Solo mapa»:
+   - los archivos de §18.8 en una transacción con diario; un fallo inyectado en cada paso deja todo antes o todo después;
+   - un mod de prueba que es copia completa del minijuego queda con 0 historias o POPs ajenas tras exportar (papelera);
+   - `replace_path` sin `replace_path_hides_referenced`, gracias a los OOB vacíos;
+   - con «Repartir», hay ≥ 1 TAG con tierra y capital propia;
+   - deshacer restaura el mod, con las instantáneas grandes en disco.
+8. La auditoría, sobre vanilla más un mapa nuevo, lista por carpeta y rol los huérfanos de §18.9 y ofrece sus acciones.
+9. Capturas ES/EN de cada pantalla (`--wizard mapforge --step N`, `--no-game-art`), verificación adversarial y ampliación de la lista de comprobación en el juego (§19.5). El mod de prueba en el juego se construye con el exportador real, no con un prototipo: el mapa «Repartir» carga, se elige un país y se juega un mes; el «Mapa base» carga hasta el selector.
+
+### Iteración 9b — Taller de mapas: mundo, importación de FMG JSON, banderas y «Sobre vanilla»
+
+**Objetivo.**
+- Convertir un mapa del taller en un mundo jugable con el nivel «Mundo»: países, culturas, religiones, POPs completas, nombres de FMG o del usuario y banderas.
+- Importar un «Export to JSON → Full» de FMG conservando sus entidades.
+- Ampliar el mapa existente con provincias o un continente nuevos sin tocar los ids.
+
+Cubre la capacidad 15 (mundo y mapa existente) y reutiliza la receta `new_country` de la iteración 6.
+
+**Entregables.**
+
+- **Paso 0, contrato.** `ForgeEntity`, `FmgWorld`, `NameSource`, `FlagSpec` y `OverlayPlan`.
+- **Mundo.** `society.py` completo (TAG nuevos, grupos culturales y religiones mapeadas), mezcla completa de POPs en `economy.py`, el paso `flags` y la opción «Quitar los TAG existentes» con la auditoría de rol TAG en todo el índice.
+- **Nombres.** Fuentes `fmg_bundled` y `user_corpus` en `names.py`, y `data/name_bases.py` (43 bases, MIT).
+- **Importación de FMG.** `imports/fmg_json.py`.
+- **Banderas.** `core/gfx/flags.py: procedural_flag`.
+- **Sobre vanilla.** `core/mapforge/{overlay,paint}.py` y `ui/map/split_tool.py`.
+- **Interfaz.** Pantallas 7 (países), 8, 10 (banderas) y «Elegir zona»; `ui/mapforge/flag_gallery.py` y la ranura de FMG JSON.
+
+**Reparto entre los 2 agentes.**
+- **Agente A (mundo y FMG):**
+  - `core/mapforge/{society,economy,names}.py`, `core/mapforge/steps/{countries,cultures,religions,population,economy,names,flags}.py` y `core/mapforge/data/name_bases.py`;
+  - `core/mapforge/imports/fmg_json.py`, `core/gfx/flags.py` (solo `procedural_flag`) y los cambios de Mundo en `core/mapforge/{export,audit}.py`;
+  - `tests/test_mapforge_{world,names,flags,fmg_json,audit_tags}.py`.
+- **Agente B (interfaz de mundo y «Sobre vanilla» vertical):**
+  - `ui/mapforge/steps/{countries,cultures,names_flags,zone}.py`, `ui/mapforge/flag_gallery.py` e `ui/mapforge/import_panel.py` (ranura FMG);
+  - `core/mapforge/{overlay,paint}.py` y `ui/map/split_tool.py`;
+  - `i18n/{es,en}/mapforge.json` (B es su dueño en las dos subiteraciones);
+  - `tests/test_mapforge_overlay.py` y `tests/test_ui_mapforge_world.py`.
+- **Antes de la integración:** B usa `tiny_world` con entidades sintéticas.
+
+**Criterios de aceptación.**
+
+1. Mundo sobre `tiny_world`, semillas 0–9:
+   - cada dueño está en `countries.txt` antes de `dynamic_tags`, y se conservan `REB`, D01–D50 y los TAG existentes (también los propios del mod);
+   - capital propia; archivo de país (color, `graphical_culture` y partidos); historia completa (R1 §2.2); 5 banderas TGA de 93×64, 32 bits y origen abajo a la izquierda;
+   - `ruling_party` admitido (H12);
+   - culturas con ≥ 50 `first_names` y `last_names`;
+   - POPs en cada provincia de tierra y fecha, con la tabla de presencia;
+   - localización EN/ES (y FR/DE con `copy_en_to`);
+   - 0 errores nuevos en la validación global.
+2. Los TAG generados pasan `tag_invalid` y `tag_taken` y no colisionan con el índice. Los nombres son cp1252, únicos por tipo, y los nombres de archivo son ASCII.
+3. Los pasos 12–17 tardan ≤ 3 s en total. Regenerar los países no cambia ningún archivo de `map/` (sha).
+4. FMG JSON con un fixture sintético con la forma de `getFullDataJson` (200 celdas, 3 estados, 6 provincias, 2 culturas):
+   - ninguna provincia de Victoria II cruza una provincia de FMG ni la costura;
+   - los estados de FMG pasan a ser países y las provincias de FMG, estados;
+   - la y se voltea;
+   - un JSON de 60 000 celdas se lee en ≤ 3 s.
+5. Con «Quitar los TAG existentes», la auditoría lista las citas de TAG en `events`, `decisions`, `common/{cultures,rebel_types,cb_types}.txt`, `news` e `history/*`. El SimpleFix de `union`/`primary` funciona en el minijuego.
+6. Sobre vanilla:
+   - un continente en una caja crea ids desde `max_provinces`;
+   - **0 px de tierra existente cambian**;
+   - los mares tocados conservan su id y regeneran su posición;
+   - `forge_overlay_sea_shrunk` salta por debajo del 50 %;
+   - dividir y pintar provincias crean todas sus dependencias;
+   - `check_map` no empeora la línea base.
+7. `THIRD_PARTY_NOTICES.md` cubre las bases de nombres. `test_no_install_content.py` no encuentra en el repositorio ninguna línea de más de 20 caracteres ni ningún archivo copiado de la instalación, con `data/name_bases.py` en lista blanca.
+8. Capturas ES/EN, verificación adversarial y ampliación de la lista de comprobación en el juego: el país generado es jugable en 1836, sus banderas aparecen y la cultura nueva usa los gráficos de su grupo.
 
 ### Iteración 10 — Pulido, rendimiento, exportación y empaquetado
 
@@ -1946,6 +2722,7 @@ Cada iteración sigue el ritmo de §20 (contrato, trabajo en paralelo, integraci
 - Actualización de `packaging/` (PyInstaller e Inno Setup).
 - Recorrido de bienvenida, revisión de ES/EN y accesibilidad con teclado.
 - `docs/usuario/*.md` con los 5 flujos principales; `ARCHITECTURE.md` y `README.md` actualizados.
+- `docs/usuario/comprobacion_en_juego.md`: la lista única de comprobación en el juego (§19.5) con todas las reglas [verificar en juego] acumuladas desde la iteración 2, incluidas las 28 del taller de mapas (§19.7). Las respuestas del usuario fijan el valor por defecto de cada opción.
 
 **Reparto entre los 2 agentes.** Agente A: `core/export.py`, `tools/bench_*.py`, optimizaciones en `core/index/**` y `core/map/**`, `packaging/**`, `tests/test_export.py` y las pruebas de rendimiento. Agente B: pulido de `ui/**` (salvo `ui/map/**`, que solo se toca si A lo pide), `ui/dialogs/export.py`, `i18n/**`, `docs/usuario/**`, `README.md`, `ARCHITECTURE.md` y las capturas.
 
@@ -1965,7 +2742,7 @@ Cada iteración sigue el ritmo de §20 (contrato, trabajo en paralelo, integraci
 
 | Riesgo | Mitigación |
 |---|---|
-| Semántica del motor que los archivos no demuestran: alcance de `replace_path` en subcarpetas, si se suman los bloques de POP repetidos, qué carpeta de POP usa cada bookmark, si se cargan todos los `.gfx`, qué copia de una historia duplicada gana, si el juego ignora `.vic2studio/` y `*.bak`, y mapas de tamaño distinto de 5616×2160 | Opciones explícitas marcadas [verificar en juego], avisos en vez de suposiciones, pruebas que cubren las dos variantes y la lista de comprobación del usuario. |
+| Semántica del motor que los archivos no demuestran: alcance de `replace_path` en subcarpetas, si se suman los bloques de POP repetidos, qué carpeta de POP usa cada bookmark, si se cargan todos los `.gfx`, qué copia de una historia duplicada gana y si el juego ignora `.vic2studio/` y `*.bak` (los riesgos del taller de mapas, incluidos los tamaños distintos de 5616×2160, van al final de esta tabla) | Opciones explícitas marcadas [verificar en juego], avisos en vez de suposiciones, pruebas que cubren las dos variantes y la lista de comprobación del usuario. |
 | Escribir en el juego base (el mod vive dentro de `<juego>/mod`) | `WriteGuard` por realpath, el diario como única vía de escritura dentro del mod y `test_arch_writes`. |
 | Guardado interrumpido que deja el mod incoherente (p. ej. `countries.txt` con el TAG pero sin historia) | Diario en dos fases con temporales en la misma carpeta, `.bak` como reversión, reintentos ante `PermissionError` y recuperación idempotente probada con fallos inyectados y `os._exit`. |
 | Deshacer inexacto o referencias obsoletas tras deshacer | Instantáneas que se reparsean (exactas por la ida y vuelta byte a byte); la interfaz solo guarda `RecordRef` y re-enlaza al cambiar `version`; prueba de propiedad. |
@@ -1983,21 +2760,47 @@ Cada iteración sigue el ritmo de §20 (contrato, trabajo en paralelo, integraci
 | Cambios externos (Notepad++, Git) o dos instancias a la vez | Huellas base, comprobación al recuperar el foco y antes de confirmar, diálogo de conflicto y bloqueo con caducidad. |
 | Conflictos entre los 2 agentes | Commit de contrato, archivos disjuntos con dueño único, registro por descubrimiento, i18n por fragmentos e iconos por sala. |
 | Copyright de Paradox en fixtures, catálogos o capturas | Fixtures generados por código, catálogos con solo nombres y tipos, arte leído en tiempo de ejecución, `--no-game-art` en las capturas del repositorio y pruebas que lo vigilan. |
-| Pillow `>=10` no garantiza escribir DXT | Escritor DDS propio sin comprimir (la mayoría de los DDS de vanilla lo son) y DXT solo si está disponible. |
+| Pillow `>=10` no garantiza escribir DXT | Escritor DDS propio sin comprimir (la mayoría de los DDS de vanilla lo son) y codificador DXT3 propio en numpy para `colormap_no_shadow.dds` (§18.5). |
 | La interfaz abruma al modder (7 salas, unas 30 secciones) | Inicio por flujos, Ctrl+K, contadores en el índice, modo sencillo, «basar en…», asistentes con plan de cambios y revisión de capturas en cada iteración. |
+| El mod de destino ya tiene archivos bajo las carpetas reemplazadas: `replace_path` no los oculta (VSM: 2 705 historias, 358 POPs, 265 OOB) | Acción T (papelera) en el plan para cada uno, clase A; regla `replace_path_mod_files_remain` (error); destino «Mod nuevo» recomendado. Prueba con un mod que es copia completa del minijuego. |
+| «Solo mapa» sin dueños no se puede jugar, y reemplazar `history/units` deja `oob` colgantes (345 citas) | Opción «Dueños» con «Repartir entre TAG existentes» por defecto; `forge_no_owned_provinces` con confirmación; un OOB vacío por cada ruta citada; `history/diplomacy` y `history/wars` reemplazadas por defecto. |
+| Provincias que `fix` crea o retira en el render final quedan sin estado, dueño o POPs | Mundo calculado sobre provincias provisionales antes del ráster y paso `reconcile`; prueba de propiedad tras el render final (medido: 0 provincias sin estado, continente, clima ni cultura). |
+| Resultados distintos según la CPU (ufuncs SVML de numpy) | Resultados de la etapa de celdas guardados en `cells.npz`; sin ufuncs trascendentes en las decisiones; `forge_env_changed`; prueba con `NPY_DISABLE_CPU_FEATURES` (p7: hashes idénticos; p1 difería). |
+| El motor trata mal una provincia partida por la costura x = 0/W−1 | La costura es frontera obligatoria de provincias y estados (0 provincias que la crucen, como vanilla) y se conserva la vecindad a través de ella; `forge_seam_province` en las importaciones. |
+| Teselas de relleno (52–59) o índices de `terrain.bmp` que el juego no usa | Índices aprendidos de la instalación (≥ 0,5 % de su categoría); `terrain_index_placeholder`; propiedad «índice mayoritario ∈ categoría mayoritaria» (0 fallos medidos). |
+| Ríos sin marcas de nacimiento y confluencia, o con uniones en diagonal | Trazado por tramos con 0 y 1, 4-conexo entre extremos enteros y limpieza de aislados; anchos y cuotas de la instalación. Medido: 0 diagonales, 586–604 confluencias. Pruebas también a 5616×2160. |
+| Puntos de `positions.txt` superpuestos (fuerte, fábrica y unidades en el mismo píxel) | Dirección unitaria × min(d, r) con 8 direcciones. Criterio: < 5 % a menos de 2 px de `unit` y medianas en [5, 16] px (medido 0,8–1,5 % y 5,7–10 px). |
+| Generar en el proceso de la aplicación bloquea la interfaz (hasta 874 ms) y suma unos 600 MiB | Proceso trabajador persistente (spawn): bloqueo ≤ 42,9 ms y la interfaz en 33,5 MiB. Criterio «bloqueo ≤ 100 ms» en `bench_mapforge`. |
+| Las ediciones se pierden al cambiar parámetros globales (la rejilla dependía de f_tierra y L) | `LatticeSpec` fija desde la pantalla 1; trazos de pincel en coordenadas normalizadas; cambiar la densidad es una acción explícita con aviso. |
+| El motor lee mal un CSV con una línea de comentario delante de la cabecera | Sin comentarios en `definition.csv` ni en la localización; en `adjacencies.csv`, la cabecera de vanilla en la línea 1. Prueba de la línea 1. |
+| Claves de localización `PROV`/estado duplicadas en otros CSV del mod | `forge_loc_shadowed` con el SimpleFix «Quitar esas claves de los otros CSV»; orden de carga [verificar en juego]. |
+| Nombres de archivo con acentos ilegibles en Windows con otra página de códigos | Transliteración a ASCII en las rutas (el id es lo que cuenta, H9); acentos solo en la localización. |
+| Los tiempos medidos con numpy 2.5 no se cumplen con los mínimos declarados (numpy 1.24, Pillow 10) | `bench_mapforge` en CI con las versiones mínimas; si falla, se sube el mínimo a numpy ≥ 2.0 (decisión de la iteración 9a). |
+| El motor rechaza o dibuja mal un mapa de tamaño distinto de 5616×2160 | 5616×2160 por defecto; los demás tamaños en múltiplos de 24 con `forge_size`; texturas proporcionales con las cabeceras de vanilla; prueba con 2808×1080 en la iteración 10. |
+| Regla del motor desconocida para el terreno de una provincia (33 casos distintos en vanilla) | Índice por (estado, categoría): las dos reglas coinciden por construcción (medido); `terrain =` solo en las anulaciones. |
+| Exportar unos 3 150 archivos (88 MB) más la papelera es lento en Windows o se interrumpe | Una transacción con diario y recuperación (§6.5) que incluye los movimientos; reintentos ante `PermissionError`; las instantáneas grandes de deshacer van a disco (`before_path`). Medido en Linux: 2,1–3,0 s de fsync y 0,05 s para mover 3 337 archivos. |
+| «Sobre vanilla» altera provincias existentes | Arreglo de fragmentos limitado a las ids nuevas y al mar de la caja, y prueba «0 px de tierra existente cambian». |
+| Licencias: código, plantillas y nombres de FMG; datos de Paradox | `THIRD_PARTY_NOTICES.md` y cabecera por módulo; sin SVG ni PNG de FMG; perfil de la instalación solo en `<cache_dir>`; prueba de contenido de la instalación con `name_bases.py` en lista blanca (las bases de FMG comparten 245 topónimos con vanilla). |
+| Un mundo nuevo deja huérfanas referencias de TAG fuera de `events`/`decisions` (`cultures.txt`, `rebel_types`, `cb_types`, `news`) | TAG existentes conservados sin tierra por defecto; con «Quitar», auditoría por rol TAG en todo el índice y SimpleFix de `union`/`primary`. |
+| El formato de exportación de FMG cambia | Solo JSON Full/PackCells con lector tolerante (`fmg_version_unknown`) y fixture sintético por versión. |
+| El alcance del taller no cabe en una iteración | 9a (mapa, importación, Solo mapa jugable y trabajador) y 9b (Mundo, FMG, banderas y Sobre vanilla), con contratos propios. |
 
 ---
 
-## 24. Preguntas abiertas para el usuario
+## 24. Decisiones del usuario (26-10-2026)
 
-1. Columnas de texto: tus CSV rellenan inglés y español. ¿Mantengo eso por defecto, o copio también el inglés a francés y alemán (el juego también muestra esos idiomas)?
-2. ¿Te parece bien la carpeta `<mod>/.vic2studio/` dentro del mod (ajustes, diario, papelera, originales)? La exportación la excluye. La alternativa es guardarla en la carpeta de datos de la aplicación.
-3. ¿Conservo los `.bak` junto a cada archivo (convención actual) o prefieres un mod más limpio, con las copias solo en `.vic2studio/`?
-4. Tu mod es una copia completa de vanilla (8 462 archivos idénticos) y su `text.csv` tiene 3 429 filas con `?` en lugar de letras acentuadas. ¿Quieres que el Studio ofrezca recuperar esas filas y limpiar las copias idénticas?
-5. ¿Ofrezco arreglos de un clic para los errores de tu mod (registrar SIL, `nv_tradition`, SOM_socialist, `duration` de `absolute_monarchy`, cerrar las 2 decisiones) o prefieres que solo se señalen?
-6. ¿Estás dispuesto a comprobar en el juego, al cerrar algunas iteraciones, una lista breve de reglas [verificar en juego] (por ejemplo, `replace_path` en subcarpetas)?
-7. Rango de ids de eventos: ¿te vale el bloque libre a partir de 200 000 000, o usas ya un rango propio?
-8. Orden del plan: mapa (5) → países (6) → eventos y decisiones (7). ¿Prefieres adelantar Event Studio?
-9. Mapa nuevo: ¿lo dibujarás fuera (importar un `provinces.bmp`) o quieres generarlo desde una máscara de tierra? ¿Con qué tamaño?
-10. Suite de interfaces: ¿basta con modificar ventanas existentes (mover, redimensionar, cambiar sprites y textos) o necesitas algo más?
-11. ¿Usas solo Heart of Darkness (3.04), o el Studio debe distinguir campos de AHD y de la versión base?
+Respuestas del usuario a las preguntas abiertas del diseño. Mandan sobre cualquier otra parte de este documento.
+
+| # | Pregunta | Decisión | Dónde se aplica |
+|---|---|---|---|
+| 1 | Columnas de idioma de los CSV | Inglés y español rellenos, como hace el usuario; opción `copy_en_to` para copiar el inglés a francés y alemán | §8 (`settings.languages`) |
+| 2 | Carpeta `<mod>/.vic2studio/` | Sí, dentro del mod; la exportación la excluye | §5.4, D16 |
+| 3 | `.bak` | Se mantienen junto a cada archivo | D4 |
+| 4 | Copias idénticas a vanilla y filas con «?» en `text.csv` | Lo decide el Studio: se señalan (`mod_shadow_identical` como info, `loc_copy_degraded` como aviso) y se ofrecen como SimpleFix con vista previa y confirmación, nunca automáticamente. «Recuperar las filas de vanilla» solo restaura las filas degradadas y respeta las editadas de verdad. La limpieza de copias idénticas manda los archivos a la papelera y nunca toca carpetas con `replace_path` | §11, §11.1, iteración 3 |
+| 5 | Arreglos de un clic | Sí: un **SimpleFix** por problema más un **explicador de conflicto** | §11.1, §13.9, iteración 3 |
+| 6 | Comprobación en el juego | Una sola vez, al final del proyecto | §19.5, iteración 10 |
+| 7 | Rango de ids de eventos | El que se considere conveniente: primer bloque libre de 10 000 ids desde 200 000 000, configurable | D15, §6.4 |
+| 8 | Orden del plan | Mapa → países → eventos (se mantiene) | §22 |
+| 9 | Mapa nuevo | Una suite que genera el mapa y sus recursos de forma procedural, al estilo de Azgaar's Fantasy Map Generator, y la opción de importar recursos de mapa para quien sepa trabajar con bitmaps | §14.15, §18, iteraciones 9a y 9b |
+| 10 | Alcance de la suite de interfaces | La mejor opción posible: modificar las ventanas existentes, sprites e imágenes nuevos y «Duplicar como variante»; sin ventanas nuevas, porque el juego no las abriría | §17.4 |
+| 11 | Versión del juego | Solo Heart of Darkness 3.04: los esquemas no distinguen la versión base ni AHD | §10.2, §10.3 |

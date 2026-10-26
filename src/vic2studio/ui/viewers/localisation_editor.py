@@ -1,19 +1,25 @@
 """Tabla de un CSV de localización (solo lectura en esta iteración) con buscador y lint.
 
-``load_localisation`` lee el archivo en un hilo y precalcula, por fila, el texto
-en minúsculas donde busca el filtro. ``LocalisationFilterProxy`` decide qué filas
-se ven con una máscara calculada de una vez en Python, de modo que filtrar las
-15 000 filas de ``text.csv`` cuesta milisegundos.
+``load_localisation`` lee el archivo en un hilo y precalcula todo lo que muestran
+la tabla y el lint (tipo de cada fila, texto en minúsculas donde busca el filtro,
+filas del lint y peor gravedad por fila): poner en pantalla un archivo enorme solo
+asigna listas en el hilo de la interfaz. ``LocalisationFilterProxy`` guarda la
+lista de filas visibles, calculada de una vez en Python, de modo que filtrar las
+15 000 filas de ``text.csv`` cuesta milisegundos (y medio millón, decenas).
+
+El buscador filtra ``SEARCH_DELAY_MS`` después de la última tecla
+(``queue_query``); ``select_line`` aplica antes la búsqueda pendiente para que
+no oculte después la fila que acaba de seleccionar.
 """
 
 from __future__ import annotations
 
 import os
-import time
-from dataclasses import dataclass, field
+from bisect import bisect_left, bisect_right
+from dataclasses import dataclass
 from pathlib import Path
 
-from PySide6.QtCore import QAbstractTableModel, QModelIndex, QSortFilterProxyModel, Qt, Signal
+from PySide6.QtCore import QAbstractProxyModel, QAbstractTableModel, QModelIndex, Qt, QTimer, Signal
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
@@ -27,13 +33,14 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from ...core.cancel import CancelCheck, raise_if_cancelled
 from ...core.csvloc import DISPLAYED_LANGUAGES, END_MARKER_COLUMN, LANGUAGE_COLUMNS, LANGUAGE_COUNT, \
     LocalisationFile, RowKind, read_csv_file
 from ...i18n import N_, tr
 from .. import theme
-from ..widgets import IconWidget, mark_data
-from .common import ERROR, INFO, SEVERITY_RANK, WARNING, core_language, format_number, severity_icon, \
-    severity_name
+from ..widgets import IconWidget, StatusBadge, mark_data
+from .common import ERROR, INFO, SEVERITY_RANK, WARNING, core_language, file_stamp, format_number, severity_icon
+from .common import OS_ERROR_KEYS, describe_os_error  # noqa: F401 - antes vivían aquí: se reexportan
 from .diagnostics import COL_LINE, COL_MESSAGE, COL_SEVERITY, DiagnosticRow, DiagnosticsModel, DiagnosticsView
 
 # Columnas de idioma en el orden de la tabla: las que muestra el juego vanilla primero.
@@ -52,6 +59,8 @@ SEVERITY_FILTERS = (
     ("warning", N_("loc.diag_filter.warnings"), frozenset({WARNING})),
     ("info", N_("loc.diag_filter.infos"), frozenset({INFO})),
 )
+SEARCH_DELAY_MS = 150  # espera tras la última tecla del buscador antes de filtrar
+CANCEL_EVERY = 0x1000  # filas o diagnósticos entre dos consultas de cancelación
 
 
 def language_header(column: int) -> str:
@@ -62,44 +71,76 @@ def language_header(column: int) -> str:
 
 @dataclass
 class LocalisationLoad:
+    """Un CSV leído y todo lo que el editor muestra de él, calculado en el hilo de la tarea."""
+
     path: Path
     file: LocalisationFile
+    stamp: tuple[int, int] | None  # ``file_stamp`` antes de leerlo: si cambia, hay que releerlo
+    kinds: list[RowKind]
     haystack: list[str]
-    row_diagnostics: dict[int, list] = field(default_factory=dict)
-    size: int = 0
-    elapsed: float = 0.0
+    data_rows: int
+    row_diagnostics: dict[int, list]  # fila -> sus diagnósticos
+    row_severity: dict[int, str]      # fila -> peor gravedad
+    diagnostic_rows: list[DiagnosticRow]
+    file_diagnostics: list[DiagnosticRow]  # los de todo el archivo (sin línea), como la codificación
+    counts: dict[str, int]            # diagnósticos por gravedad
 
 
-def load_localisation(path: str | os.PathLike) -> LocalisationLoad:
-    """Lee y valida un CSV y prepara el índice de búsqueda (se ejecuta en un hilo)."""
-    start = time.perf_counter()
+def load_localisation(path: str | os.PathLike, cancelled: CancelCheck = None) -> LocalisationLoad:
+    """Lee y valida un CSV y prepara la tabla y el lint (se ejecuta en un hilo).
+
+    Si ``cancelled()`` devuelve True lanza ``core.cancel.Cancelled``.
+    """
     path = Path(path)
-    file = read_csv_file(path)
-    haystack = []
-    for row in file.rows:
-        if row.kind is RowKind.DATA:
+    stamp = file_stamp(path)  # antes de leer: si el archivo cambia mientras, la próxima apertura lo relee
+    file = read_csv_file(path, cancelled=cancelled)
+    data = RowKind.DATA
+    kinds, haystack = [], []
+    for number, row in enumerate(file.rows):
+        if not number & (CANCEL_EVERY - 1):
+            raise_if_cancelled(cancelled)
+        kinds.append(row.kind)
+        if row.kind is data:
             haystack.append("\x00".join((row.key, *row.fields[:LANGUAGE_COUNT])).casefold())
         else:
             haystack.append((row.raw or "").casefold())
     by_row: dict[int, list] = {}
-    for diagnostic in file.diagnostics:
+    worst: dict[int, str] = {}
+    rows, whole_file = [], []
+    counts = dict.fromkeys(SEVERITY_RANK, 0)
+    for number, diagnostic in enumerate(file.diagnostics):
+        if not number & (CANCEL_EVERY - 1):
+            raise_if_cancelled(cancelled)
+        row = DiagnosticRow.of(diagnostic)
+        rows.append(row)
+        counts[row.severity] += 1
+        if diagnostic.line is None:
+            whole_file.append(row)
+            continue
         # Recién leído, la fila i está en la línea i + 1 (ver LocalisationFile.lint).
-        if diagnostic.line is not None:
-            by_row.setdefault(diagnostic.line - 1, []).append(diagnostic)
-    return LocalisationLoad(path, file, haystack, by_row, path.stat().st_size, time.perf_counter() - start)
+        index = diagnostic.line - 1
+        by_row.setdefault(index, []).append(diagnostic)
+        current = worst.get(index)
+        if current is None or SEVERITY_RANK[row.severity] < SEVERITY_RANK[current]:
+            worst[index] = row.severity
+    return LocalisationLoad(path, file, stamp, kinds, haystack, kinds.count(data), by_row, worst, rows, whole_file,
+                            counts)
 
 
 @dataclass
 class LocalisationFailure:
+    """El archivo no se pudo leer (el contenido nunca hace fallar a ``read_csv_file``)."""
+
     path: Path
-    message: str
+    error: OSError
 
 
-def try_load_localisation(path: str | os.PathLike) -> LocalisationLoad | LocalisationFailure:
+def try_load_localisation(path: str | os.PathLike, cancelled: CancelCheck = None) \
+        -> LocalisationLoad | LocalisationFailure:
     try:
-        return load_localisation(path)
+        return load_localisation(path, cancelled)
     except OSError as exc:
-        return LocalisationFailure(Path(path), exc.strerror or str(exc))
+        return LocalisationFailure(Path(path), exc)
 
 
 class LocalisationModel(QAbstractTableModel):
@@ -122,12 +163,9 @@ class LocalisationModel(QAbstractTableModel):
         self.beginResetModel()
         self.load = load
         self.rows = load.file.rows if load else []
-        self.kinds = [row.kind for row in self.rows]
+        self.kinds = load.kinds if load else []
         self.haystack = load.haystack if load else []
-        self._severity = {}
-        if load:
-            for row, diagnostics in load.row_diagnostics.items():
-                self._severity[row] = min((severity_name(d.severity) for d in diagnostics), key=SEVERITY_RANK.get)
+        self._severity = load.row_severity if load else {}
         self.endResetModel()
 
     def source_row_for_line(self, line: int) -> int | None:
@@ -159,12 +197,14 @@ class LocalisationModel(QAbstractTableModel):
         if role == Qt.ItemDataRole.DisplayRole:
             return language_header(column) if kind == LANG else tr(self.HEADER_KEYS[kind])
         if role == Qt.ItemDataRole.ToolTipRole:
+            # Columnas numeradas desde 0 (la clave), como en los mensajes del lint (ver core.csvloc).
             if kind == LANG:
                 name = LANGUAGE_COLUMNS[column - 1]
                 return tr("loc.col.lang_tooltip_shown" if name in DISPLAYED_LANGUAGES else "loc.col.lang_tooltip_hidden",
-                          column=column + 1, name=name)
-            return tr("loc.col.marker_tooltip") if kind == MARKER else (
-                tr("loc.col.extras_tooltip") if kind == EXTRAS else tr("loc.col.key_tooltip"))
+                          column=column, name=name)
+            if kind == EXTRAS:
+                return tr("loc.col.extras_tooltip")
+            return tr("loc.col.marker_tooltip" if kind == MARKER else "loc.col.key_tooltip", column=column)
         return None
 
     def _cell(self, row, kind: str, column: int) -> str:
@@ -215,27 +255,29 @@ class LocalisationModel(QAbstractTableModel):
         return None
 
 
-def _refilter(proxy: QSortFilterProxyModel, apply) -> None:
-    """Cambia el filtro con la API de Qt 6.10+ si existe (``invalidateRowsFilter`` está obsoleta)."""
-    if hasattr(proxy, "endFilterChange"):
-        proxy.beginFilterChange()
-        apply()
-        proxy.endFilterChange(QSortFilterProxyModel.Direction.Rows)
-    else:
-        apply()
-        proxy.invalidateRowsFilter()
+class LocalisationFilterProxy(QAbstractProxyModel):
+    """Filas visibles del modelo: por texto (clave o cualquier idioma) y, si se pide, sin comentarios ni líneas vacías.
 
-
-class LocalisationFilterProxy(QSortFilterProxyModel):
-    """Filtra por texto (clave o cualquier idioma) y oculta comentarios/líneas vacías si se pide."""
+    Guarda la lista ordenada de filas visibles, calculada de una vez en Python. Con
+    ``QSortFilterProxyModel`` cada fila costaba una llamada a ``filterAcceptsRow`` en el
+    hilo de la interfaz: 0,7 s al abrir o filtrar un archivo de medio millón de filas.
+    Solo admite un modelo de origen (``LocalisationModel``, de solo lectura).
+    """
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        # Los datos no cambian (solo lectura): volver a filtrar en cada dataChanged sería trabajo perdido.
-        self.setDynamicSortFilter(False)
-        self._mask: list[bool] | None = None
+        self._rows: list[int] = []
         self._query = ""
         self._show_comments = False
+
+    def setSourceModel(self, model: LocalisationModel) -> None:
+        self.beginResetModel()
+        super().setSourceModel(model)
+        model.modelAboutToBeReset.connect(self.beginResetModel)
+        model.modelReset.connect(self._on_source_reset)
+        model.dataChanged.connect(self._on_source_data_changed)
+        model.headerDataChanged.connect(self._on_source_header_changed)
+        self._on_source_reset()
 
     def query(self) -> str:
         return self._query
@@ -254,39 +296,104 @@ class LocalisationFilterProxy(QSortFilterProxyModel):
             self._show_comments = show
             self.refresh()
 
-    def compute_mask(self, kinds: list[RowKind], haystack: list[str]) -> list[bool] | None:
+    def visible_source_rows(self, kinds: list[RowKind], haystack: list[str]) -> list[int]:
         query, data = self._query, RowKind.DATA
         if query:
             if self._show_comments:
-                return [query in text for text in haystack]
-            return [kind is data and query in text for kind, text in zip(kinds, haystack)]
+                return [i for i, text in enumerate(haystack) if query in text]
+            return [i for i, (kind, text) in enumerate(zip(kinds, haystack)) if kind is data and query in text]
         if self._show_comments:
-            return None
-        return [kind is data for kind in kinds]
-
-    def prepare_reset(self, kinds: list[RowKind], haystack: list[str]) -> None:
-        """Deja lista la máscara de los datos que van a entrar: el reinicio del modelo filtra una sola vez."""
-        self._mask = self.compute_mask(kinds, haystack)
+            return list(range(len(kinds)))
+        return [i for i, kind in enumerate(kinds) if kind is data]
 
     def refresh(self) -> None:
+        """Vuelve a filtrar conservando la selección y la fila actual de las vistas, si siguen visibles."""
         model: LocalisationModel = self.sourceModel()
-        mask = self.compute_mask(model.kinds, model.haystack)
-        _refilter(self, lambda: setattr(self, "_mask", mask))
+        rows = self.visible_source_rows(model.kinds, model.haystack)
+        self.layoutAboutToBeChanged.emit()
+        before = self.persistentIndexList()
+        sources = [self._rows[index.row()] for index in before]
+        self._rows = rows
+        self.changePersistentIndexList(before, [self._proxy_index(row, index.column())
+                                                for row, index in zip(sources, before)])
+        self.layoutChanged.emit()
 
-    def filterAcceptsRow(self, source_row: int, source_parent: QModelIndex) -> bool:
-        mask = self._mask
-        return mask is None or (source_row < len(mask) and mask[source_row])
+    # --- QAbstractProxyModel -------------------------------------------------------------
+
+    def rowCount(self, parent: QModelIndex = QModelIndex()) -> int:
+        return 0 if parent.isValid() else len(self._rows)
+
+    def columnCount(self, parent: QModelIndex = QModelIndex()) -> int:
+        return 0 if parent.isValid() else len(COLUMNS)
+
+    def index(self, row: int, column: int, parent: QModelIndex = QModelIndex()) -> QModelIndex:
+        if parent.isValid() or not (0 <= row < len(self._rows) and 0 <= column < len(COLUMNS)):
+            return QModelIndex()
+        return self.createIndex(row, column)
+
+    def parent(self, index: QModelIndex | None = None):
+        # Sin argumento es QObject.parent(); en la tabla ninguna fila tiene padre.
+        return super().parent() if index is None else QModelIndex()
+
+    def mapToSource(self, index: QModelIndex) -> QModelIndex:
+        if not index.isValid():
+            return QModelIndex()
+        return self.sourceModel().index(self._rows[index.row()], index.column())
+
+    def mapFromSource(self, index: QModelIndex) -> QModelIndex:
+        return self._proxy_index(index.row(), index.column()) if index.isValid() else QModelIndex()
+
+    def headerData(self, section: int, orientation: Qt.Orientation, role: int = Qt.ItemDataRole.DisplayRole):
+        # La implementación base traduce la columna a través de la fila 0: sin filas visibles no habría cabeceras.
+        if orientation == Qt.Orientation.Vertical:
+            if not 0 <= section < len(self._rows):
+                return None
+            section = self._rows[section]
+        return self.sourceModel().headerData(section, orientation, role)
+
+    # --- interno -------------------------------------------------------------------------
+
+    def _proxy_index(self, source_row: int, column: int) -> QModelIndex:
+        position = bisect_left(self._rows, source_row)
+        if position < len(self._rows) and self._rows[position] == source_row:
+            return self.createIndex(position, column)
+        return QModelIndex()
+
+    def _on_source_reset(self) -> None:
+        model: LocalisationModel = self.sourceModel()
+        self._rows = self.visible_source_rows(model.kinds, model.haystack)
+        self.endResetModel()
+
+    def _on_source_data_changed(self, top_left: QModelIndex, bottom_right: QModelIndex, roles=()) -> None:
+        first = bisect_left(self._rows, top_left.row())
+        last = bisect_right(self._rows, bottom_right.row()) - 1
+        if first <= last:
+            self.dataChanged.emit(self.index(first, top_left.column()), self.index(last, bottom_right.column()),
+                                  list(roles))
+
+    def _on_source_header_changed(self, orientation: Qt.Orientation, first: int, last: int) -> None:
+        if orientation == Qt.Orientation.Horizontal:  # las columnas son las mismas
+            self.headerDataChanged.emit(orientation, first, last)
 
 
 class LocalisationEditor(QWidget):
-    """Tabla + panel de diagnósticos. ``query_reset`` pide al buscador de la página que se vacíe."""
+    """Tabla + panel de diagnósticos. ``query_reset`` pide al buscador de la página que se vacíe.
+
+    Los diagnósticos de todo el archivo (sin fila, como una codificación que el
+    juego no lee) se muestran además encima de la tabla (``file_notice``).
+    """
 
     query_reset = Signal()
-    counts_changed = Signal(int, int)  # filas visibles, filas totales
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
         self.setObjectName("localisationEditor")
+        self._pending_query: str | None = None
+        self._search_timer = QTimer(self)
+        self._search_timer.setSingleShot(True)
+        self._search_timer.setInterval(SEARCH_DELAY_MS)
+        self._search_timer.timeout.connect(self._apply_pending_query)
+        self._counts = dict.fromkeys(SEVERITY_RANK, 0)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(6)
@@ -315,14 +422,16 @@ class LocalisationEditor(QWidget):
         self.count_label.setFont(theme.font("body_bold", 9.5))
         bar.addWidget(self.count_label)
         layout.addLayout(bar)
+        self.file_notice = StatusBadge()
+        self.file_notice.setObjectName("fileNotice")
+        self.file_notice.setVisible(False)
+        layout.addWidget(self.file_notice)
 
         self.model = LocalisationModel(self)
         self.proxy = LocalisationFilterProxy(self)
         self.proxy.setSourceModel(self.model)
-        self.proxy.layoutChanged.connect(self._update_counts)
-        self.proxy.rowsInserted.connect(self._update_counts)
-        self.proxy.rowsRemoved.connect(self._update_counts)
-        self.proxy.modelReset.connect(self._update_counts)
+        self.proxy.layoutChanged.connect(self._update_counts)  # filtrar
+        self.proxy.modelReset.connect(self._update_counts)     # otro archivo
         self.table = QTableView()
         self.table.setObjectName("localisationTable")
         mark_data(self.table)
@@ -360,6 +469,8 @@ class LocalisationEditor(QWidget):
         head.addStretch(1)
         self.severity_combo = QComboBox()
         self.severity_combo.setObjectName("lintSeverity")
+        # El ancho sigue a los textos: con el valor por defecto se fija en el idioma del primer show.
+        self.severity_combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToContents)
         for data, _, _ in SEVERITY_FILTERS:
             self.severity_combo.addItem("", data)
         self.severity_combo.currentIndexChanged.connect(self._apply_severity)
@@ -381,7 +492,6 @@ class LocalisationEditor(QWidget):
         self.splitter.setSizes([430, 220])
         layout.addWidget(self.splitter, 1)
         self._apply_columns()
-        self.proxy.refresh()
         self.retranslate()
 
     # --- API -----------------------------------------------------------------------------
@@ -390,26 +500,29 @@ class LocalisationEditor(QWidget):
         return self.model.load
 
     def set_load(self, load: LocalisationLoad | None) -> None:
-        if load is not None:
-            self.proxy.prepare_reset([row.kind for row in load.file.rows], load.haystack)
         self.model.set_load(load)
-        rows = [DiagnosticRow.of(d) for d in (load.file.diagnostics if load else [])]
-        self.diagnostics_model.set_rows(rows)
+        self.diagnostics_model.set_rows(load.diagnostic_rows if load else [])
+        self._counts = load.counts if load else dict.fromkeys(SEVERITY_RANK, 0)
         self.table.scrollToTop()
         self._retranslate_diagnostics()
         self._update_counts()
 
     def set_query(self, text: str) -> None:
+        """Filtra ya por ``text`` y descarta la búsqueda pendiente."""
+        self._search_timer.stop()
+        self._pending_query = None
         self.proxy.set_query(text)
+
+    def queue_query(self, text: str) -> None:
+        """Filtra por ``text`` cuando pasen ``SEARCH_DELAY_MS`` sin otra llamada (para teclear)."""
+        self._pending_query = text
+        self._search_timer.start()
 
     def visible_rows(self) -> int:
         return self.proxy.rowCount()
 
     def total_rows(self) -> int:
         return self.model.rowCount()
-
-    def data_rows(self) -> int:
-        return sum(1 for kind in self.model.kinds if kind is RowKind.DATA)
 
     def select_line(self, line: int | None) -> bool:
         """Selecciona y centra la fila de la línea ``line``; vacía el filtro si la ocultaba."""
@@ -418,6 +531,7 @@ class LocalisationEditor(QWidget):
         source = self.model.source_row_for_line(line)
         if source is None:
             return False
+        self._apply_pending_query()  # si no, filtraría después y ocultaría la fila seleccionada
         index = self.proxy.mapFromSource(self.model.index(source, 0))
         if not index.isValid():
             if self.model.kinds[source] is not RowKind.DATA:
@@ -446,16 +560,22 @@ class LocalisationEditor(QWidget):
         line = self.selected_line()
         if line is None:
             return
-        current = self.diagnostics_model.row_at(self.diagnostics_view.currentIndex())
+        view = self.diagnostics_view
+        current = self.diagnostics_model.row_at(view.currentIndex())
         if current is not None and current.line == line:
             return
         for position, row in enumerate(self.diagnostics_model.visible_rows()):
             if row.line == line:
                 index = self.diagnostics_model.index(position, 0)
-                self.diagnostics_view.setCurrentIndex(index)
-                self.diagnostics_view.scrollTo(index, QAbstractItemView.ScrollHint.PositionAtTop)
+                view.setCurrentIndex(index)
+                view.scrollTo(index, QAbstractItemView.ScrollHint.PositionAtTop)
                 return
-        self.diagnostics_view.clearSelection()
+        # También el índice actual: si quedara, volver a esta fila parecería no necesitar seleccionar nada.
+        view.selectionModel().clear()
+
+    def _apply_pending_query(self) -> None:
+        if self._pending_query is not None:
+            self.set_query(self._pending_query)
 
     def _on_comments_toggled(self, show: bool) -> None:
         self.proxy.set_show_comments(show)
@@ -472,13 +592,18 @@ class LocalisationEditor(QWidget):
     def _update_counts(self, *args) -> None:
         self.count_label.setText(tr("loc.row_count", shown=format_number(self.visible_rows()),
                                     total=format_number(self.total_rows())))
-        self.counts_changed.emit(self.visible_rows(), self.total_rows())
 
     def _retranslate_diagnostics(self) -> None:
-        counts = self.diagnostics_model.counts()
+        counts = self._counts
         self.diagnostics_title.setText(tr("loc.diagnostics_title", count=format_number(sum(counts.values())),
-                                          errors=format_number(counts["error"]),
-                                          warnings=format_number(counts["warning"])))
+                                          errors=format_number(counts[ERROR]),
+                                          warnings=format_number(counts[WARNING]), infos=format_number(counts[INFO])))
+        load = self.model.load
+        problems = [row for row in load.file_diagnostics if row.severity != INFO] if load else []
+        self.file_notice.setVisible(bool(problems))
+        if problems:
+            worst = min(problems, key=lambda row: SEVERITY_RANK[row.severity])
+            self.file_notice.set_status(worst.severity, tr("loc.file_notice", message=worst.message(core_language())))
 
     def retranslate(self) -> None:
         self.read_only.setText(tr("loc.read_only"))

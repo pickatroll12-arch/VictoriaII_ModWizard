@@ -32,7 +32,12 @@ def main(argv: list[str] | None = None) -> int:
     app = create_application(sys.argv[1:] if argv is None else argv)
 
     from .ui.main_window import MainWindow
+    from .ui.tasks import cancel_all, wait_for_tasks
 
     window = MainWindow()
     window.show()
-    return app.exec()
+    code = app.exec()
+    # Ningún hilo debe seguir ejecutando Python mientras se cierra el intérprete; canceladas, las tareas paran pronto.
+    cancel_all()
+    wait_for_tasks()
+    return code

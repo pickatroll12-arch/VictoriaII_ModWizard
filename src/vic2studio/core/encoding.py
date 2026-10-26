@@ -1,26 +1,68 @@
 """Codificaciones de los archivos de Victoria II.
 
 El motor Clausewitz de Victoria II lee los archivos de texto (.txt, .csv, .mod)
-en Windows-1252 y no entiende UTF-8. Este módulo detecta la codificación de un
-archivo existente y garantiza un ida y vuelta sin pérdidas: decodificar y volver
-a codificar un archivo sin cambios produce exactamente los mismos bytes.
+en Windows-1252 y no entiende UTF-8 ni, en absoluto, UTF-16. Este módulo
+detecta la codificación de un archivo existente y garantiza un ida y vuelta sin
+pérdidas: decodificar y volver a codificar un archivo sin cambios produce
+exactamente los mismos bytes.
 
 cp1252 deja cinco bytes sin definir (0x81, 0x8D, 0x8F, 0x90, 0x9D). En vez de
 fallar, se decodifican al punto de código Unicode de mismo valor (como latin-1)
 y se vuelven a codificar al byte original.
+
+Codificaciones que puede devolver la detección:
+
+* ``cp1252``: la del juego y la de todo lo que no encaja en las demás. También
+  un archivo con BOM UTF-8 cuyo resto no es UTF-8 (un UTF-8 reconvertido a ANSI
+  sin quitar el BOM): el juego ve entonces ``STRAY_BOM`` pegado a la primera
+  clave (``has_stray_bom``).
+* ``utf-8`` (sin BOM) y ``utf-8-sig`` (con BOM; el BOM no queda en el texto).
+* ``utf-16`` (BOM FF FE, el «Unicode» del Bloc de notas y de PowerShell 5) y
+  ``utf-16-be-bom`` (BOM FE FF, un codec que registra este módulo): como en
+  ``utf-8-sig``, el BOM no queda en el texto y se vuelve a escribir delante, cada
+  uno en su orden de bytes. ``utf-16-le``/``utf-16-be``: UTF-16 sin BOM,
+  reconocido por los NUL alternos. El juego no puede leer ninguna de ellas
+  (``GAME_UNREADABLE``).
+
+Con una codificación explícita se usa ese codec tal cual: ``utf-8``,
+``utf-16-le`` y ``utf-16-be`` dejan un BOM en el texto como U+FEFF
+(``split_bom`` lo pasa a la codificación). Un BOM repetido queda en el texto
+como U+FEFF tras el primero (``split_extra_boms`` los separa).
 """
 
 from __future__ import annotations
 
 import codecs
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .fileio import FileStamp
 
 GAME_ENCODING = "cp1252"
 UTF8 = "utf-8"
 UTF8_BOM = "utf-8-sig"
+UTF16 = "utf-16"
+UTF16_LE = "utf-16-le"
+UTF16_BE = "utf-16-be"
+UTF16_BE_BOM = "utf-16-be-bom"
+# El juego lee bytes sueltos: con estas los textos le llegan llenos de NUL.
+GAME_UNREADABLE = frozenset({UTF16, UTF16_LE, UTF16_BE, UTF16_BE_BOM})
+BOM = "\ufeff"
+# Lo que ve el juego (y lo que queda en el texto) cuando un BOM UTF-8 precede a texto cp1252.
+STRAY_BOM = codecs.BOM_UTF8.decode("latin-1")
+# Codecs que dejan el BOM en el texto como U+FEFF -> el que lo quita al leer y lo vuelve a escribir.
+_WITH_BOM = {UTF8: UTF8_BOM, UTF16_LE: UTF16, UTF16_BE: UTF16_BE_BOM}
+# Codificaciones que quitan su BOM al leer y lo vuelven a escribir delante.
+BOM_ENCODINGS = frozenset(_WITH_BOM.values())
 
 _CP1252_UNDEFINED = frozenset((0x81, 0x8D, 0x8F, 0x90, 0x9D))
 _ERROR_HANDLER = "vic2-cp1252-passthrough"
+# Bytes que se miran para reconocer UTF-16 sin BOM, y proporción de NUL exigida en
+# los bytes altos (los textos del juego son latinos: casi todos los caracteres < U+0100).
+_UTF16_SAMPLE = 4096
+_UTF16_MIN_NUL = 0.75
+_UTF16_MAX_NUL_LOW = 0.1
 
 
 def _passthrough(error: UnicodeError):
@@ -36,6 +78,94 @@ def _passthrough(error: UnicodeError):
 
 
 codecs.register_error(_ERROR_HANDLER, _passthrough)
+
+
+# --- codec ``utf-16-be-bom``: UTF-16 big-endian con BOM, como ``utf-8-sig`` -----------------
+# Al leer quita el BOM si lo hay (sin él, lee big-endian); al escribir lo pone delante.
+
+def _be_bom_encode(text: str, errors: str = "strict") -> tuple[bytes, int]:
+    return codecs.BOM_UTF16_BE + codecs.utf_16_be_encode(text, errors)[0], len(text)
+
+
+def _be_bom_decode(data, errors: str = "strict", final: bool = True) -> tuple[str, int]:
+    skip = 2 if bytes(data[:2]) == codecs.BOM_UTF16_BE else 0
+    text, consumed = codecs.utf_16_be_decode(data[skip:], errors, final)
+    return text, consumed + skip
+
+
+class _BeBomIncrementalEncoder(codecs.IncrementalEncoder):
+    def __init__(self, errors: str = "strict"):
+        super().__init__(errors)
+        self.first = 1
+
+    def encode(self, text: str, final: bool = False) -> bytes:
+        if self.first:
+            self.first = 0
+            return _be_bom_encode(text, self.errors)[0]
+        return codecs.utf_16_be_encode(text, self.errors)[0]
+
+    def reset(self) -> None:
+        self.first = 1
+
+    def getstate(self) -> int:
+        return self.first
+
+    def setstate(self, state: int) -> None:
+        self.first = state
+
+
+class _BeBomIncrementalDecoder(codecs.BufferedIncrementalDecoder):
+    def __init__(self, errors: str = "strict"):
+        super().__init__(errors)
+        self.first = 1
+
+    def _buffer_decode(self, data, errors: str, final: bool) -> tuple[str, int]:
+        if not self.first:
+            return codecs.utf_16_be_decode(data, errors, final)
+        if len(data) < 2 and not final:
+            return "", 0  # aún no se sabe si empieza por el BOM
+        self.first = 0
+        return _be_bom_decode(data, errors, final)
+
+    def reset(self) -> None:
+        super().reset()
+        self.first = 1
+
+    def getstate(self) -> tuple[bytes, int]:
+        return self.buffer, self.first
+
+    def setstate(self, state: tuple[bytes, int]) -> None:
+        self.buffer, self.first = state
+
+
+class _BeBomStreamWriter(codecs.StreamWriter):
+    def encode(self, text: str, errors: str = "strict") -> tuple[bytes, int]:
+        self.encode = codecs.utf_16_be_encode  # el BOM, solo en la primera escritura
+        return _be_bom_encode(text, errors)
+
+    def reset(self) -> None:
+        super().reset()
+        self.__dict__.pop("encode", None)
+
+
+class _BeBomStreamReader(codecs.StreamReader):
+    def decode(self, data, errors: str = "strict") -> tuple[str, int]:
+        if len(data) < 2:
+            return "", 0
+        self.decode = codecs.utf_16_be_decode
+        return _be_bom_decode(data, errors, False)
+
+    def reset(self) -> None:
+        super().reset()
+        self.__dict__.pop("decode", None)
+
+
+_BE_BOM_CODEC = codecs.CodecInfo(
+    _be_bom_encode, _be_bom_decode, _BeBomStreamReader, _BeBomStreamWriter,
+    _BeBomIncrementalEncoder, _BeBomIncrementalDecoder, name=UTF16_BE_BOM,
+)
+# ``codecs.lookup`` pasa el nombre en minúsculas y con "_" en lugar de "-" y espacios.
+codecs.register(lambda name: _BE_BOM_CODEC if name == UTF16_BE_BOM.replace("-", "_") else None)
 
 
 class UnencodableTextError(ValueError):
@@ -56,36 +186,129 @@ class UnencodableTextError(ValueError):
 class DecodedText:
     text: str
     encoding: str
+    # Huella de los bytes leídos (``fileio.read_text``); ``None`` si no vienen de un archivo.
+    stamp: FileStamp | None = None
 
 
-def _normalize(encoding: str) -> str:
-    return codecs.lookup(encoding).name
+def normalize_encoding(encoding: str) -> str:
+    """Nombre canónico de ``encoding``; ``LookupError`` si no existe o no es de texto (base64, rot13...)."""
+    info = codecs.lookup(encoding)
+    if not getattr(info, "_is_text_encoding", True):
+        raise LookupError(f"{encoding!r} no es una codificación de texto")
+    return info.name
 
 
-def decode_bytes(data: bytes, encoding: str | None = None) -> DecodedText:
-    """Decodifica bytes de un archivo del juego.
+def has_stray_bom(text: str, encoding: str) -> bool:
+    """True si el texto, leído como cp1252, empieza por los bytes de un BOM UTF-8."""
+    return encoding == GAME_ENCODING and text.startswith(STRAY_BOM)
 
-    Sin ``encoding`` explícita: BOM UTF-8 -> ``utf-8-sig``; si no es ASCII y es
-    UTF-8 válido -> ``utf-8``; en cualquier otro caso -> ``cp1252`` sin pérdidas.
+
+def split_bom(text: str, encoding: str) -> tuple[str, str]:
+    """(texto, codificación) sin el U+FEFF inicial que ``encoding`` deja en el texto al leer un BOM.
+
+    ``utf-8`` pasa a ``utf-8-sig``, ``utf-16-le`` a ``utf-16`` y ``utf-16-be`` a
+    ``utf-16-be-bom``, que lo vuelven a escribir: codificar el resultado da los
+    mismos bytes. Con las demás no cambia nada (la codificación sale normalizada):
+    tras ``utf-8-sig`` o ``utf-16`` un U+FEFF inicial es un BOM repetido
+    (``split_extra_boms``).
+    """
+    name = normalize_encoding(encoding)
+    if text.startswith(BOM) and name in _WITH_BOM:
+        return text[1:], _WITH_BOM[name]
+    return text, name
+
+
+def split_extra_boms(text: str, encoding: str) -> tuple[str, int]:
+    """(texto, n) sin los ``n`` U+FEFF iniciales que deja un BOM repetido tras el de ``encoding``.
+
+    Solo con las de ``BOM_ENCODINGS``, que los pueden volver a escribir:
+    ``encode_text(BOM * n + texto, encoding)`` da los mismos bytes. Con las demás
+    un U+FEFF inicial es contenido y ``n`` es 0.
+    """
+    if normalize_encoding(encoding) not in BOM_ENCODINGS:
+        return text, 0
+    body = text.lstrip(BOM)
+    return body, len(text) - len(body)
+
+
+def _decode(data: bytes, name: str, partial: bool) -> str:
+    errors = _ERROR_HANDLER if name == GAME_ENCODING else "strict"
+    if partial:
+        return codecs.getincrementaldecoder(name)(errors).decode(data, final=False)
+    return data.decode(name, errors)
+
+
+def _utf16_without_bom(data: bytes, partial: bool) -> str | None:
+    """Codificación UTF-16 de ``data`` sin BOM por la proporción de NUL alternos, o ``None``."""
+    if len(data) < 4 or (len(data) % 2 and not partial):
+        return None
+    sample = data[:_UTF16_SAMPLE]
+    pairs = len(sample) // 2
+    even, odd = sample[0:pairs * 2:2].count(0), sample[1:pairs * 2:2].count(0)
+    for name, high, low in ((UTF16_LE, odd, even), (UTF16_BE, even, odd)):
+        if high >= pairs * _UTF16_MIN_NUL and low <= pairs * _UTF16_MAX_NUL_LOW:
+            try:
+                _decode(data, name, partial)
+            except UnicodeDecodeError:
+                return None
+            return name
+    return None
+
+
+def decode_bytes(data: bytes, encoding: str | None = None, *, partial: bool = False) -> DecodedText:
+    """Decodifica bytes de un archivo del juego; sin ``encoding``, la detecta (ver el docstring del módulo).
+
+    Nunca falla al detectar. Con ``partial`` los bytes son solo el principio de un
+    archivo (una vista previa): una secuencia multibyte cortada al final se
+    descarta en vez de cambiar la detección, así que el texto no vuelve a dar
+    exactamente esos bytes.
     """
     if encoding is not None:
-        name = _normalize(encoding)
-        if name == GAME_ENCODING:
-            return DecodedText(data.decode(GAME_ENCODING, _ERROR_HANDLER), GAME_ENCODING)
-        return DecodedText(data.decode(name), name)
-    if data.startswith(codecs.BOM_UTF8):
-        return DecodedText(data.decode(UTF8_BOM), UTF8_BOM)
-    if not data.isascii():
+        name = normalize_encoding(encoding)
+        return DecodedText(_decode(data, name, partial), name)
+    if data.startswith(codecs.BOM_UTF16_LE):
         try:
-            return DecodedText(data.decode(UTF8), UTF8)
+            return DecodedText(_decode(data[2:], UTF16_LE, partial), UTF16)
         except UnicodeDecodeError:
             pass
-    return DecodedText(data.decode(GAME_ENCODING, _ERROR_HANDLER), GAME_ENCODING)
+    elif data.startswith(codecs.BOM_UTF16_BE):
+        try:
+            return DecodedText(_decode(data[2:], UTF16_BE, partial), UTF16_BE_BOM)
+        except UnicodeDecodeError:
+            pass
+    elif data.startswith(codecs.BOM_UTF8):
+        try:
+            return DecodedText(_decode(data, UTF8_BOM, partial), UTF8_BOM)
+        except UnicodeDecodeError:
+            pass  # BOM seguido de cp1252: el BOM queda en el texto como STRAY_BOM
+    elif not data.isascii():
+        try:
+            text = _decode(data, UTF8, partial)
+        except UnicodeDecodeError:
+            pass
+        else:
+            # Si solo el final cortado no era ASCII, no hay pruebas de UTF-8 (puede ser un "é" cp1252).
+            if not text.isascii():
+                return DecodedText(text, UTF8)
+    if 0 in data:
+        utf16 = _utf16_without_bom(data, partial)
+        if utf16 is not None:
+            return DecodedText(_decode(data, utf16, partial), utf16)
+    return DecodedText(_decode(data, GAME_ENCODING, partial), GAME_ENCODING)
+
+
+def _encoder(name: str):
+    if name == GAME_ENCODING:
+        return lambda text: text.encode(GAME_ENCODING, _ERROR_HANDLER)
+    if name == UTF16:
+        # Siempre little-endian con BOM, como en Windows, sea cual sea el orden de esta máquina.
+        return lambda text: codecs.BOM_UTF16_LE + text.encode(UTF16_LE)
+    return lambda text: text.encode(name)
 
 
 def find_unencodable(text: str, encoding: str = GAME_ENCODING) -> list[tuple[int, int, int, str]]:
     """Devuelve (índice, línea, columna, carácter) de cada carácter no codificable."""
-    name = _normalize(encoding)
+    encode = _encoder(normalize_encoding(encoding))
     problems = []
     line, line_start = 1, 0
     for index, char in enumerate(text):
@@ -95,10 +318,7 @@ def find_unencodable(text: str, encoding: str = GAME_ENCODING) -> list[tuple[int
         if char.isascii():
             continue
         try:
-            if name == GAME_ENCODING:
-                char.encode(GAME_ENCODING, _ERROR_HANDLER)
-            else:
-                char.encode(name)
+            encode(char)
         except UnicodeEncodeError:
             problems.append((index, line, index - line_start + 1, char))
     return problems
@@ -106,17 +326,24 @@ def find_unencodable(text: str, encoding: str = GAME_ENCODING) -> list[tuple[int
 
 def encode_text(text: str, encoding: str = GAME_ENCODING) -> bytes:
     """Codifica texto; lanza ``UnencodableTextError`` con posiciones si no es posible."""
-    name = _normalize(encoding)
+    name = normalize_encoding(encoding)
     try:
-        if name == GAME_ENCODING:
-            return text.encode(GAME_ENCODING, _ERROR_HANDLER)
-        return text.encode(name)
+        return _encoder(name)(text)
     except UnicodeEncodeError:
         raise UnencodableTextError(name, find_unencodable(text, name)) from None
 
 
-def detect_newline(text: str) -> str:
-    """Estilo de salto de línea predominante: ``"\\r\\n"`` o ``"\\n"``."""
+def detect_newline(text: str, *, lone_cr: bool = True) -> str:
+    """Salto de línea predominante: ``"\\r\\n"``, ``"\\n"`` o ``"\\r"``; sin saltos, ``"\\n"``.
+
+    Solo CR es el salto de algunos archivos vanilla (``map/region_sea.txt``). Con
+    ``lone_cr=False`` un CR suelto no cuenta como salto (el CSV del juego solo
+    parte las filas en LF) y el resultado es ``"\\r\\n"`` o ``"\\n"``.
+    """
     crlf = text.count("\r\n")
     lf = text.count("\n") - crlf
+    if lone_cr:
+        cr = text.count("\r") - crlf
+        if cr > crlf and cr > lf:
+            return "\r"
     return "\r\n" if crlf > lf else "\n"

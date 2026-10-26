@@ -3,23 +3,22 @@
     python -m vic2studio.core.clausewitz check RUTA... [--lang es|en]
     python -m vic2studio.core.clausewitz tojson ARCHIVO [--comments] [--lang es|en]
 
-``check`` recorre archivos y carpetas e imprime un diagnóstico por línea
+``check`` recorre archivos y carpetas (los de ``CLAUSEWITZ_SUFFIXES``, también
+``map/default.map``) e imprime un diagnóstico por línea
 (``archivo:línea:columna: severidad: mensaje``); sale con 1 si hay errores.
-``tojson`` imprime el árbol como JSON (diagnósticos por stderr).
+``tojson`` imprime el árbol como JSON, a cualquier profundidad (diagnósticos por
+stderr).
 """
 
 from __future__ import annotations
 
 import argparse
-import json
 import sys
 from pathlib import Path
 
 from .diagnostics import Severity
-from .json_bridge import to_json
-from .parser import parse_file
-
-SUFFIXES = (".txt", ".mod", ".gfx", ".gui", ".sfx", ".asset")
+from .json_bridge import iter_json, to_json
+from .parser import CLAUSEWITZ_SUFFIXES, parse_file
 
 _TEXTS = {
     "es": {
@@ -37,7 +36,7 @@ def _iter_files(paths):
     for raw in paths:
         path = Path(raw)
         if path.is_dir():
-            yield from sorted(p for p in path.rglob("*") if p.is_file() and p.suffix.lower() in SUFFIXES)
+            yield from sorted(p for p in path.rglob("*") if p.is_file() and p.suffix.lower() in CLAUSEWITZ_SUFFIXES)
         else:
             yield path
 
@@ -72,8 +71,10 @@ def _tojson(args) -> int:
         return 1
     for diagnostic in result.diagnostics:
         print(diagnostic.format(args.file, args.lang), file=sys.stderr)
-    json.dump(to_json(result.document, include_comments=args.comments), sys.stdout, ensure_ascii=False, indent=2)
-    sys.stdout.write("\n")
+    write = sys.stdout.write
+    for chunk in iter_json(to_json(result.document, include_comments=args.comments)):
+        write(chunk)
+    write("\n")
     return 0 if result.ok else 1
 
 

@@ -1,14 +1,23 @@
 """Panel «Validar mod»: recorre el mod en segundo plano y lista todos sus diagnósticos.
 
-La validación (``core.modcheck.check_mod``) corre en un hilo con progreso y se
-puede cancelar. Doble clic (o Intro) en una fila emite ``issue_activated`` para
-abrir el archivo en esa línea.
+La validación (``core.modcheck.check_mod``) corre en su propio grupo de hilos con
+progreso: primero la carpeta que explora y después el archivo que analiza. La
+tarea entrega también las filas de la tabla ya construidas, para que mostrar
+decenas de miles de diagnósticos no pare la interfaz.
+«Cancelar» (o cambiar de mod) le pide que pare, y el núcleo lo hace también a
+mitad de la exploración o de un archivo. Doble clic (o Intro) en una fila emite
+``issue_activated`` para abrir el archivo en esa línea.
+
+``busy_changed`` se emite al empezar (con la tarea ya en marcha) y al terminar,
+fallar o cancelarse; ``validation_cancelled`` y ``validation_failed(mensaje)``
+dicen además cómo acabó si no terminó.
 """
 
 from __future__ import annotations
 
 import html
 import os
+from dataclasses import dataclass
 from pathlib import Path
 
 from PySide6.QtCore import QSize, Qt, QTimer, Signal
@@ -27,7 +36,7 @@ from PySide6.QtWidgets import (
 from ...core.modcheck import ModCheckReport, check_mod
 from ...i18n import N_, tr
 from .. import theme
-from ..tasks import TaskRunner
+from ..tasks import POOL_VALIDATION, TaskRunner
 from ..widgets import EmptyState, make_icon, mark_data, show_in_stack
 from .common import ERROR, INFO, WARNING, format_number, format_seconds
 from .diagnostics import COL_FILE, COL_LINE, COL_MESSAGE, COL_SEVERITY, DiagnosticRow, DiagnosticsModel, \
@@ -48,19 +57,38 @@ def issue_rows(report: ModCheckReport) -> list[DiagnosticRow]:
                           issue.relative) for issue in report.issues]
 
 
+@dataclass
+class ValidationResult:
+    """Lo que entrega la tarea: el informe y sus filas, construidas en el hilo de la tarea.
+
+    El panel lo guarda entero mientras muestra sus partes (``ui.tasks`` vigila los resultados grandes).
+    """
+
+    report: ModCheckReport
+    rows: list[DiagnosticRow]
+
+
+def validate(root: Path, extra_files=(), progress=None, cancelled=None) -> ValidationResult:
+    """``check_mod`` y las filas de su tabla (se ejecuta en un hilo)."""
+    report = check_mod(root, extra_files=extra_files, progress=progress, cancelled=cancelled)
+    return ValidationResult(report, issue_rows(report))
+
+
 class ValidationPanel(QWidget):
     issue_activated = Signal(object)  # DiagnosticRow (path, line, column)
     validation_finished = Signal(object)  # ModCheckReport
     run_requested = Signal()
     busy_changed = Signal(bool)
+    validation_cancelled = Signal()
+    validation_failed = Signal(str)  # mensaje de la excepción
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
         self.setObjectName("validationPanel")
-        self._report: ModCheckReport | None = None
+        self._result: ValidationResult | None = None
         self._progress: tuple[int, int, str] = (0, 0, "")
         self._failure: str | None = None
-        self._runner = TaskRunner(self)
+        self._runner = TaskRunner(self, pool=POOL_VALIDATION)
         self._runner.progress.connect(self._on_progress)
         self._runner.finished.connect(self._on_finished)
         self._runner.failed.connect(self._on_failed)
@@ -118,6 +146,7 @@ class ValidationPanel(QWidget):
         filters.setSpacing(6)
         self.severity_combo = QComboBox()
         self.severity_combo.setObjectName("validationSeverity")
+        self.severity_combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToContents)
         for data, _, _ in SEVERITY_FILTERS:
             self.severity_combo.addItem("", data)
         self.severity_combo.currentIndexChanged.connect(self._apply_filter)
@@ -157,33 +186,35 @@ class ValidationPanel(QWidget):
     def start(self, root: str | os.PathLike, extra_files=()) -> None:
         root = Path(root)
         extra = [Path(p) for p in extra_files]
-        self._report = None
+        self._result = None
         self._failure = None
         self._progress = (0, 0, "")
         self.progress_bar.setRange(0, 0)
+        self.current_file.clear()
         show_in_stack(self.stack, self.running)
         self.retranslate()
-        self.busy_changed.emit(True)
 
         def run(ctx):
             def progress(done: int, total: int, relative: str) -> None:
                 ctx.report((done, total, relative), force=done == total)
-            return check_mod(root, extra_files=extra, progress=progress, cancelled=ctx.cancelled)
+            return validate(root, extra, progress=progress, cancelled=ctx.cancelled)
 
         self._runner.start(run)
+        self.busy_changed.emit(True)
 
     def cancel(self) -> None:
         if self._runner.is_busy():
             self._runner.cancel()
-            self._report = None
+            self._result = None
             show_in_stack(self.stack, self.empty)
             self.retranslate()
             self.busy_changed.emit(False)
+            self.validation_cancelled.emit()
 
     def clear(self) -> None:
         busy = self._runner.is_busy()
         self._runner.cancel()
-        self._report = None
+        self._result = None
         self._failure = None
         self.model.set_rows([])
         show_in_stack(self.stack, self.empty)
@@ -195,7 +226,7 @@ class ValidationPanel(QWidget):
         return self._runner.is_busy()
 
     def report(self) -> ModCheckReport | None:
-        return self._report
+        return self._result.report if self._result is not None else None
 
     def set_run_enabled(self, enabled: bool) -> None:
         self.run_button.setEnabled(enabled)
@@ -216,9 +247,10 @@ class ValidationPanel(QWidget):
         self.current_file.setText(relative)
         self._retranslate_running()
 
-    def _on_finished(self, report: ModCheckReport) -> None:
-        self._report = report
-        self.model.set_rows(issue_rows(report))
+    def _on_finished(self, result: ValidationResult) -> None:
+        self._result = result
+        report = result.report
+        self.model.set_rows(result.rows)
         self._apply_filter()
         show_in_stack(self.results_stack, self.view if report.issues else self.clean)
         show_in_stack(self.stack, self.results)
@@ -231,6 +263,7 @@ class ValidationPanel(QWidget):
         show_in_stack(self.stack, self.empty)
         self.retranslate()
         self.busy_changed.emit(False)
+        self.validation_failed.emit(self._failure)
 
     def _apply_filter(self, *args) -> None:
         self._filter_timer.stop()
@@ -239,13 +272,15 @@ class ValidationPanel(QWidget):
         self._retranslate_summary()
 
     def _retranslate_running(self) -> None:
-        done, total, _ = self._progress
-        self.running_title.setText(tr("validation.running"))
+        done, total, relative = self._progress
+        # Sin total todavía, ``relative`` es la carpeta que se explora en busca de archivos.
+        scanning = total == 0 and bool(relative)
+        self.running_title.setText(tr("validation.scanning" if scanning else "validation.running"))
         self.progress_bar.setFormat(tr("validation.progress", done=format_number(done), total=format_number(total))
                                     if total else "")
 
     def _retranslate_summary(self) -> None:
-        report = self._report
+        report = self.report()
         if report is None:
             self.summary.setText("")
             return
@@ -275,7 +310,8 @@ class ValidationPanel(QWidget):
         self.severity_combo.setToolTip(tr("validation.filter_tooltip"))
         self.filter_edit.setPlaceholderText(tr("validation.filter_placeholder"))
         self.filter_edit.setToolTip(tr("validation.filter_text_tooltip"))
-        files = format_number(self._report.files) if self._report else "0"
+        report = self.report()
+        files = format_number(report.files) if report is not None else "0"
         self.clean.set_texts(tr("validation.clean_title"), tr("validation.clean_text", files=files))
         self.hint.setText(tr("validation.hint"))
         self.view.setToolTip(tr("validation.hint"))  # el resumen se añade al terminar

@@ -22,7 +22,7 @@ from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 FIXTURE_ROOT = PROJECT_ROOT / "tests" / "fixtures" / "shago_mod_min"
-CLAUSEWITZ_SUFFIXES = {".txt", ".mod", ".gfx", ".gui", ".sfx", ".asset"}
+CLAUSEWITZ_SUFFIXES = {".txt", ".mod", ".gfx", ".gui", ".sfx", ".asset", ".map"}  # map/default.map también
 USER_MOD_NAME = "VSM"
 # Diario de desarrollo en prosa que Paradox dejó en history/units; solo está en el mod completo.
 DEV_DIARY = "history/units/v2dd2.txt"

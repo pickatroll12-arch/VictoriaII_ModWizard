@@ -2,17 +2,16 @@
 
 from __future__ import annotations
 
-import codecs
 import os
 from pathlib import Path
 from typing import Any, Mapping
 
 from ..cancel import CancelCheck, raise_if_cancelled
-from ..encoding import GAME_ENCODING, UTF8, UTF8_BOM, detect_newline, encode_text
-from ..fileio import atomic_write_bytes, read_text
+from ..encoding import BOM, BOM_ENCODINGS, GAME_ENCODING, UTF8, detect_newline, encode_text, normalize_encoding, \
+    split_bom, split_extra_boms
+from ..fileio import FileStamp, atomic_write_bytes, read_text
 from .model import COMMENT_PREFIX, DEFAULT_NEWLINE, SEPARATOR, LocalisationFile, LocRow, RowKind
 
-_BOM = "﻿"
 _NEWLINES = ("\r\n", "\n")
 
 
@@ -20,14 +19,18 @@ def parse_csv(text: str, *, filename: str | os.PathLike | None = None,
               encoding: str | None = None, cancelled: CancelCheck = None) -> LocalisationFile:
     """Convierte el texto de un CSV en un ``LocalisationFile`` sin perder nada.
 
-    Un BOM inicial se quita del texto y se recuerda como codificación
-    ``utf-8-sig``. Sin saltos de línea en el texto se asume CRLF (el de vanilla).
-    Si ``cancelled()`` devuelve True lanza ``core.cancel.Cancelled``.
+    Un U+FEFF inicial que la codificación deja en el texto (el BOM de ``utf-8``,
+    ``utf-16-le`` o ``utf-16-be``; sin ``encoding``, el de UTF-8) se quita y se
+    recuerda en ella (``encoding.split_bom``: ``utf-8-sig``...); los U+FEFF que
+    siguen, un BOM repetido, van a ``extra_boms`` y no a la primera clave. Las
+    filas se separan solo en LF (con o sin CR delante); un CR suelto es
+    contenido. Sin saltos de línea en el texto se asume CRLF (el de vanilla). Si
+    ``cancelled()`` devuelve True lanza ``core.cancel.Cancelled``.
     """
-    if text.startswith(_BOM) and (encoding is None or codecs.lookup(encoding).name in (UTF8, UTF8_BOM)):
-        text, encoding = text[1:], UTF8_BOM
-    encoding = codecs.lookup(encoding).name if encoding else GAME_ENCODING
-    newline = detect_newline(text) if "\n" in text else DEFAULT_NEWLINE
+    encoding = encoding or (UTF8 if text.startswith(BOM) else GAME_ENCODING)
+    text, encoding = split_bom(text, encoding)
+    text, extra_boms = split_extra_boms(text, encoding)
+    newline = detect_newline(text, lone_cr=False) if "\n" in text else DEFAULT_NEWLINE
     pieces = text.split("\n")
     trailing_newline = pieces[-1] == ""
     if trailing_newline:
@@ -53,17 +56,19 @@ def parse_csv(text: str, *, filename: str | os.PathLike | None = None,
             row = LocRow(data, parts[0], parts[1:], line=index + 1, raw=line, newline=override)
         rows.append(row)
     file = LocalisationFile(rows, encoding=encoding, newline=newline,
-                            trailing_newline=trailing_newline, path=filename)
-    raise_if_cancelled(cancelled)
-    file.diagnostics = file.lint()
+                            trailing_newline=trailing_newline, path=filename, extra_boms=extra_boms)
+    file.diagnostics = file.lint(cancelled=cancelled)
     return file
 
 
 def read_csv_file(path: str | os.PathLike, *, encoding: str | None = None,
                   cancelled: CancelCheck = None) -> LocalisationFile:
-    """Lee un CSV detectando la codificación (ver ``core.encoding.decode_bytes``)."""
+    """Lee un CSV detectando la codificación (ver ``core.encoding.decode_bytes``) y guarda su huella."""
+    raise_if_cancelled(cancelled)
     decoded = read_text(path, encoding)
-    return parse_csv(decoded.text, filename=path, encoding=decoded.encoding, cancelled=cancelled)
+    file = parse_csv(decoded.text, filename=path, encoding=decoded.encoding, cancelled=cancelled)
+    file.stamp = decoded.stamp
+    return file
 
 
 def to_source(file: LocalisationFile) -> str:
@@ -71,25 +76,44 @@ def to_source(file: LocalisationFile) -> str:
     return file.to_source()
 
 
+def _same_file(a: Path, b: Path) -> bool:
+    return os.path.normcase(os.path.realpath(a)) == os.path.normcase(os.path.realpath(b))
+
+
 def write_csv_file(path: str | os.PathLike, file: LocalisationFile, *,
-                   encoding: str | None = None, backup: bool = True) -> Path | None:
+                   encoding: str | None = None, backup: bool = True, force: bool = False) -> Path | None:
     """Codifica y escribe de forma atómica; devuelve la ruta de la copia ``.bak`` si se hizo.
 
-    Lanza ``UnencodableTextError`` antes de tocar el disco si algún carácter no
-    cabe en la codificación (por defecto la del archivo).
+    Lanza, antes de tocar el disco, ``UnencodableTextError`` si algún carácter
+    no cabe en la codificación (por defecto la del archivo) y
+    ``core.fileio.FileChangedError`` si se guarda sobre el archivo leído y este
+    ha cambiado fuera de la aplicación desde que se leyó o guardó (``force``
+    sobrescribe de todos modos). Los BOM repetidos (``extra_boms``) solo se
+    conservan al guardar en la misma codificación, si es de las que llevan BOM.
     """
-    target = codecs.lookup(encoding or file.encoding).name
-    data = encode_text(file.to_source(), target)
-    backup_path = atomic_write_bytes(path, data, backup=backup)
-    file.path = Path(path)
+    path = Path(path)
+    target = normalize_encoding(encoding or file.encoding)
+    text = file.to_source()
+    extra_boms = file.extra_boms
+    if extra_boms and (target != normalize_encoding(file.encoding) or target not in BOM_ENCODINGS):
+        text, extra_boms = text[extra_boms:], 0
+    data = encode_text(text, target)
+    expected = None
+    if not force and file.stamp is not None and file.path is not None and _same_file(path, file.path):
+        expected = file.stamp
+    backup_path = atomic_write_bytes(path, data, backup=backup, expected=expected)
+    file.path = path
     file.encoding = target
+    file.extra_boms = extra_boms
+    file.stamp = FileStamp.of(data)
     file.mark_saved()
     file.diagnostics = file.lint()
     return backup_path
 
 
 def to_json(file: LocalisationFile) -> dict[str, Any]:
-    """Representación JSON. Una fila lleva ``newline`` solo si su salto difiere del del archivo."""
+    """Representación JSON. Una fila lleva ``newline`` solo si su salto difiere del del archivo, y el
+    archivo ``extra_boms`` solo si tiene BOM repetidos."""
     rows = []
     for row in file.rows:
         if row.kind is RowKind.DATA:
@@ -103,12 +127,15 @@ def to_json(file: LocalisationFile) -> dict[str, Any]:
         if row.newline is not None:
             item["newline"] = row.newline
         rows.append(item)
-    return {
+    obj: dict[str, Any] = {
         "encoding": file.encoding,
         "newline": file.newline,
         "trailing_newline": file.trailing_newline,
-        "rows": rows,
     }
+    if file.extra_boms:
+        obj["extra_boms"] = file.extra_boms
+    obj["rows"] = rows
+    return obj
 
 
 def _expect(condition: bool, message: str) -> None:
@@ -129,13 +156,16 @@ def from_json(obj: Mapping[str, Any]) -> LocalisationFile:
     encoding = obj.get("encoding", GAME_ENCODING)
     _expect(isinstance(encoding, str), "encoding debe ser una cadena")
     try:
-        encoding = codecs.lookup(encoding).name
+        encoding = normalize_encoding(encoding)
     except LookupError:
-        raise ValueError(f"JSON de localización no válido: codificación desconocida {encoding!r}") from None
+        raise ValueError(f"JSON de localización no válido: codificación de texto desconocida {encoding!r}") from None
     newline = obj.get("newline", DEFAULT_NEWLINE)
     _expect(newline in _NEWLINES, "newline debe ser '\\r\\n' o '\\n'")
     trailing = obj.get("trailing_newline", True)
     _expect(isinstance(trailing, bool), "trailing_newline debe ser booleano")
+    extra_boms = obj.get("extra_boms", 0)
+    _expect(type(extra_boms) is int and extra_boms >= 0, "extra_boms debe ser un entero no negativo")
+    _expect(not extra_boms or encoding in BOM_ENCODINGS, f"extra_boms exige una codificación con BOM, no {encoding}")
     items = obj.get("rows", [])
     _expect(isinstance(items, list), "rows debe ser una lista")
     rows = []
@@ -167,10 +197,14 @@ def from_json(obj: Mapping[str, Any]) -> LocalisationFile:
         row.newline = row_newline
         if row.kind is RowKind.DATA:
             row.raw = row.to_line()
-        # Un "\r" final se fundiría con el salto al volver a leer el archivo.
+        # Con un salto LF, un "\r" final se fundiría con él al volver a leer el archivo
+        # (con CRLF no: "x\r\r\n" se lee como "x\r" más CRLF).
         terminated = number < len(items) or trailing
-        _expect(not (terminated and row.to_line().endswith("\r")), f"{where}: termina en '\\r'")
+        effective = row_newline or newline
+        _expect(not (terminated and effective == "\n" and row.to_line().endswith("\r")),
+                f"{where}: termina en '\\r' y su salto es LF")
         rows.append(row)
-    file = LocalisationFile(rows, encoding=encoding, newline=newline, trailing_newline=trailing)
+    file = LocalisationFile(rows, encoding=encoding, newline=newline, trailing_newline=trailing,
+                            extra_boms=extra_boms)
     file.diagnostics = file.lint()
     return file

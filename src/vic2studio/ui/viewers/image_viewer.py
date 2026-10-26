@@ -1,8 +1,12 @@
-"""Vista previa de imágenes (TGA, DDS, BMP, PNG, JPG) decodificadas con Pillow en segundo plano.
+"""Vista previa de imágenes (TGA, DDS, BMP, PNG, JPG, GIF) decodificadas con Pillow en segundo plano.
 
 Pillow se usa también para formatos que Qt lee, porque con archivos dañados
 falla limpiamente en vez de llenar el registro de avisos. ``QImage`` (no
-``QPixmap``) puede crearse fuera del hilo de la interfaz.
+``QPixmap``) puede crearse fuera del hilo de la interfaz. Volver a seleccionar
+una imagen (o ``reload_if_changed``) la recarga si cambió en disco desde que se
+mostró (fecha o tamaño). Si el archivo ni siquiera se puede leer (permiso, borrado),
+se explica como en el visor Clausewitz y no como un fallo de Pillow, y se reintenta
+siempre.
 """
 
 from __future__ import annotations
@@ -27,13 +31,14 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from ...core.cancel import CancelCheck, Cancelled, raise_if_cancelled
 from ...i18n import tr
 from .. import theme
-from ..tasks import TaskRunner
+from ..tasks import POOL_IMAGES, TaskRunner
 from ..widgets import EmptyState, show_in_stack
-from .common import ViewerHeader, format_size
+from .common import ViewerHeader, describe_os_error, file_stamp, format_size
 
-IMAGE_SUFFIXES = frozenset({".tga", ".dds", ".bmp", ".png", ".jpg", ".jpeg"})
+IMAGE_SUFFIXES = frozenset({".tga", ".dds", ".bmp", ".png", ".jpg", ".jpeg", ".gif"})
 MAX_DISPLAY_SIDE = 8192   # las imágenes mayores se reducen para mostrarlas
 MAX_UPSCALE = 6.0         # «Ajustar» amplía como mucho 6×, sin suavizar (píxeles nítidos)
 CHECKER = 10
@@ -49,6 +54,7 @@ class ImageLoad:
     format: str
     size: int
     reduced: bool
+    mtime_ns: int = 0  # con ``size``, permite saber si el archivo cambió desde que se cargó
 
 
 class ImageLoadError(Exception):
@@ -57,35 +63,54 @@ class ImageLoadError(Exception):
 
 @dataclass
 class ImageFailure:
-    """Resultado de una carga fallida esperable (archivo dañado o formato no admitido)."""
+    """Resultado de una carga fallida esperable: archivo dañado o formato no admitido, o que no se
+    pudo leer (``error``, la excepción: ``describe_os_error`` la explica en el idioma de cada momento)."""
 
     path: Path
     message: str
+    stamp: tuple[int, int] | None = None  # ``file_stamp`` antes de intentarlo
+    error: OSError | None = None
 
 
-def try_load_image(path: str | os.PathLike) -> ImageLoad | ImageFailure:
+def try_load_image(path: str | os.PathLike, *, cancelled: CancelCheck = None) -> ImageLoad | ImageFailure:
+    stamp = file_stamp(path)
     try:
-        return load_image(path)
-    except (ImageLoadError, OSError) as exc:
-        return ImageFailure(Path(path), str(exc))
+        return load_image(path, cancelled=cancelled)
+    except ImageLoadError as exc:
+        return ImageFailure(Path(path), str(exc), stamp)
+    except OSError as exc:
+        return ImageFailure(Path(path), str(exc), stamp, exc)
 
 
-def load_image(path: str | os.PathLike) -> ImageLoad:
+def load_image(path: str | os.PathLike, *, cancelled: CancelCheck = None) -> ImageLoad:
+    """Decodifica ``path``; si ``cancelled()`` ya es True tras leer la cabecera, lanza ``Cancelled``.
+
+    Un archivo que no se puede abrir lanza su ``OSError``; lo que falle después es de Pillow (``ImageLoadError``).
+    """
     path = Path(path)
-    try:
-        with Image.open(path) as im:
-            width, height = im.size
-            mode, fmt = im.mode, im.format or path.suffix[1:].upper()
-            im.load()
-            reduced = max(width, height) > MAX_DISPLAY_SIDE
-            if reduced:
-                im.thumbnail((MAX_DISPLAY_SIDE, MAX_DISPLAY_SIDE))
-            rgba = im.convert("RGBA")
-    except Exception as exc:  # noqa: BLE001 - cualquier fallo de Pillow se muestra como mensaje amable
-        raise ImageLoadError(f"{type(exc).__name__}: {exc}") from exc
+    stat = path.stat()
+    with open(path, "rb") as file:
+        try:
+            with Image.open(file) as im:
+                width, height = im.size
+                mode, fmt = im.mode, im.format or path.suffix[1:].upper()
+                raise_if_cancelled(cancelled)  # antes de decodificar, que es lo que tarda
+                im.load()
+                reduced = max(width, height) > MAX_DISPLAY_SIDE
+                if reduced:
+                    im.thumbnail((MAX_DISPLAY_SIDE, MAX_DISPLAY_SIDE))
+                rgba = im.convert("RGBA")
+        except Cancelled:
+            raise
+        except Exception as exc:  # noqa: BLE001 - cualquier fallo de Pillow se muestra como mensaje amable
+            raise ImageLoadError(f"{type(exc).__name__}: {exc}") from exc
     data = rgba.tobytes("raw", "RGBA")
     image = QImage(data, rgba.width, rgba.height, 4 * rgba.width, QImage.Format.Format_RGBA8888).copy()
-    return ImageLoad(path, image, width, height, mode, fmt, path.stat().st_size, reduced)
+    return ImageLoad(path, image, width, height, mode, fmt, stat.st_size, reduced, stat.st_mtime_ns)
+
+
+def _unchanged(load: ImageLoad) -> bool:
+    return file_stamp(load.path) == (load.mtime_ns, load.size)
 
 
 _checker_pixmap: QPixmap | None = None
@@ -180,7 +205,9 @@ class ImageViewer(QWidget):
         self._root: Path | None = None
         self._load: ImageLoad | None = None
         self._error: str | None = None
-        self._runner = TaskRunner(self)
+        self._read_error: OSError | None = None  # el archivo no se pudo leer (no es cosa de Pillow)
+        self._failed_stamp: tuple[int, int] | None = None  # ``file_stamp`` del intento fallido
+        self._runner = TaskRunner(self, pool=POOL_IMAGES)
         self._runner.finished.connect(self._on_loaded)
         self._runner.failed.connect(self._on_failed)
 
@@ -221,6 +248,7 @@ class ImageViewer(QWidget):
         self.failure = EmptyState("file_image")
         self.stack.addWidget(self.failure)
         layout.addWidget(self.stack, 1)
+        self._set_tools_enabled(False)
         self.retranslate()
 
     # --- API -----------------------------------------------------------------------------
@@ -238,18 +266,47 @@ class ImageViewer(QWidget):
         return self._runner.is_busy()
 
     def load(self, path: str | os.PathLike, *, root: Path | None = None) -> None:
+        """Carga ``path`` en segundo plano, salvo si ya se muestra (o se está cargando) y no cambió en disco."""
         path = Path(path)
         self._root = root
-        if path == self._path and (self._runner.is_busy() or self.current_load() is not None):
-            return
+        if path == self._path:
+            load = self.current_load()
+            if self._runner.is_busy() or (load is not None and _unchanged(load)):
+                self.retranslate()  # la raíz puede ser otra
+                return
         self._path = path
-        self._error = None
+        self._error = self._read_error = None
         self._load = None
         self.canvas.set_pixmap(None)
+        self._set_tools_enabled(False)
         show_in_stack(self.stack, self.scroll)
         self.header.set_file(path)
         self.retranslate()
-        self._runner.start(lambda ctx: try_load_image(path))
+        self._runner.start(lambda ctx: try_load_image(path, cancelled=ctx.cancelled))
+
+    def reload_if_changed(self) -> bool:
+        """Vuelve a cargar la imagen si cambió en disco desde que se leyó; ``True`` si lo hace.
+
+        Si no se pudo leer la reintenta siempre, como ``ClausewitzViewer.reload_if_changed``; si Pillow
+        no pudo decodificarla, solo si cambió.
+        """
+        if self._path is None or self._runner.is_busy():
+            return False
+        load = self.current_load()
+        if load is not None:
+            stamp = load.mtime_ns, load.size
+        elif self._error is not None:
+            stamp = self._failed_stamp
+        else:
+            return False
+        if self._read_error is None and stamp == file_stamp(self._path):
+            return False
+        self.load(self._path, root=self._root)
+        return True
+
+    def cancel(self) -> None:
+        """Detiene la carga en curso sin vaciar el visor; volver a pedir la imagen la recarga."""
+        self._runner.cancel()
 
     def set_fit(self, fit: bool) -> None:
         (self.fit_button if fit else self.actual_button).setChecked(True)
@@ -260,21 +317,28 @@ class ImageViewer(QWidget):
         if load.path != self._path:
             return
         if isinstance(load, ImageFailure):
-            self._show_failure(load.message)
+            self._show_failure(load.message, load.stamp, load.error)
             return
         self._load = load
         self.canvas.set_pixmap(QPixmap.fromImage(load.image))
+        self._set_tools_enabled(True)
         self.retranslate()
         self.loaded.emit(load.path)
 
     def _on_failed(self, failure) -> None:
-        self._show_failure(str(failure.exception))
+        self._show_failure(str(failure.exception), file_stamp(self._path))
 
-    def _show_failure(self, message: str) -> None:
+    def _show_failure(self, message: str, stamp: tuple[int, int] | None, error: OSError | None = None) -> None:
         self._error = message
+        self._read_error = error
+        self._failed_stamp = stamp
         show_in_stack(self.stack, self.failure)
         self.retranslate()
         self.loaded.emit(self._path)
+
+    def _set_tools_enabled(self, enabled: bool) -> None:
+        self.fit_button.setEnabled(enabled)
+        self.actual_button.setEnabled(enabled)
 
     def _on_fit_toggled(self, fit: bool) -> None:
         self.canvas.set_fit(fit)
@@ -308,17 +372,27 @@ class ImageViewer(QWidget):
         load = self.current_load()
         if self._path is None:
             self.header.set_details("")
+        elif self._read_error is not None:
+            self.header.set_details(tr("viewer.details_failed", path=self._shown_path()))
         elif self._error is not None:
             self.header.set_details(tr("image.details_failed", path=self._shown_path()))
         elif load is None:
-            self.header.set_details(tr("viewer.details_loading", path=self._shown_path()))
+            self.header.set_details(tr("image.details_loading", path=self._shown_path()))
         else:
             details = tr("image.details", path=self._shown_path(), format=load.format, width=load.width,
                          height=load.height, mode=load.mode, size=format_size(load.size))
             if load.reduced:
-                details += " · " + tr("image.reduced", side=load.image.width())
+                details += " · " + tr("image.reduced", side=max(load.image.width(), load.image.height()))
             self.header.set_details(details)
-        dds = self._path is not None and self._path.suffix.lower() == ".dds"
-        self.failure.set_texts(tr("image.failed_title"),
-                               tr("image.failed_dds" if dds else "image.failed_text", error=self._error or ""))
+        error, tooltip = self._read_error, ""
+        if error is not None:
+            reason, detail = describe_os_error(error)
+            self.failure.set_texts(tr("viewer.failed_title"), tr("viewer.failed_text", error=reason))
+            if self._path is not None:
+                tooltip = tr("file_error.detail", path=os.fspath(self._path), detail=detail)
+        else:
+            dds = self._path is not None and self._path.suffix.lower() == ".dds"
+            self.failure.set_texts(tr("image.failed_title"),
+                                   tr("image.failed_dds" if dds else "image.failed_text", error=self._error or ""))
+        self.failure.setToolTip(tooltip)
         self._retranslate_zoom()

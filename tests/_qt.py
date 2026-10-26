@@ -2,7 +2,9 @@
 
 Fuerza la plataforma ``offscreen``, aísla las preferencias en una carpeta
 temporal (nunca toca la configuración real) y captura los avisos de Qt para
-que las pruebas fallen si aparece alguno.
+que las pruebas fallen si aparece alguno. ``dispose`` destruye de verdad las
+ventanas de cada prueba: si siguieran vivas, se seguirían maquetando y
+competirían por el GIL con las pruebas siguientes (y con sus latidos).
 """
 
 from __future__ import annotations
@@ -68,6 +70,37 @@ def process_events(milliseconds: int = 0) -> None:
     deadline = QDeadlineTimer(milliseconds)
     while not deadline.hasExpired():
         app.processEvents(QEventLoop.ProcessEventsFlag.AllEvents, 20)
+
+
+def delete_pending() -> None:
+    """Borra ya lo pendiente de ``deleteLater``.
+
+    Fuera de un bucle de eventos, ``processEvents`` no procesa los borrados diferidos
+    (Qt solo los entrega al salir del bucle que los pidió, o si se piden expresamente).
+    """
+    from PySide6.QtCore import QCoreApplication, QEvent
+
+    QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+
+
+def dispose(*widgets) -> list:
+    """``deleteLater`` de ``widgets`` y su borrado inmediato; devuelve los que siguen vivos (ninguno)."""
+    from shiboken6 import isValid
+
+    for widget in widgets:
+        if isValid(widget):
+            widget.deleteLater()
+    delete_pending()
+    return [widget for widget in widgets if isValid(widget)]
+
+
+def live_main_windows() -> list:
+    """Ventanas principales que aún existen (cerradas o no)."""
+    from PySide6.QtWidgets import QApplication
+
+    from vic2studio.ui.main_window import MainWindow
+
+    return [widget for widget in QApplication.topLevelWidgets() if isinstance(widget, MainWindow)]
 
 
 def wait_until(predicate, timeout_ms: int = 5000) -> bool:

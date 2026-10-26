@@ -28,13 +28,62 @@ class LintTests(unittest.TestCase):
         self.assertEqual((second.code, second.line, second.args["found_column"]), ("missing_end_marker", 2, 16))
         self.assertIn("16", second.message("en"))
         self.assertNotEqual(first.message("es"), second.message("es"))
+        self.assertEqual((first.severity, second.severity), (Severity.INFO, Severity.WARNING))
 
     def test_too_few_columns(self):
-        diags = parse_csv("K;en;fr;de;;es;;;;;;x\r\n").diagnostics
-        self.assertEqual([(d.code, d.args.get("count")) for d in diags],
-                         [("too_few_columns", 10), ("missing_end_marker", None)])
-        self.assertEqual(diags[1].args["found_column"], 11)
         self.assertEqual(codes("K;a"), [("too_few_columns", 1), ("missing_end_marker", 1)])
+        diags = parse_csv("K;en;fr;de\r\n").diagnostics
+        self.assertEqual([(d.code, d.severity, d.args.get("count")) for d in diags],
+                         [("too_few_columns", Severity.WARNING, 3), ("missing_end_marker", Severity.WARNING, None)])
+
+    def test_rows_the_game_shows_whole_are_only_notes(self):
+        """FC-3: el formato vanilla «clave;en;fr;de;;es;;;;;;x» daba 2 avisos por fila (el 92 % de los avisos)."""
+        cases = {
+            # x temprana tras los idiomas visibles (darkness_3_01.csv, text.csv): una nota, ".short".
+            "K;en;fr;de;;es;;;;;;x": (10, 11, ".short"),
+            # Sin x, con los 4 idiomas visibles; una «X» en Spanish es texto (FC-11), no el marcador.
+            "K;en;fr;de;;es": (5, None, ".short"),
+            "ROMAN_10;X;X;X;;X": (5, None, ".short"),
+            # Los 13 idiomas sin x (el mod del usuario) y con campos vacíos detrás.
+            "K;en" + ";" * 12: (13, None, ".unmarked"),
+            "K;en" + ";" * 15: (13, None, ".unmarked"),
+        }
+        for line, (count, found_column, variant) in cases.items():
+            with self.subTest(line=line):
+                diags = parse_csv(line + "\r\n").diagnostics
+                self.assertEqual([(d.code, d.severity) for d in diags], [("missing_end_marker", Severity.INFO)])
+                self.assertEqual((diags[0].args["count"], diags[0].args["found_column"]), (count, found_column))
+                self.assertEqual(diags[0]._variant(), "missing_end_marker" + variant)
+                self.assertIn("inofensivo", diags[0].message("es"))
+                self.assertIn("harmless", diags[0].message("en"))
+
+    def test_shifted_or_incomplete_rows_still_warn(self):
+        cases = {
+            # Falta Spanish (o la «x» está donde iría): aviso de columnas y de marcador.
+            "K;en;fr;de;x": ["too_few_columns", "missing_end_marker"],
+            "K;en;fr;de;;x": ["too_few_columns", "missing_end_marker"],
+            # Desplazadas: «x» después de la columna 14 o texto donde iría la «x».
+            "K;a;b;;;;;;;;;;;;;;x": ["missing_end_marker"],
+            "K" + ";t" * 14: ["missing_end_marker"],
+            "K;en" + ";" * 13 + "extra": ["missing_end_marker"],
+        }
+        for line, expected in cases.items():
+            with self.subTest(line=line):
+                diags = parse_csv(line + "\r\n").diagnostics
+                self.assertEqual([d.code for d in diags], expected)
+                self.assertTrue(all(d.severity is Severity.WARNING for d in diags))
+
+    def test_column_numbers_match_the_documented_convention(self):
+        """LOC-4: las columnas de los mensajes cuentan desde 0 (la clave), como LANGUAGE_CODES y END_MARKER_COLUMN."""
+        line = "K;a;b;;;;;;;;;;;;;;x"
+        diag = parse_csv(line).diagnostics[0]
+        self.assertEqual(diag.args["found_column"], line.split(";").index("x"))
+        self.assertIn(f"columna {diag.args['found_column']}", diag.message("es"))
+        self.assertIn(f"en vez de la {csvloc.END_MARKER_COLUMN}", diag.message("es"))
+        self.assertIn(f"column {csvloc.END_MARKER_COLUMN} ", parse_csv("K;a").diagnostics[1].message("en"))
+        quoted = parse_csv('K;a;b;c;d;"x;y"').diagnostics
+        field = next(d for d in quoted if d.code == "semicolon_in_quotes").args["field"]
+        self.assertEqual(field, csvloc.LANGUAGE_CODES["es"])
 
     def test_duplicate_key(self):
         diags = parse_csv(f"{OK}\r\nL;b\r\n{OK}\r\n").diagnostics
@@ -86,9 +135,25 @@ class LintTests(unittest.TestCase):
     def test_non_game_encoding(self):
         utf8 = parse_csv(OK, encoding="utf-8").diagnostics
         self.assertEqual([(d.code, d.args["bom"]) for d in utf8], [("non_game_encoding", False)])
-        bom = parse_csv("﻿" + OK).diagnostics
+        bom = parse_csv("\ufeff" + OK).diagnostics
         self.assertEqual([(d.code, d.args["bom"]) for d in bom], [("non_game_encoding", True)])
         self.assertIn("BOM", bom[0].message("es"))
+
+    def test_utf16_is_an_error(self):
+        """LOC-M3: un CSV en UTF-16 no daba ningún aviso de codificación (el juego no puede leerlo)."""
+        for encoding in ("utf-16", "utf-16-le", "utf-16-be", "utf-16-be-bom"):
+            with self.subTest(encoding=encoding):
+                diags = parse_csv(OK, encoding=encoding).diagnostics
+                self.assertEqual([(d.code, d.severity) for d in diags], [("non_game_encoding", Severity.ERROR)])
+                self.assertEqual(diags[0]._variant(), "non_game_encoding.utf16")
+                self.assertIn("no puede leerlo", diags[0].message("es"))
+
+    def test_stray_bom_before_cp1252(self):
+        """P2: un BOM UTF-8 delante de texto cp1252 se pega a la primera clave en el juego."""
+        diags = parse_csv("\u00ef\u00bb\u00bf" + OK + "\r\n", encoding="cp1252").diagnostics
+        self.assertEqual([(d.code, d.line, d.severity) for d in diags], [("non_game_encoding", 1, Severity.WARNING)])
+        self.assertEqual(diags[0]._variant(), "non_game_encoding.stray_bom")
+        self.assertIn("ï»¿", diags[0].message("en"))
 
     def test_header_row(self):
         header = "key;English;French;German;Polish;Spanish;Italian;Swedish;Czech;Hugarian;Dutch;Portuguese;Russian;Finish"
@@ -127,8 +192,15 @@ SAMPLE_ARGS = {
 }
 VARIANTS = {
     "missing_end_marker.misplaced": ({"key": "MY_KEY", "found_column": 12}, ["MY_KEY", "12", "14"]),
+    "missing_end_marker.short": ({"key": "MY_KEY", "found_column": 11, "count": 10, "expected": 13},
+                                 ["MY_KEY", "10", "13"]),
+    "missing_end_marker.unmarked": ({"key": "MY_KEY", "found_column": None, "count": 13, "expected": 13},
+                                    ["MY_KEY", "13", "14"]),
     "non_game_encoding.bom": ({"encoding": "utf-8-sig", "expected": "cp1252", "bom": True},
                               ["utf-8-sig", "cp1252", "BOM"]),
+    "non_game_encoding.stray_bom": ({"encoding": "cp1252", "expected": "cp1252", "stray_bom": True, "key": "MY_KEY"},
+                                    ["cp1252", "BOM", "MY_KEY", "ï»¿"]),
+    "non_game_encoding.utf16": ({"encoding": "utf-16", "expected": "cp1252", "utf16": True}, ["utf-16", "cp1252"]),
 }
 
 
