@@ -5,6 +5,6 @@ build/
 dist/
 .venv/
 venv/
-capturas/
+/capturas/
 *.bak
 !tests/fixtures/**
