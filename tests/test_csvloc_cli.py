@@ -62,11 +62,14 @@ class CliTests(unittest.TestCase):
         self.assertIn("[non_game_encoding]", out)
         code, _, err = self._run("check", str(self.dir / "nope.csv"))
         self.assertEqual(code, 2)
-        self.assertIn("nope.csv", err)
+        self.assertIn("nope.csv: not found", err)
+        code, _, err = self._run("check", str(self.dir / "nope.csv"), "--lang", "es")
+        self.assertIn("no se puede leer", err)
+        self.assertIn("nope.csv: no existe", err)
 
     def test_check_directory_and_summary(self):
         self._file("loc/a.csv", WARN.encode("cp1252"))
-        self._file("loc/sub/b.CSV", (GOOD + GOOD).encode("cp1252"))
+        self._file("loc/localisation/b.CSV", (GOOD + GOOD).encode("cp1252"))
         self._file("loc/c.txt", WARN.encode("cp1252"))
         code, out, _ = self._run("check", str(self.dir / "loc"), "--summary")
         self.assertEqual(code, 0)
@@ -74,6 +77,21 @@ class CliTests(unittest.TestCase):
         self.assertEqual([line.split() for line in lines[:3]],
                          [["1", "duplicate_key"], ["1", "missing_end_marker"], ["1", "too_few_columns"]])
         self.assertEqual(lines[-1], "2 file(s): 0 error(s), 3 warning(s), 0 info")
+
+    def test_check_directory_skips_non_localisation_csv(self):
+        """FC-6: check <mod> analizaba map/definition.csv y map/adjacencies.csv como localización."""
+        self._file("mod/localisation/00_mod.csv", GOOD.encode("cp1252"))
+        definition = self._file("mod/map/definition.csv", b"province;red;green;blue;x;x\r\n1;10;20;30;Paris;x\r\n")
+        self._file("mod/map/adjacencies.csv", b"From;To;Type;Through;Data;Comment\r\n")
+        self._file("mod/localisation/old/viejo.csv", WARN.encode("cp1252"))
+        code, out, _ = self._run("check", str(self.dir / "mod"))
+        self.assertEqual(code, 0)
+        self.assertEqual(out.strip(), "1 file(s): 0 error(s), 0 warning(s), 0 info; 3 .csv skipped (not localisation)")
+        code, out, _ = self._run("check", str(self.dir / "mod"), "--lang", "es")
+        self.assertIn("3 .csv omitido(s)", out)
+        # Indicado explícitamente, se analiza siempre.
+        code, out, _ = self._run("check", str(definition))
+        self.assertIn("definition.csv:1:", out)
 
     def test_tojson_and_fromjson(self):
         raw = "#c;x\r\nK;País;;;;España;;;;;;;;;x;;;;\nL;l".encode("cp1252")
@@ -88,6 +106,36 @@ class CliTests(unittest.TestCase):
         back = self.dir / "back.csv"
         self.assertEqual(self._run("fromjson", str(output), "-o", str(back))[0], 0)
         self.assertEqual(back.read_bytes(), raw)
+
+    def test_round_trip_of_content_ending_in_cr(self):
+        """FC-1: fromjson rechazaba el JSON de tojson de un CSV con líneas «x\\r\\r\\n»."""
+        raw = b"A;uno;;;;;;;;;;;;;x\r\r\nB;dos;;;;;;;;;;;;;x\r\r\n"
+        source = self._file("00_crcrlf.csv", raw)
+        output, back = self.dir / "a.json", self.dir / "b.csv"
+        self.assertEqual(self._run("tojson", str(source), "-o", str(output))[0], 0)
+        self.assertEqual(self._run("fromjson", str(output), "-o", str(back))[0], 0)
+        self.assertEqual(back.read_bytes(), raw)
+
+    def test_conversion_errors_are_reported(self):
+        """FC-5: tojson/fromjson acababan con una traza de Python; base64 o rot13 pasaban como codificación."""
+        code, _, err = self._run("tojson", str(self.dir / "nope.csv"))
+        self.assertEqual(code, 2)
+        self.assertIn("cannot read", err)
+        self.assertNotIn("Traceback", err)
+        bad = self._file("bad.json", b'{"rows": [')
+        code, _, err = self._run("fromjson", str(bad), "-o", str(self.dir / "b.csv"), "--lang", "es")
+        self.assertEqual(code, 2)
+        self.assertIn("JSON no válido", err)
+        for encoding in ("base64", "rot13"):
+            with self.subTest(encoding=encoding):
+                obj = self._file("enc.json", json.dumps({"encoding": encoding, "rows": []}).encode())
+                self.assertEqual(self._run("fromjson", str(obj), "-o", str(self.dir / "enc.csv"))[0], 2)
+        unencodable = self._file("u.json", json.dumps(
+            {"rows": [{"kind": "data", "key": "a", "fields": ["Ő", "x"]}]}).encode())
+        code, _, err = self._run("fromjson", str(unencodable), "-o", str(self.dir / "u.csv"))
+        self.assertEqual(code, 1)
+        self.assertIn("u.csv:1:3: 'Ő' (U+0150)", err)
+        self.assertEqual(sorted(p.name for p in self.dir.iterdir()), ["bad.json", "enc.json", "u.json"])
 
     def test_module_entry_point(self):
         path = self._file("warn.csv", WARN.encode("cp1252"))

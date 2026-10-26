@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
-import codecs
-
-from ..encoding import GAME_ENCODING, UTF8_BOM, UnencodableTextError, encode_text
+from ..cancel import CancelCheck, raise_if_cancelled
+from ..encoding import GAME_ENCODING, GAME_UNREADABLE, UTF8_BOM, UnencodableTextError, encode_text, \
+    has_stray_bom, normalize_encoding
 from . import diagnostics as d
-from .model import LANGUAGE_COUNT, LocalisationFile, LocRow, RowKind, marker_index
+from .model import END_MARKER, LANGUAGE_COUNT, LAST_DISPLAYED_COLUMN, LocalisationFile, LocRow, RowKind, \
+    marker_index
+
+# Filas entre dos consultas a ``cancelled``.
+CANCEL_EVERY = 0x1000
 
 
 def is_header_row(row: LocRow) -> bool:
@@ -50,26 +54,65 @@ def quoted_semicolons(line: str) -> list[tuple[int, int]]:
     return found
 
 
-def _normalize(encoding: str) -> str:
-    return codecs.lookup(encoding).name
+def _check_columns(row: LocRow, number: int, add) -> None:
+    """Diagnósticos de estructura de una fila de datos (ver la gravedad en ``diagnostics``)."""
+    fields, key = row.fields, row.key
+    marker = marker_index(fields)
+    if marker == LANGUAGE_COUNT:
+        return
+    if marker is None:
+        last = next((i for i in range(len(fields) - 1, -1, -1) if fields[i].strip()), None)
+        if last is not None and last < LAST_DISPLAYED_COLUMN and fields[last].strip() == END_MARKER:
+            # Una «x» sola al final de un idioma visible: al editar se conserva como texto, pero el
+            # juego la mostraría así y lo más probable es que sea el marcador fuera de sitio.
+            marker = last
+    if marker is None:
+        languages = min(len(fields), LANGUAGE_COUNT)
+        shifted = any(f.strip() for f in fields[LANGUAGE_COUNT:])  # texto donde iría la "x" o después
+        found_column = None
+    else:
+        languages = min(marker, LANGUAGE_COUNT)
+        shifted = marker > LANGUAGE_COUNT
+        found_column = marker + 1
+    if shifted:
+        add(d.MISSING_END_MARKER, number, None, key=key, found_column=found_column)
+    elif languages < LAST_DISPLAYED_COLUMN:
+        add(d.TOO_FEW_COLUMNS, number, None, key=key, count=languages, expected=LANGUAGE_COUNT)
+        add(d.MISSING_END_MARKER, number, None, key=key, found_column=found_column)
+    else:
+        # El juego ve todos sus idiomas: solo faltan columnas que no muestra, o la "x".
+        add(d.MISSING_END_MARKER, number, None, severity=d.Severity.INFO, key=key, found_column=found_column,
+            count=languages, expected=LANGUAGE_COUNT)
 
 
-def lint_file(file: LocalisationFile, encoding: str = GAME_ENCODING) -> list[d.CsvDiagnostic]:
-    """Diagnósticos de ``file``; ``encoding`` es la codificación en la que se va a guardar."""
+def lint_file(file: LocalisationFile, encoding: str = GAME_ENCODING, *,
+              cancelled: CancelCheck = None) -> list[d.CsvDiagnostic]:
+    """Diagnósticos de ``file``; ``encoding`` es la codificación en la que se va a guardar.
+
+    Si ``cancelled()`` devuelve True lanza ``core.cancel.Cancelled``.
+    """
     path = str(file.path) if file.path is not None else None
     found: list[d.CsvDiagnostic] = []
 
     def add(code: str, line: int | None, column: int | None = None, **args) -> None:
         found.append(d.make(code, line, column, path, **args))
 
-    target = _normalize(encoding)
-    current = _normalize(file.encoding)
-    if current != GAME_ENCODING:
+    target = normalize_encoding(encoding)
+    current = normalize_encoding(file.encoding)
+    if current in GAME_UNREADABLE:
+        add(d.NON_GAME_ENCODING, None, None, severity=d.Severity.ERROR, encoding=current,
+            expected=GAME_ENCODING, utf16=True)
+    elif current != GAME_ENCODING:
         add(d.NON_GAME_ENCODING, None, None, encoding=current, expected=GAME_ENCODING,
             bom=current == UTF8_BOM)
+    elif file.rows and has_stray_bom(file.rows[0].to_line(), current):
+        add(d.NON_GAME_ENCODING, 1, 1, encoding=current, expected=GAME_ENCODING, stray_bom=True,
+            key=file.rows[0].key)
 
     first_seen: dict[str, int] = {}
     for number, row in enumerate(file.rows, 1):
+        if not number & (CANCEL_EVERY - 1):
+            raise_if_cancelled(cancelled)
         if row.kind is not RowKind.DATA:
             continue
         key = row.key
@@ -86,29 +129,30 @@ def lint_file(file: LocalisationFile, encoding: str = GAME_ENCODING) -> list[d.C
         if is_header_row(row):
             add(d.HEADER_ROW, number, 1, key=key)
             continue
-        fields = row.fields
-        marker = marker_index(fields)
-        languages = marker if marker is not None else len(fields)
-        if languages < LANGUAGE_COUNT:
-            add(d.TOO_FEW_COLUMNS, number, None, key=key, count=languages, expected=LANGUAGE_COUNT)
-        if marker != LANGUAGE_COUNT:
-            add(d.MISSING_END_MARKER, number, None, key=key,
-                found_column=marker + 1 if marker is not None else None)
-        if any('"' in f for f in fields):
+        _check_columns(row, number, add)
+        if any('"' in f for f in row.fields):
             for column, position in quoted_semicolons(row.to_line()):
                 add(d.SEMICOLON_IN_QUOTES, number, position + 1, key=key, field=column)
 
-    try:
-        encode_text(file.to_source(), target)
-    except UnencodableTextError as exc:
-        # Cada fila ocupa exactamente una línea de ``to_source``.
-        by_line: dict[int, list] = {}
-        for problem in exc.problems:
-            by_line.setdefault(problem[1], []).append(problem)
-        for number, problems in by_line.items():
-            _, _, column, char = problems[0]
-            row = file.rows[number - 1]
-            add(d.UNENCODABLE_CHARACTER, number, column, key=row.key, char=char,
-                codepoint=f"{ord(char):04X}", count=len(problems), encoding=target)
+    # Por bloques de filas, para poder parar a mitad. Cada fila ocupa una línea salvo que alguien
+    # haya metido un salto en sus campos sin pasar por ``set``: se cuentan las líneas de verdad.
+    rows, first_line, unencodable = file.rows, 1, False
+    for start in range(0, len(rows), CANCEL_EVERY):
+        raise_if_cancelled(cancelled)
+        chunk = "\n".join(row.to_line() for row in rows[start:start + CANCEL_EVERY])
+        try:
+            encode_text(chunk, target)
+        except UnencodableTextError as exc:
+            unencodable = True
+            by_line: dict[int, list] = {}
+            for problem in exc.problems:
+                by_line.setdefault(first_line + problem[1] - 1, []).append(problem)
+            for number, problems in by_line.items():
+                _, _, column, char = problems[0]
+                key = rows[number - 1].key if number <= len(rows) else ""
+                add(d.UNENCODABLE_CHARACTER, number, column, key=key, char=char,
+                    codepoint=f"{ord(char):04X}", count=len(problems), encoding=target)
+        first_line += chunk.count("\n") + 1
+    if unencodable:
         found.sort(key=lambda diag: diag.line or 0)
     return found

@@ -3,12 +3,17 @@
 Formato: una entrada por línea, campos separados por ";" (no es CSV estándar: el
 juego no interpreta comillas ni escapes). Columna 0 = clave, columnas 1..13 =
 idiomas en el orden de ``LANGUAGE_COLUMNS``, columna 14 = marcador de fin "x";
-tras la "x" puede haber campos extra. Las líneas que empiezan por "#" son
+tras la "x" puede haber campos extra. Esta numeración desde 0 es la de todos los
+mensajes y argumentos de columna del módulo. Las líneas que empiezan por "#" son
 comentarios. Codificación cp1252. El juego vanilla solo muestra English, French,
 German y Spanish (``DISPLAYED_LANGUAGES``); las demás columnas se conservan pero
 no se ven. El juego lee las columnas por posición; la "x" es la convención de
 los archivos vanilla para marcar el final (y que las hojas de cálculo no
-recorten las columnas vacías).
+recorten las columnas vacías). Por eso el lint solo avisa de las filas a las que
+les falta un idioma visible o que tienen columnas desplazadas; la falta de
+columnas ocultas o de la "x" es una nota (INFO). El juego carga como localización
+los ``.csv`` de la carpeta ``localisation`` (``is_localisation_csv``), no los de
+``map/``.
 
 Lo que muestra el corpus (Plantilla Mod/localisation, 22 .csv vanilla):
 
@@ -54,17 +59,19 @@ from .model import (
     LANGUAGE_CODES,
     LANGUAGE_COLUMNS,
     LANGUAGE_COUNT,
+    DuplicateKeyError,
     InvalidFieldError,
     LocalisationFile,
     LocRow,
     RowKind,
     column_index,
+    is_localisation_csv,
 )
 from .serialization import from_json, parse_csv, read_csv_file, to_json, to_source, write_csv_file
 
 __all__ = [
     "CODES", "DISPLAYED_LANGUAGES", "END_MARKER", "END_MARKER_COLUMN", "LANGUAGE_CODES",
-    "LANGUAGE_COLUMNS", "LANGUAGE_COUNT", "CsvDiagnostic", "InvalidFieldError", "KeyOverride",
-    "LocalisationDB", "LocalisationFile", "LocRow", "RowKind", "Severity", "column_index",
-    "from_json", "parse_csv", "read_csv_file", "to_json", "to_source", "write_csv_file",
+    "LANGUAGE_COLUMNS", "LANGUAGE_COUNT", "CsvDiagnostic", "DuplicateKeyError", "InvalidFieldError",
+    "KeyOverride", "LocalisationDB", "LocalisationFile", "LocRow", "RowKind", "Severity", "column_index",
+    "from_json", "is_localisation_csv", "parse_csv", "read_csv_file", "to_json", "to_source", "write_csv_file",
 ]
