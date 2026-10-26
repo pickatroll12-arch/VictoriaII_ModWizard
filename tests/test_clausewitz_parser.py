@@ -1,11 +1,15 @@
 import codecs
+import gc
 import sys
 import tempfile
+import time
+import tracemalloc
 import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
+from vic2studio.core.cancel import Cancelled  # noqa: E402
 from vic2studio.core.clausewitz import (  # noqa: E402
     Block,
     ClausewitzDate,
@@ -192,7 +196,9 @@ class DiagnosticTests(unittest.TestCase):
         self.assertEqual((d.line, d.column), (1, 8))
         self.assertEqual(d.message("es"), "Cadena sin cerrar: falta la comilla de cierre")
         self.assertEqual(d.message("en"), "Unterminated string: missing closing quote")
-        self.assertEqual(result.document.get("name"), Scalar("abc\nnext = 1", quoted=True))
+        # El parser admite lo que Scalar() rechaza al editar (un salto de línea dentro del texto).
+        value = result.document.get("name")
+        self.assertEqual((value.text, value.quoted), ("abc\nnext = 1", True))
 
     def test_invalid_key(self):
         result, d = self.single("{ a } = b", "invalid_key")
@@ -438,6 +444,157 @@ class ParseResultTests(unittest.TestCase):
 
             forced = parse_file(cp, encoding="latin-1")
             self.assertEqual(forced.encoding, "iso8859-1")
+
+
+class RecoveryTests(unittest.TestCase):
+    """'clave =' sin valor al final de una línea: el error va en su línea y la clave siguiente se conserva (P5)."""
+
+    def test_key_without_value_before_the_next_assignment(self):
+        cases = [
+            ("capital = 1234\nruling_party =\nlast_election = 1830.1.1\nprimary_culture = zulu\n",
+             ("missing_value", 2, 1, {"key": "ruling_party", "op": "="}, [(3, 1)]),
+             [("capital", "=", "1234"), ("last_election", "=", "1830.1.1"), ("primary_culture", "=", "zulu")]),
+            ("p = {\n\towner =\n\tcontroller = GEL\n}\n",
+             ("missing_value", 2, 2, {"key": "owner", "op": "="}, [(3, 2)]), [("p", "=", [("controller", "=", "GEL")])]),
+            ("a = \n# comentario\nb = c\n", ("missing_value", 1, 1, {"key": "a", "op": "="}, [(3, 1)]), [("b", "=", "c")]),
+            ('x = { a =\n "b" = c }', ("missing_value", 1, 7, {"key": "a", "op": "="}, [(2, 2)]),
+             [("x", "=", [("b", "=", "c")])]),
+        ]
+        for text, diagnostic, tree in cases:
+            result = parse(text)
+            self.assertEqual(to_source(result.document), text)
+            self.assertEqual([(d.code, d.line, d.column, d.args, d.related) for d in result.diagnostics], [diagnostic])
+            self.assertEqual(shape(result.document), tree, text)
+
+    def test_valid_and_same_line_cases_do_not_change(self):
+        valid = parse("x = { a =\n b }")
+        self.assertEqual((valid.diagnostics, shape(valid.document)), ([], [("x", "=", [("a", "=", "b")])]))
+        same_line = parse("a = b = c\n")
+        self.assertEqual([(d.code, d.line, d.column) for d in same_line.diagnostics], [("missing_key", 1, 7)])
+        self.assertEqual(shape(same_line.document), [("a", "=", "b"), "c"])
+
+
+class ErrorRunTests(unittest.TestCase):
+    """Muchos errores seguidos (un archivo roto o mal pegado): el texto descartado cuesta memoria lineal (R2)."""
+
+    @staticmethod
+    def peak(text):
+        tracemalloc.start()
+        try:
+            parse(text)
+            return tracemalloc.get_traced_memory()[1]
+        finally:
+            tracemalloc.stop()
+
+    def test_discarded_text_costs_linear_memory(self):
+        patterns = {
+            "clave sin valor": lambda n: "".join(f"key{i} =\n" for i in range(n)),
+            "llaves sobrantes": lambda n: "}\n" * n,
+            "operadores sueltos": lambda n: "= " * n,
+            "operadores repetidos": lambda n: "a " + "= " * n + "1\n",
+        }
+        self.peak("a = = 1\n} =\n")  # lo que se reserva una sola vez no cuenta
+        for name, make in patterns.items():
+            small, big = self.peak(make(2000)), self.peak(make(4000))
+            # Lineal: el doble de texto, el doble de memoria. Con coste cuadrático, unas cuatro veces más.
+            self.assertLess(big / small, 3, f"{name}: {small} -> {big} bytes")
+            text = make(4000)
+            self.assertEqual(to_source(parse(text).document), text)
+
+
+class InvisibleCharacterTests(unittest.TestCase):
+    """Un carácter invisible dentro de una palabra sin comillas cambia la clave o el valor: se avisa (P9)."""
+
+    def test_warning_points_at_the_character(self):
+        result = parse('owner\xa0= GER\ncontroller = GER​\n"x\xa0y" = 1\nz = a　b\n')
+        self.assertEqual([(d.code, d.severity, d.line, d.column, d.args["codepoint"]) for d in result.diagnostics], [
+            ("invisible_character", Severity.WARNING, 1, 6, "00A0"),
+            ("invisible_character", Severity.WARNING, 2, 17, "200B"),
+            ("invisible_character", Severity.WARNING, 4, 6, "3000"),
+        ])
+        self.assertTrue(result.ok)
+        first = result.diagnostics[0]
+        self.assertEqual(first.message("es"), "La palabra 'owner\\xa0' contiene un carácter invisible (U+00A0): "
+                                              "no coincidirá con la palabra que aparenta")
+        self.assertIn("U+00A0", first.message("en"))
+        self.assertEqual(parse("owner = GER\n").diagnostics, [])
+
+
+class MessageArgumentTests(unittest.TestCase):
+    """Los textos de los mensajes se escapan y se recortan: un diagnóstico, una línea (P10)."""
+
+    def test_line_breaks_are_escaped(self):
+        result = parse('leader = {\r\n\t"Rey\r\nde Prusia" = {\r\n\t\towner = PRU\r\n')
+        lines = [d.format("f.txt", lang) for d in result.diagnostics for lang in ("es", "en")]
+        self.assertIn("f.txt:3:14: error: El bloque 'Rey\\r\\nde Prusia' abierto en la línea 3 no se cierra (falta '}')",
+                      lines)
+        for line in lines:
+            self.assertEqual(line.splitlines(), [line])
+
+    def test_long_texts_are_truncated(self):
+        diagnostic = parse('"' + "k" * 200 + '" = {\n').diagnostics[0]
+        for lang in ("es", "en"):
+            self.assertIn("'" + "k" * 59 + "…'", diagnostic.message(lang))
+            self.assertNotIn("k" * 60, diagnostic.message(lang))
+
+
+class LineBreakTests(unittest.TestCase):
+    """CR suelto: los comentarios acaban en él (H2-CR) y las líneas cuentan como en los editores (P8)."""
+
+    def test_cr_only_files(self):
+        text = "a = 1 # c\rb = 2\r# d\rc = { d = 3 }\r"
+        result = parse(text)
+        self.assertEqual(shape(result.document), [("a", "=", "1"), ("b", "=", "2"), ("c", "=", [("d", "=", "3")])])
+        self.assertEqual((result.newline, result.diagnostics), ("\r", []))
+        self.assertEqual([entry.line for entry in result.document], [1, 2, 4])
+        self.assertEqual(result.document.find("c").comments, ["# d"])
+        result.document.get("c").append("e", 4)
+        result.document.append("f", {"g": 1})
+        self.assertEqual(to_source(result.document), "a = 1 # c\rb = 2\r# d\rc = { d = 3 e = 4 }\rf = {\r\tg = 1\r}\r")
+
+    def test_diagnostic_lines_match_text_editors(self):
+        text = "owner = MEX\r\n\rcontroller = MEX\r\n\r\rbroken = {\r\n"
+        diagnostic = parse(text).diagnostics[0]
+        self.assertEqual((diagnostic.code, diagnostic.line, diagnostic.column), ("unclosed_block", 6, 10))
+        self.assertTrue(text.splitlines()[diagnostic.line - 1].startswith("broken"))
+
+
+class CancelTests(unittest.TestCase):
+    """Leer un archivo grande se puede parar a mitad: la cancelación se consulta en todas las fases."""
+
+    TEXTS = {
+        "lista en una línea": " ".join(str(i) for i in range(400_000)),
+        "bloque sin cerrar": "a = {\n" + "\tb = { c = 1 }\n" * 100_000,  # incluye la pista de la "}" sospechosa
+        "muchas líneas": "x = y\n" * 300_000,
+    }
+
+    def test_cancel_inside_a_big_file(self):
+        text = self.TEXTS["bloque sin cerrar"]
+        for limit in (1, 2, 10, 40):
+            with self.subTest(limit=limit):
+                calls = []
+                with self.assertRaises(Cancelled):
+                    parse(text, cancelled=lambda: calls.append(1) or len(calls) >= limit)
+                self.assertEqual(len(calls), limit)
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "grande.txt"
+            path.write_text(text, encoding="cp1252")
+            with self.assertRaises(Cancelled):
+                parse_file(path, cancelled=lambda: True)
+
+    def test_checks_are_frequent(self):
+        # Sin el recolector cíclico, cuyas pausas no dependen del núcleo (ui.tasks lo controla en las tareas).
+        if gc.isenabled():
+            gc.disable()
+            self.addCleanup(gc.enable)
+        for name, text in self.TEXTS.items():
+            stamps = []
+            start = time.perf_counter()
+            result = parse(text, cancelled=lambda: stamps.append(time.perf_counter()) and False)
+            stamps.append(time.perf_counter())
+            del result
+            gaps = [b - a for a, b in zip([start] + stamps, stamps)]
+            self.assertLess(max(gaps), 0.2, f"{name}: {len(gaps)} consultas; hueco máximo {max(gaps):.3f} s")
 
 
 if __name__ == "__main__":
