@@ -8,7 +8,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from _corpus import corpus_files, corpus_roots  # noqa: E402
+from _corpus import corpus_files, corpus_roots, is_synthetic, synthetic_template  # noqa: E402
 from vic2studio.core.csvloc import (  # noqa: E402
     LocalisationDB,
     from_json,
@@ -74,9 +74,18 @@ class CorpusRoundTripTests(unittest.TestCase):
         self.assertEqual(counts["header_row"], 0)
 
     def test_single_edit_changes_single_line(self):
-        source = max(self.files, key=lambda p: p.stat().st_size)
-        file = read_csv_file(source)
-        row = next(r for r in file.data_rows() if r.has_end_marker and r.get("es"))
+        # El archivo más grande con una fila completa (con «x» y texto en español); si ninguno la
+        # tiene (la muestra del mod del usuario no lleva «x»), la primera fila de datos del más grande.
+        by_size = sorted(self.files, key=lambda p: -p.stat().st_size)
+        for source in by_size:
+            file = read_csv_file(source)
+            row = next((r for r in file.data_rows() if r.has_end_marker and r.get("es")), None)
+            if row is not None:
+                break
+        else:
+            source = by_size[0]
+            file = read_csv_file(source)
+            row = next(file.data_rows())
         row.set("es", row.get("es") + " (editado)")
         with tempfile.TemporaryDirectory() as tmp:
             target = Path(tmp) / source.name
@@ -89,17 +98,21 @@ class CorpusRoundTripTests(unittest.TestCase):
 
 
 class CorpusPerformanceTests(unittest.TestCase):
+    """Con el juego base mide su ``text.csv``; sin él, uno sintético del mismo tamaño y forma."""
+
     def setUp(self):
-        self.dirs = find_dirs("text.csv")
-        if not self.dirs:
-            self.skipTest("sin text.csv en el corpus")
+        self.dirs = find_dirs("text.csv") or [synthetic_template() / "localisation"]
 
     def test_read_text_csv_fast(self):
         path = self.dirs[0] / "text.csv"
         start = time.perf_counter()
         file = read_csv_file(path)
         elapsed = time.perf_counter() - start
+        if is_synthetic(path):
+            print(f"\n[csvloc] text.csv sintético ({path.stat().st_size / 1e6:.1f} MB): {elapsed:.2f} s",
+                  file=sys.stderr)
         self.assertGreater(len(file.rows), 15000)
+        self.assertGreater(path.stat().st_size, 3_000_000)
         self.assertLess(elapsed, 1.5, f"{path}: {elapsed:.2f} s")
 
     def test_database_fast(self):

@@ -7,7 +7,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from _corpus import corpus_roots  # noqa: E402
+from _corpus import DEV_DIARY, corpus_roots, user_mod, user_mod_error_files  # noqa: E402
 from vic2studio.core.clausewitz import Severity  # noqa: E402
 from vic2studio.core.modcheck import (  # noqa: E402
     CHECK_FAILED,
@@ -137,17 +137,19 @@ class ModCheckTests(unittest.TestCase):
 
 class UserModTests(unittest.TestCase):
     def test_user_mod_has_exactly_the_known_errors(self):
-        mod = next((r / "VSM" for r in corpus_roots() if (r / "VSM" / "decisions").is_dir()), None)
+        mod = user_mod()
         if mod is None:
-            self.skipTest("sin el mod del usuario en VIC2_CORPUS")
+            self.skipTest("sin el mod del usuario (VIC2_CORPUS o tests/fixtures/shago_mod_min)")
         report = check_mod(mod, extra_files=[mod.parent / "VSM.mod"])
         unclosed = sorted((i.relative, i.line, i.column) for i in report.issues if i.code == "unclosed_block")
         self.assertEqual(unclosed, [("decisions/somaliland_shago.txt", 1, 23),
                                     ("decisions/zulu_expancionshago.txt", 1, 23)])
-        # v2dd2.txt es un diario de desarrollo en prosa de Paradox, no un script.
-        self.assertEqual(report.files_with(Severity.ERROR), ["decisions/somaliland_shago.txt",
-                                                             "decisions/zulu_expancionshago.txt",
-                                                             "history/units/v2dd2.txt"])
+        # En el mod completo, v2dd2.txt (un diario de desarrollo en prosa de Paradox, no un script)
+        # es el tercer archivo con errores; la muestra mínima no lo incluye.
+        self.assertEqual(report.files_with(Severity.ERROR), user_mod_error_files(mod))
+        if (mod / DEV_DIARY).is_file():
+            diary = [(i.code, i.line) for i in report.issues if i.relative == DEV_DIARY and i.severity is Severity.ERROR]
+            self.assertEqual(diary, [("missing_key", 4)])
 
 
 if __name__ == "__main__":
