@@ -72,6 +72,11 @@ class PaletteTests(PaletteCase):
         self.assertTrue(_qt.wait_until(lambda: viewer.current_load() is not None
                                        and viewer.current_load().path == target, 5000))
         self.assertTrue(_qt.wait_until(lambda: viewer.code.current_line() == 1, 3000))
+        palette = self.open_palette("CCC")
+        row = next(i for i, r in enumerate(palette.results()) if (r.symbol.kind, r.symbol.name) == ("tag", "CCC"))
+        palette.list.setCurrentRow(row)
+        QTest.keyClick(palette.edit, Qt.Key.Key_Return)
+        self.assertTrue(_qt.wait_until(lambda: viewer.code.current_line() == 3, 3000), "en su línea, no en la 1")
 
     def test_localised_names_are_found_without_case_or_accents(self):
         self.open_window(mod_files=LOC)
