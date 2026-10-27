@@ -176,6 +176,8 @@ class ConvertTests(FixTestCase):
                 [problem] = [p for p in problems(project, {code}) if p.rel == rel]
                 plan = plan_fix("convert_to_cp1252", problem, project)
                 self.assertEqual(plan.changes[0].action, ACTION_MODIFY)
+                # Las líneas del diff entero, en el plan; el UTF-16 tiene NUL: su diff es el resumen de un binario.
+                self.assertEqual(plan.changes[0].lines, None if code == "unreadable_encoding" else (1, 1))
                 apply_fix("convert_to_cp1252", problem, project)
                 handle = project.ws.peek(rel)
                 data = codec_for(handle.kind).snapshot(handle.model)
@@ -306,6 +308,19 @@ class TrashCopiesTests(FixTestCase):
                     call("trash_identical_copies", None, project)
                 self.assertEqual(raised.exception.code, "descriptor_changed")
         self.assertEqual([h.rel for h in project.ws.dirty()], [DESCRIPTOR_REL], "no mandó nada a la papelera")
+
+    def test_applying_with_the_shown_plan_compares_the_copies_once(self):
+        """Revisión it3: plan + comprobación + apply comparaban los 8462 archivos de VSM tres veces."""
+        from unittest import mock
+
+        from vic2studio.core.validate import fixes as fixes_module
+
+        game, project = self.open(mod_files={"common/cb_types.txt": GAME_FILES["common/cb_types.txt"]})
+        plan = plan_fix("trash_identical_copies", None, project)
+        with mock.patch.object(fixes_module, "identical_copies", wraps=fixes_module.identical_copies) as spy:
+            apply_fix("trash_identical_copies", None, project, expected=plan)
+        self.assertEqual(spy.call_count, 1)
+        self.assertEqual([str(h.rel) for h in project.ws.dirty()], ["common/cb_types.txt"])
 
     def test_nothing_to_trash(self):
         game, project = self.open()

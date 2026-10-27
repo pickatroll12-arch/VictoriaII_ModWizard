@@ -14,7 +14,9 @@ Secuencia de ``SaveTransaction.commit`` (los datos ya vienen renderizados):
    diario pasa a ``state="prepared"`` con, por archivo, ``rel, target, temp,
    action, before_sha256 | null, after_sha256, bak``; fsync del diario y de su carpeta.
 2. **Copias.** Cada destino que existe se copia a ``<destino>.bak`` y, la primera
-   vez, a ``originals/<rel>`` (nunca se sobrescribe). ``state="backed_up"``.
+   vez, a ``originals/<rel>`` (nunca se sobrescribe). Un archivo que va a la papelera
+   no: la papelera ya lo guarda entero, tal cual (copiarlo dos veces costaba 8,7 s al
+   guardar las 8462 copias idénticas de VSM). ``state="backed_up"``.
    Con ``backup_bak=False`` la copia de reversión va a ``journal/<txid>/`` y se
    borra al cerrar.
 3. **Confirmar.** ``state="committing"``; ``commit_staged`` en orden (reintenta
@@ -217,6 +219,7 @@ class SaveTransaction:
         self._trash_dir = Path(trash_dir) if trash_dir is not None else self._journal_dir.parent / TRASH_DIR
         self._txid = new_txid()
         self._writes: list[PlannedWrite] = []
+        self._targets: set[str] = set()      # destinos ya añadidos (normcase/abspath): comprobar es O(1)
         self._folders: list[Path] = []
         self._committed = False
 
@@ -239,8 +242,11 @@ class SaveTransaction:
         elif write.data is None:
             raise ValueError(f"{write.action.value} necesita datos")
         key = os.path.normcase(os.path.abspath(write.target))
-        if any(os.path.normcase(os.path.abspath(w.target)) == key for w in self._writes):
+        # Un conjunto, no recorrer las anteriores: con las 8462 escrituras de la papelera de VSM, guardar tardaba
+        # 35 s en el hilo de la interfaz (35,8 millones de abspath).
+        if key in self._targets:
             raise ValueError(f"destino repetido en la transacción: {write.target}")
+        self._targets.add(key)
         self._writes.append(write)
 
     def add_folder(self, folder: Path) -> None:
@@ -255,6 +261,7 @@ class SaveTransaction:
         huella esperada de cada destino (conflictos externos) y espacio libre. Bloqueantes primero."""
         problems: list[SaveProblem] = []
         seen_upper: dict[str, PlannedWrite] = {}
+        listings: dict[Path, dict[str, list[str]] | None] = {}   # una lectura por carpeta, no una por escritura
         for write in self._writes:
             target = Path(write.target)
             try:
@@ -281,7 +288,7 @@ class SaveTransaction:
             if other is not None:
                 problems.append(SaveProblem(SAVE_CASE_COLLISION, write.rel, {"other": str(other.rel)}))
             seen_upper[upper] = write
-            sibling = self._case_sibling(target)
+            sibling = self._case_sibling(target, listings)
             if sibling is not None:
                 problems.append(SaveProblem(SAVE_CASE_COLLISION, write.rel, {"other": sibling}))
             if not self._matches_expected(write):
@@ -296,17 +303,23 @@ class SaveTransaction:
         return list(write.rel.parts)
 
     @staticmethod
-    def _case_sibling(target: Path) -> str | None:
-        """Otro archivo de la carpeta de destino con el mismo nombre salvo mayúsculas (Windows los confundiría)."""
-        try:
-            names = os.listdir(target.parent)
-        except OSError:
+    def _case_sibling(target: Path, listings: dict[Path, dict[str, list[str]] | None] | None = None) -> str | None:
+        """Otro archivo de la carpeta de destino con el mismo nombre salvo mayúsculas (Windows los confundiría).
+        ``listings``: lo ya leído de cada carpeta en esta comprobación, como «nombre en mayúsculas → nombres»."""
+        listings = {} if listings is None else listings
+        folder = target.parent
+        if folder not in listings:
+            try:
+                by_upper: dict[str, list[str]] | None = {}
+                for name in sorted(os.listdir(folder)):
+                    by_upper.setdefault(name.upper(), []).append(name)
+            except OSError:
+                by_upper = None
+            listings[folder] = by_upper
+        by_upper = listings[folder]
+        if by_upper is None:
             return None
-        upper = target.name.upper()
-        for name in sorted(names):
-            if name != target.name and name.upper() == upper:
-                return name
-        return None
+        return next((name for name in by_upper.get(target.name.upper(), ()) if name != target.name), None)
 
     @staticmethod
     def _matches_expected(write: PlannedWrite) -> bool:
@@ -461,7 +474,8 @@ class SaveTransaction:
         else:
             bak = real.with_name(real.name + BACKUP_SUFFIX)
         rel = VPath.of(write.rel)
-        original = self._originals_dir.joinpath(*rel.parts) if before is not None else None
+        keeps_original = before is not None and write.action is not WriteAction.TRASH   # la papelera ya lo guarda
+        original = self._originals_dir.joinpath(*rel.parts) if keeps_original else None
         if original is not None and original.exists():
             original = None   # ya está: nunca se sobrescribe
         trash = self._trash_dir / self._txid / Path(*rel.parts)

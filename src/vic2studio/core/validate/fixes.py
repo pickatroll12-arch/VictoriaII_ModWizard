@@ -54,6 +54,9 @@ if TYPE_CHECKING:
     from ..project import Project
 
 FIXES: dict[str, FixSpec] = {}
+# Arreglos que preparan su cambio una vez: ``(plan, aplicar)``. apply_fix lo usa para comparar con el plan que vio
+# el usuario y aplicar justo eso, sin volver a calcularlo (la papelera de VSM compara 8462 archivos cada vez).
+_PREPARE: dict[str, Callable[[Problem, Project], tuple[ChangePlan, Callable[[], None]]]] = {}
 
 COUNTRIES_REL = VPath.of("common/countries.txt")
 # Códigos de FixError (textos «fix_error.<código>»).
@@ -116,9 +119,17 @@ def apply_fix(key: str, problem: Problem, project: Project, *, expected: ChangeP
     """
     if project.ws.read_only:
         raise FixError(FIX_READ_ONLY)
-    if expected is not None and plan_fix(key, problem, project).changes != expected.changes:
+    spec = FIXES[key]
+    prepare = _PREPARE.get(key)
+    if prepare is None:
+        if expected is not None and spec.plan(problem, project).changes != expected.changes:
+            raise FixError(FIX_PLAN_CHANGED)
+        spec.apply(problem, project)
+        return
+    plan, run = prepare(problem, project)
+    if expected is not None and plan.changes != expected.changes:
         raise FixError(FIX_PLAN_CHANGED)
-    FIXES[key].apply(problem, project)
+    run()
 
 
 # --- base común: bytes efectivos → bytes nuevos ------------------------------------------------------
@@ -185,7 +196,7 @@ def _action(edit: Edit) -> str:
 
 
 def make_plan(key: str, edits: list[Edit]) -> ChangePlan:
-    from ..project.diffing import unified_diff
+    from ..project.diffing import counted_diff
 
     changes = []
     for edit in edits:
@@ -195,10 +206,10 @@ def make_plan(key: str, edits: list[Edit]) -> ChangePlan:
             continue
         encoding = edit.before.encoding if edit.before.data is not None else GAME_ENCODING
         try:
-            diff = unified_diff(edit.rel, edit.before.data, edit.after, encoding=encoding)
+            diff, lines = counted_diff(edit.rel, edit.before.data, edit.after, encoding=encoding)
         except (LookupError, ValueError):
-            diff = unified_diff(edit.rel, edit.before.data, edit.after)
-        changes.append(PlannedChange(edit.rel, action, diff))
+            diff, lines = counted_diff(edit.rel, edit.before.data, edit.after)
+        changes.append(PlannedChange(edit.rel, action, diff, lines))
     return ChangePlan(key, tuple(changes))
 
 
@@ -222,6 +233,11 @@ def _byte_fix(key: str, label_args: Callable[[Problem], dict], safe: bool,
     def apply(problem: Problem, project: Project) -> None:
         run_edits(project, key, compute(problem, project), dict(label_args(problem)))
 
+    def prepare(problem: Problem, project: Project) -> tuple[ChangePlan, Callable[[], None]]:
+        edits = compute(problem, project)
+        return make_plan(key, edits), lambda: run_edits(project, key, edits, dict(label_args(problem)))
+
+    _PREPARE[key] = prepare
     return register_fix(FixSpec(key, f"fix.{key}", safe, plan, apply,
                                 lambda problem: MappingProxyType(dict(label_args(problem)))))
 
@@ -445,20 +461,27 @@ def _same_file(a, b) -> bool:
         return False
 
 
-def _trash_plan(problem: Problem, project: Project) -> ChangePlan:
+def _trash_prepare(problem: Problem, project: Project) -> tuple[ChangePlan, Callable[[], None]]:
     _require_current_replace_paths(project)
-    return ChangePlan("trash_identical_copies",
-                      tuple(PlannedChange(rel, ACTION_TRASH) for rel in identical_copies(project)))
+    rels = identical_copies(project)
+    plan = ChangePlan("trash_identical_copies", tuple(PlannedChange(rel, ACTION_TRASH) for rel in rels))
+
+    def run() -> None:
+        if not rels:
+            raise FixError(FIX_NOTHING_TO_DO)
+        with project.ws.transaction("undo.fix_trash_identical_copies", count=len(rels)):
+            project.ws.delete_many(rels)
+
+    return plan, run
+
+
+def _trash_plan(problem: Problem, project: Project) -> ChangePlan:
+    return _trash_prepare(problem, project)[0]
 
 
 def _trash_apply(problem: Problem, project: Project) -> None:
-    _require_current_replace_paths(project)
-    rels = identical_copies(project)
-    if not rels:
-        raise FixError(FIX_NOTHING_TO_DO)
-    with project.ws.transaction("undo.fix_trash_identical_copies", count=len(rels)):
-        for rel in rels:
-            project.ws.delete(rel)
+    _trash_prepare(problem, project)[1]()
 
 
+_PREPARE["trash_identical_copies"] = _trash_prepare
 register_fix(FixSpec("trash_identical_copies", "fix.trash_identical_copies", False, _trash_plan, _trash_apply))

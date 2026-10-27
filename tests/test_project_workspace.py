@@ -535,6 +535,31 @@ class UnopenedDeleteTests(WorkspaceCase):
         self.assertIs(self.ws.peek(DECISIONS), handle)
         self.assertFalse(handle.deleted or handle.dirty)
 
+    def test_delete_many_is_the_same_as_deleting_one_by_one(self):
+        """``delete_many`` lee y comprime en paralelo (revisión it3): el resultado es el de borrar uno a uno."""
+        files = {f"events/tst_copy_{n}.txt": f"country_event = {{ id = {7000 + n} }}\r\n" for n in range(12)}
+        results = []
+        for many in (False, True):
+            game = self.minigame(mod_files={**files, PICTURE: PICTURE_BYTES})
+            ws = self.workspace(game)
+            rels = [*sorted(files), PICTURE, DECISIONS]
+            with ws.transaction("undo.delete"):
+                if many:
+                    ws.delete_many(rels)
+                else:
+                    for rel in rels:
+                        ws.delete(rel)
+            results.append([(str(w.rel), w.action, w.diff, w.lines) for w in ws.changeset().writes])
+            self.assertTrue(all(ws.peek(rel).unread for rel in rels))
+            ws.undo()
+            self.assertEqual(ws.dirty(), [])
+            self.assertTrue(ws.save().ok)
+            self.assertEqual(game.mod(PICTURE).read_bytes(), PICTURE_BYTES)
+        self.assertEqual(results[0], results[1])
+        with self.ws.transaction("undo.delete"):
+            with self.assertRaises(FileNotFoundError):
+                self.ws.delete_many([DECISIONS, "events/no_existe.txt"])
+
     def test_game_files_and_missing_files_are_refused_without_opening_them(self):
         with self.ws.transaction("undo.delete"):
             with self.assertRaises(PermissionError):
@@ -647,6 +672,9 @@ class SaveTests(WorkspaceCase):
         self.assertIn("+\ttst_more = yes", writes[DECISIONS].diff)
         self.assertIn("+a = 1", writes[NEW].diff)
         self.assertIn("-tst_reform;", writes["localisation/00_TST_decisions.csv"].diff)
+        self.assertEqual(writes[NEW].lines, (1, 0), "las líneas del diff entero viajan con la escritura")
+        self.assertEqual(writes["localisation/00_TST_decisions.csv"].lines, (0, 1))
+        self.assertEqual(writes[DECISIONS].lines[0], 1)
         self.assertEqual(writes[NEW].data, b"a = 1\r\n", "archivo nuevo en cp1252 con CRLF")
         self.assertIsNone(writes[NEW].expected)
         self.assertIsNotNone(writes[DECISIONS].expected)

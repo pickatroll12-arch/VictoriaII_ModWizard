@@ -88,6 +88,7 @@ class PlannedWrite:
     data: bytes | None                    # None con TRASH
     expected: Fingerprint | None          # huella que debe tener el destino al confirmar (None = no debe existir)
     diff: str = ""                        # difflib.unified_diff para «Cambios pendientes»
+    lines: tuple[int, int] | None = None  # (añadidas, quitadas) del diff entero; None: binario o sin diff
 
 
 @dataclass(frozen=True)

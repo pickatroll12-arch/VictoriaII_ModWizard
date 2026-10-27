@@ -52,7 +52,7 @@ from ..vfs.paths import VPath
 from ..vfs.vfs import VirtualFS
 from . import journal
 from .codecs import BinaryCodec, codec_for, kind_for
-from .diffing import binary_summary, is_binary, unified_diff
+from .diffing import binary_summary, counted_diff, is_binary, unified_diff
 from .documents import DocumentStore
 from .model import (
     NOT_WRITABLE_INVALID,
@@ -181,6 +181,29 @@ class _Tombstone(DocHandle):
     def raw(self) -> bytes:
         """Bytes del documento (sin decodificar si no hace falta)."""
         return decompress(self.packed) if self.unread else codec_for(self.kind).snapshot(self.model)
+
+
+def _pack_entry(entry: FileEntry) -> tuple | None:
+    """(entrada, tamaño, huella, bytes comprimidos) de un archivo del disco; None si no se puede leer (``delete``
+    lo volverá a intentar y dará su error). Solo bytes y rutas: apto para un hilo de fondo."""
+    try:
+        data = entry.path.read_bytes()
+        stat = os.stat(entry.path)
+    except OSError:
+        return None
+    return entry, len(data), Fingerprint.of_bytes(data, stat), compress(data)
+
+
+def _pack_entries(entries: list[FileEntry]) -> dict[str, tuple]:
+    """``_pack_entry`` de cada entrada, en paralelo cuando son muchas (``rel.key`` → resultado)."""
+    if len(entries) < 8:
+        packed = [_pack_entry(entry) for entry in entries]
+    else:
+        from concurrent.futures import ThreadPoolExecutor
+
+        with ThreadPoolExecutor(max_workers=min(4, os.cpu_count() or 1)) as pool:
+            packed = list(pool.map(_pack_entry, entries, chunksize=16))
+    return {entry.rel.key: item for entry, item in zip(entries, packed) if item is not None}
 
 
 def _packed_snapshot(handle: DocHandle) -> bytes:
@@ -539,7 +562,7 @@ class Workspace:
             frame._replaced.add(rel.key)
         return handle
 
-    def delete(self, rel: str | VPath) -> None:
+    def delete(self, rel: str | VPath, *, _prepared: tuple | None = None) -> None:
         """Lápida (dentro de una transacción): al guardar, el archivo del mod va a la papelera. Uno del juego no se
         puede borrar (``PermissionError``). Un archivo que no estaba abierto no se decodifica (``_Tombstone``)."""
         self._check()
@@ -548,7 +571,7 @@ class Workspace:
         self._require_writable_workspace(rel)
         handle = self._store.get(rel)
         if handle is None:
-            handle = self._unread_tombstone(rel)
+            handle = self._unread_tombstone(rel, _prepared)
         elif handle.deleted:
             raise FileNotFoundError(str(rel))
         if handle.origin is not None and handle.origin.layer.kind is not LayerKind.MOD:
@@ -559,19 +582,40 @@ class Workspace:
         else:
             handle.deleted = True
 
-    def _unread_tombstone(self, rel: VPath) -> _Tombstone:
+    def delete_many(self, rels: Iterable[str | VPath]) -> None:
+        """``delete`` de varias rutas (dentro de una transacción, en orden). Los archivos que no estaban abiertos
+        se leen, se resumen y se comprimen antes, en paralelo: solo viajan bytes y rutas (I12), y zlib y hashlib
+        sueltan el GIL. Mandar a la papelera las 8462 copias de VSM tardaba 5 s solo en comprimir 449 MB."""
+        self._check()
+        self._require_txn()
+        rels = [VPath.of(rel) for rel in rels]
+        entries = {}
+        for rel in rels:
+            if self._store.get(rel) is None:
+                entry = self._disk_entry(rel)
+                if entry is not None and entry.layer.kind is LayerKind.MOD:
+                    entries[rel.key] = entry
+        prepared = _pack_entries(list(entries.values()))
+        for rel in rels:
+            self.delete(rel, _prepared=prepared.get(rel.key))
+
+    def _unread_tombstone(self, rel: VPath, prepared: tuple | None = None) -> _Tombstone:
         """Documento de ``rel`` (que no está abierto) listo para borrarse: sus bytes, sin decodificar ni expulsar
-        a nadie de la LRU (eso lo hace el cierre de la transacción, una vez)."""
+        a nadie de la LRU (eso lo hace el cierre de la transacción, una vez). ``prepared``: lo que ya leyó
+        ``delete_many`` (entrada, tamaño, huella y bytes comprimidos)."""
         entry = self._disk_entry(rel)
         if entry is None:
             raise FileNotFoundError(str(rel))
         if entry.layer.kind is not LayerKind.MOD:
             raise PermissionError(f"{rel}: es del juego base (o de una dependencia) y no se puede borrar")
-        data, fingerprint = self._read_entry(entry)
-        packed = compress(data)
+        if prepared is not None and prepared[0].path == entry.path:
+            _, length, fingerprint, packed = prepared
+        else:
+            data, fingerprint = self._read_entry(entry)
+            packed, length = compress(data), len(data)
         kind = kind_for(entry.rel)
         version = next(self._versions)
-        handle = _Tombstone(entry.rel, kind, packed, len(data), origin=entry, base=fingerprint, version=version,
+        handle = _Tombstone(entry.rel, kind, packed, length, origin=entry, base=fingerprint, version=version,
                             saved_version=version)
         handle.read_only_reason = self._reason(kind, None, [])
         self._store.add(handle, len(packed))
@@ -830,15 +874,16 @@ class Workspace:
             return handle.origin.path
         return self._vfs.mod_target(handle.rel)
 
-    def _trash_diff(self, handle: DocHandle) -> str:
-        """Diff de mandar ``handle`` a la papelera; de una lápida sin decodificar, sin descomprimir un binario."""
+    def _trash_diff(self, handle: DocHandle) -> tuple[str, tuple[int, int] | None]:
+        """(diff, líneas) de mandar ``handle`` a la papelera; de una lápida sin decodificar, sin descomprimir un
+        binario."""
         if isinstance(handle, _Tombstone) and handle.unread:
             if is_binary(handle.head()):
-                return binary_summary(handle.rel, handle.size(), None)
+                return binary_summary(handle.rel, handle.size(), None), None
             before = handle.raw()
         else:
             before = codec_for(handle.kind).snapshot(handle.model)
-        return unified_diff(handle.rel, before, None, encoding=self._encoding(handle))
+        return counted_diff(handle.rel, before, None, encoding=self._encoding(handle))
 
     def _encoding(self, handle: DocHandle) -> str | None:
         if isinstance(handle, _Tombstone) and handle.unread:
@@ -859,8 +904,9 @@ class Workspace:
                 if not mod_file:
                     unchanged.append(handle)
                     continue
-                diff = self._trash_diff(handle) if with_diff else ""
-                plans.append((handle, PlannedWrite(handle.rel, target, WriteAction.TRASH, None, handle.base, diff)))
+                diff, lines = self._trash_diff(handle) if with_diff else ("", None)
+                plans.append((handle, PlannedWrite(handle.rel, target, WriteAction.TRASH, None, handle.base, diff,
+                                                   lines)))
                 continue
             if not codec.writable and not isinstance(codec, BinaryCodec):
                 problems.append(SaveProblem(SAVE_NOT_WRITABLE, handle.rel, {"reason": READ_ONLY_BINARY}))
@@ -900,8 +946,9 @@ class Workspace:
             if before is not None and before == data:
                 unchanged.append(handle)    # I4: un archivo del juego solo se copia al mod si cambió
                 continue
-            diff = unified_diff(handle.rel, before, data, encoding=self._encoding(handle)) if with_diff else ""
-            plans.append((handle, PlannedWrite(handle.rel, target, action, data, expected, diff)))
+            diff, lines = (counted_diff(handle.rel, before, data, encoding=self._encoding(handle)) if with_diff
+                           else ("", None))
+            plans.append((handle, PlannedWrite(handle.rel, target, action, data, expected, diff, lines)))
         return plans, problems, unchanged
 
     def changeset(self, rels: Iterable[VPath] | None = None) -> ChangeSet:

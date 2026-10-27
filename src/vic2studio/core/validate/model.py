@@ -139,6 +139,7 @@ class PlannedChange:
     rel: VPath
     action: str                          # ACTION_*
     diff: str = ""                       # unified diff (vacío para TRASH)
+    lines: tuple[int, int] | None = None  # (añadidas, quitadas) del diff entero (diffing.counted_diff); None: sin diff
 
 
 @dataclass(frozen=True)
