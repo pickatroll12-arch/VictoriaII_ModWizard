@@ -5,17 +5,18 @@ aplicación de escritorio (Windows + Linux) para crear y editar mods de
 Victoria II (motor Clausewitz de Paradox, con *A House Divided* y *Heart of
 Darkness*) de forma visual.
 
-Estado: **iteración 2 cerrada** (cimientos: VFS, proyecto transaccional con
-diario, deshacer por instantáneas, descriptor `.mod` y armazón de 7 salas;
-commits `97f0386`, `f3ff809`, `d3ed5de`, `563a709` y `59e8847`, más las correcciones
-de sus dos rondas de revisión adversarial). Las iteraciones 1 y 2 están cerradas
-(§6.1); los criterios que
-necesitaban el corpus del usuario ya se cumplen con sus archivos reales. Este documento describe
-el código que hay hoy en el repositorio. El diseño de las iteraciones 2 a 10
-está en [`docs/diseno/wizard.md`](docs/diseno/wizard.md) («wizard» en adelante);
-lo de la iteración 2 sigue sobre todo wizard §3–§6, §13, §14.1 y §22. Lo marcado
-*(planificado)* no existe todavía en el código, y donde el código se aparta de
-wizard se dice.
+Estado: **iteración 3 integrada y revisada**. Sus piezas son el índice de
+símbolos, la validación con línea base, arreglos y explicador, la localización
+editable sincronizada y Ctrl+K (§2.3, §2.6 y §2.7). Se apoya en la iteración 2,
+los cimientos: VFS, proyecto transaccional con diario, deshacer por
+instantáneas, descriptor `.mod` y armazón de 7 salas. Las iteraciones 1 y 2
+están cerradas (§6.1). Los criterios que necesitaban el corpus del usuario se
+cumplen con sus archivos reales. Este documento describe el código que hay hoy
+en el repositorio. El diseño de las iteraciones 2 a 10 está en
+[`docs/diseno/wizard.md`](docs/diseno/wizard.md) («wizard» en adelante). Lo de
+la iteración 2 sigue sobre todo wizard §3–§6, §13, §14.1 y §22; lo de la 3,
+wizard §7–§9, §11, §13 y §22. Lo marcado *(planificado)* no existe todavía en
+el código, y donde el código se aparta de wizard se dice.
 
 Índice:
 
@@ -184,9 +185,9 @@ flowchart TB
     subgraph UI["ui — Qt (PySide6)"]
         app["app.py · __main__.py · settings.py · compat.py"]
         mw["ui/main_window.py (7 salas, acciones globales)"]
-        shell["ui/shell/* (HallPage, SectionRail, PendingChangesPanel, HistoryDock)"]
-        halls["ui/halls/* (registry + 7 salas)"]
-        dialogs["ui/dialogs/* (revisión, conflicto, recuperación, nuevo mod)"]
+        shell["ui/shell/* (HallPage, SectionRail, PendingChangesPanel, HistoryDock, ProblemsDock, CommandPalette)"]
+        halls["ui/halls/* (registry + 7 salas; Validación, Todos los textos)"]
+        dialogs["ui/dialogs/* (revisión, conflicto, recuperación, nuevo mod, plan de arreglo, nueva clave)"]
         pages["ui/pages/* (Archivos, Archivos CSV, tarjeta «en desarrollo»)"]
         viewers["ui/viewers/* (visores y validación)"]
         session["ui/session.py (Session: único puente con Qt)"]
@@ -195,6 +196,10 @@ flowchart TB
         i18n["i18n/ (Translator: catálogos y fragmentos)"]
     end
     subgraph CORE["core — Python puro, sin Qt"]
+        validate["validate/ (Validator, reglas, línea base, arreglos, explicador)"]
+        locsync["locsync (LocSync)"]
+        index["index/ (SymbolIndex, FactsCache, extractores)"]
+        rules["rules/ (GameRules, ids, nombres, colores) · lua_defines"]
         project["project/ (Project, Workspace, undo, journal, recovery, lock…)"]
         vfs["vfs/ (paths, rules, guard, vfs)"]
         modfile["modfile (descriptor .mod)"]
@@ -206,7 +211,7 @@ flowchart TB
         texts["texts (textos del núcleo)"]
         cancel["cancel (cancelación cooperativa)"]
     end
-    planned["planificado (wizard §4): core/index · schema · validate · locsync · map …"]
+    planned["planificado (wizard §4): core/schema · schemas · domain · map (raster, modos) · mapforge …"]
     app --> mw
     mw --> shell
     mw --> halls
@@ -222,6 +227,38 @@ flowchart TB
     tasks --> cancel
     session --> project
     session --> modfile
+    session --> validate
+    session --> locsync
+    session --> index
+    validate --> index
+    validate --> rules
+    validate --> project
+    validate --> modcheck
+    validate --> texts
+    validate --> appdirs
+    validate --> vfs
+    validate --> cw
+    validate --> csv
+    validate --> modfile
+    validate --> enc
+    validate --> cancel
+    locsync --> index
+    locsync --> project
+    locsync --> vfs
+    locsync --> csv
+    locsync --> enc
+    locsync --> cancel
+    index --> project
+    index --> vfs
+    index --> cw
+    index --> csv
+    index --> enc
+    index --> appdirs
+    index --> cancel
+    rules --> project
+    rules --> vfs
+    rules --> cw
+    rules --> enc
     viewers --> cw
     viewers --> csv
     viewers --> modcheck
@@ -281,10 +318,18 @@ Reglas de dependencia:
   tablas `MESSAGES` sino en JSON: `core/**/texts/*.<idioma>.json`, que lee
   `core/texts.py` sin Qt (`load_texts(lang)`, que lanza `ValueError` ante una
   clave repetida o un archivo mal formado, y `text(key, lang, **fmt)`, que cae al
-  inglés y, si tampoco está, a la propia clave). Hoy solo hay
-  `core/project/texts/project.{es,en}.json`, 17 claves: los códigos de
-  `SaveProblem`, las notas del diálogo de recuperación y las etiquetas `undo.*`
-  de los pasos que crea el núcleo. Las tablas `MESSAGES` de los módulos de la
+  inglés y, si tampoco está, a la propia clave). Hoy hay tres pares de archivos:
+  - `core/project/texts/project.{es,en}.json`, 22 claves: los códigos de
+    `SaveProblem`, las notas del diálogo de recuperación y las etiquetas
+    `undo.*` de los pasos que crea el núcleo;
+  - `core/validate/texts/issues.{es,en}.json`, 303 claves: el mensaje de cada
+    código de validación (`issue.<código>`, 90), los títulos, pasos y frases
+    del explicador (`explain.*`, 192), los arreglos (`fix.*`) con sus errores
+    (`fix_error.*`) y las etiquetas `undo.fix_*` de sus transacciones;
+  - `core/map/texts/map.{es,en}.json`, 3 claves: los problemas de
+    `definition.csv` (`issue.definition_*`, de la tarea G4).
+
+  Las tablas `MESSAGES` de los módulos de la
   iteración 1 siguen como estaban. Solo tienen texto en español
   `encoding.UnencodableTextError`, los `ValueError` de `csvloc.from_json`, el
   `LookupError` de `normalize_encoding` y, del proyecto, `WrongThreadError`;
@@ -305,9 +350,21 @@ Reglas de dependencia:
   codificación le llegan de `parse_file` y de `read_csv_file`); `vfs` usa
   `cancel`, `fileio` (solo `BACKUP_SUFFIX`), `modcheck` (`GAME_EXECUTABLES`) y
   `modfile`; y `project` usa `vfs`, `clausewitz`, `csvloc`, `encoding`, `fileio`,
-  `modfile`, `appdirs`, `cancel` y, para `SaveProblem.message`, `texts`. Todos
-  los recorridos largos aceptan `cancelled=` de `cancel` (§2.5). El contrato de
-  cada subpaquete es lo que exporta su `__init__.py`.
+  `modfile`, `appdirs`, `cancel` y, para `SaveProblem.message`, `texts`. Los de
+  la iteración 3 quedan encima:
+  - `lua_defines` usa solo `encoding`;
+  - `rules` usa `clausewitz`, `lua_defines`, `project` (los códecs, para leer
+    los bytes efectivos) y `vfs`;
+  - `index` usa `appdirs`, `cancel`, `clausewitz`, `csvloc`, `encoding`,
+    `fileio` (solo su caché, fuera del mod), `project` y `vfs`;
+  - `locsync` usa `cancel`, `csvloc`, `encoding`, `index`, `project` y `vfs`;
+  - `validate` usa todo lo anterior salvo `locsync`, además de `modcheck`,
+    `modfile` y `texts`.
+
+  Ninguno importa `locsync` ni `validate` desde abajo: el índice no sabe nada
+  de las reglas y las reglas no editan. Todos los recorridos largos aceptan
+  `cancelled=` de `cancel` (§2.5). El contrato de cada subpaquete es lo que
+  exporta su `__init__.py`.
 - **Quién escribe en disco** (wizard §4; `tests/test_arch_writes.py`, con un
   recorrido AST de `src/`):
   - las primitivas de escritura cruda (`open` para escribir, `Path.write_*`,
@@ -321,7 +378,11 @@ Reglas de dependencia:
     `serializer.write_file` y `csvloc.write_csv_file` solo se llaman desde
     `core/project/journal.py`, el único que escribe dentro del mod, desde
     `core/project/lock.py`, que escribe el bloqueo fuera del mod
-    (`appdirs.locks_dir()`), y desde los propios envoltorios;
+    (`appdirs.locks_dir()`), desde las dos cachés de la iteración 3, también
+    fuera del mod (`core/index/cache.py`, en `appdirs.cache_dir()/index`, y
+    `core/validate/baseline.py`, en `…/baseline`; la del índice se niega a
+    escribir si esa carpeta cayera dentro de una capa), y desde los propios
+    envoltorios;
   - en `journal.py`, cada llamada a `fileio` está en una función `_guarded_*`
     que pasa la ruta por `WriteGuard.check` (§3.5), y la prueba lo verifica;
   - las excepciones están declaradas y justificadas en la propia prueba:
@@ -351,6 +412,15 @@ Reglas de dependencia:
   (Descriptor .mod y Cambios pendientes) usan el `Workspace` de
   `session.project` (`open`, `touch`, `replace_text`, `revert`), siempre dentro
   de `Session.edit`: eso solo cambia la memoria, y el disco se toca al guardar.
+  Las secciones de la iteración 3 también pasan por `Session`, y por eso ven la
+  vista efectiva con lo que no se ha guardado (I7):
+  - Textos › Todos los textos edita y lee con `LocSync`, que lee en segundo
+    plano los CSV del disco que no están abiertos;
+  - Proyecto › Validación y el panel Problemas validan con `Session.validate`
+    sobre una instantánea con los documentos sin guardar;
+  - un arreglo es una transacción de `Session.apply_fix`;
+  - Ctrl+K consulta el índice con `Session.search`.
+
   Para **leer**, en cambio, varias piezas siguen yendo al disco sin pasar por el
   `Workspace`: «Archivos» y «Archivos CSV» (la `ProjectPage` y la
   `LocalisationPage` de la iteración 1) leen con rutas absolutas a través de core
@@ -377,7 +447,8 @@ Reglas de dependencia:
 - **i18n** pertenece a la capa de UI: `Translator(QObject)` emite
   `languageChanged(str)` y cada página, sección, panel y diálogo implementa
   `retranslate()`. `load_catalog(code)` reúne `i18n/<code>.json`, los fragmentos
-  `i18n/<code>/*.json` (hoy `project.json` y `shell.json`) y los textos del
+  `i18n/<code>/*.json` (hoy `project.json`, `shell.json`, `validation.json`,
+  `localisation.json` y `palette.json`) y los textos del
   núcleo (`core.texts`), y lanza `ValueError` si una clave se repite entre dos
   archivos cualesquiera (§8.4).
 - No hay capa `services/`: el estado de la aplicación vive en `core/project/`
@@ -487,7 +558,11 @@ del `Workspace` cuyo `model` es el objeto vivo de su códec (`ParseResult`,
 `LocalisationFile` o `bytes`, §2.4), y la única sección que edita un CST, la del
 descriptor, lo hace directamente sobre él (`modfile.apply_descriptor`). Los
 atributos `rules`, `index`, `loc`, `entities` y `validator` de `Project` existen
-y valen `None` hasta su iteración.
+y siguen valiendo `None`. En la iteración 3 el índice, la `LocSync` y el motor de
+validación los tiene `Session` (§2.6 y §2.7), que los construye en segundo plano
+y los mantiene al día con los eventos del `Workspace`; el `Project` sigue siendo
+Python puro sin saber de ellos. Se aparta de wizard §6.4, que los colgaba del
+`Project`, para no meter en el núcleo el ciclo de vida de las tareas de fondo.
 
 ### 2.3 Índice de símbolos *(planificado)*
 

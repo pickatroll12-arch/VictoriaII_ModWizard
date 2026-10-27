@@ -31,10 +31,20 @@ Versión **0.1.0**, pre-alfa.
   - el generador del descriptor `.mod`;
   - la ventana de 7 salas.
 
+- **Iteración 3** (índice, validación y textos): integrada y revisada. Llegan:
+  - el índice de símbolos de la vista efectiva (juego, dependencias, mod y
+    cambios sin guardar), con caché e incremental;
+  - la validación cruzada con línea base, que no culpa al mod de los fallos
+    del juego, con arreglos de un clic y el explicador «¿Por qué?»;
+  - la localización editable y sincronizada en la sala Textos;
+  - el buscador universal Ctrl+K.
+
 La iteración 2 pasó dos rondas de revisión adversarial: 55 hallazgos
-confirmados, todos corregidos con su prueba de regresión. Quedan su informe
-final y la [iteración 3](docs/diseno/wizard.md#22-plan-de-iteraciones). El
-estado detallado está en el
+confirmados, todos corregidos con su prueba de regresión. La iteración 3 pasó
+la suya, por componentes, con las correcciones también probadas con
+mutaciones. Lo siguiente es la
+[iteración 4](docs/diseno/wizard.md#22-plan-de-iteraciones), el motor de
+esquemas. El estado detallado está en el
 [documento de traspaso](CONTINUAR_EN_CLAUDE_CODE.md).
 
 ### Qué funciona hoy
@@ -63,13 +73,44 @@ tarjeta que dice qué hará y en qué iteración llega.
     buscador. Un archivo en UTF-16 sale en rojo («Ilegible para el juego»);
   - imágenes (`.tga`, `.dds`, `.bmp`, `.png`, `.jpg`, `.jpeg`, `.gif`);
   - los `.csv` de `localisation/`, que se abren en Textos.
-  - «Validar mod» (F7) analiza todos los scripts, los CSV y el descriptor en
-    segundo plano. Muestra el progreso, se puede cancelar y lista los
-    diagnósticos.
+  - «Validar mod» (F7) lanza el validador del núcleo y lleva a Proyecto ›
+    Validación. La pestaña «Validación» del panel izquierdo conserva el
+    análisis de la iteración 1, archivo a archivo, sobre el disco.
+- **Proyecto › Validación** (F7): el informe del validador sobre la vista
+  efectiva, con los cambios sin guardar, en segundo plano y cancelable.
+  - Columnas de gravedad, mensaje, entidad, archivo y línea; doble clic abre el
+    archivo en esa línea.
+  - Los problemas que ya tiene el juego base salen como **heredados** y se
+    ocultan; un conmutador los enseña, en cursiva.
+  - **[Arreglar]** enseña antes el plan de cambios con su diff y pide
+    confirmación. Arreglos de esta iteración: registrar un TAG antes de
+    `dynamic_tags`, convertir a Windows-1252, añadir la `}` que falta,
+    recuperar las filas de vanilla de una copia degradada de `text.csv` y
+    mandar a la papelera las copias idénticas al juego. Todo se deshace con
+    Ctrl+Z y nada se escribe hasta guardar.
+  - **[¿Por qué?]** abre el explicador: las capas en el orden en que las carga
+    el juego, cada una con su línea real y su veredicto, y lo que verá el
+    jugador.
+  - El panel acoplable **Problemas** da lo mismo en compacto.
 - **Proyecto › Cambios pendientes**: lo que escribirá Guardar, archivo a
   archivo, con su diff. Se puede descartar un archivo.
-- **Textos › Archivos CSV**: la localización en una tabla de solo lectura,
-  con buscador y el lint traducido.
+- **Textos › Todos los textos** y **Pendientes de traducir**: la localización
+  efectiva, editable en la tabla, con los textos en inglés, español, francés y
+  alemán, su archivo ganador y su origen.
+  - Editar una clave sigue la regla del juego (gana la primera clave por orden
+    alfabético de archivo): si gana un CSV del mod, se edita en su sitio; si
+    gana el juego, se escribe en `localisation/00_<prefijo>_overrides.csv`, sin
+    copiar nunca el CSV del juego.
+  - «Añadir clave», filtros («creadas por el Studio», «sin traducir»,
+    «sustituyen a vanilla» y «degradadas») y buscador sin mayúsculas ni
+    acentos.
+- **Textos › Archivos CSV**: cada CSV en una tabla de solo lectura, con
+  buscador y el lint traducido.
+- **Ctrl+K**: busca cualquier símbolo del índice (países, provincias, partidos,
+  culturas, eventos, decisiones, claves de localización…) por su id o por su
+  nombre en el idioma de la interfaz («549», «Berlín», «PRU»,
+  «north_german»), y también las salas y secciones. Intro abre el archivo en
+  su línea.
 
 **Editar, guardar y deshacer.** Cada cambio es un paso con nombre que se
 deshace (Ctrl+Z) y se rehace (Ctrl+Y, o Ctrl+Mayús+Z); el Historial lista los
@@ -115,6 +156,24 @@ terminal:
   uno nuevo en cp1252 con CRLF) y `modcheck` (validación de un mod completo).
 - `cancel`: cancelación cooperativa; las funciones largas aceptan
   `cancelled=` y lanzan `Cancelled`.
+- `index`: el índice de símbolos (`SymbolIndex`). Hay extractores registrados
+  por descubrimiento para países, partidos, provincias de tierra y de mar,
+  regiones, continentes, climas, culturas, religiones, gobiernos, ideologías,
+  asuntos, tecnologías, invenciones, bienes, edificios, tipos de POP,
+  unidades, CB, eventos, decisiones, bookmarks, guerras, sprites, imágenes y
+  claves de localización. Guarda en caché los hechos de cada archivo, en
+  JSON-lines comprimido por capa (nunca `pickle`), y solo reprocesa lo que
+  cambia.
+- `validate`: la validación cruzada.
+  - Reglas por familia: sintaxis, archivos, descriptor, países, provincias,
+    localización, eventos, decisiones y `peace_order`.
+  - Línea base del juego en caché, para marcar los heredados.
+  - Arreglos con plan previo (`FixError` con código y texto ES/EN).
+  - Explicador para cada código.
+- `rules` (`GameRules`, ids, nombres y colores) y `lua_defines`, que lee y
+  cambia `defines.lua` sin perder ni un byte de lo demás.
+- `locsync`: edita la localización con la política del juego, sobre la vista
+  efectiva (también lo que no se ha guardado).
 
 ### Qué viene
 
@@ -146,9 +205,10 @@ iteración en que llega cada una:
     Fantasy Map Generator o importación de bitmaps, con todos sus archivos
     dependientes (9a y 9b).
 
-La iteración 3 añade el índice de símbolos, la validación con línea base y la
-localización editable sincronizada; la 10, el pulido, la exportación a zip y
-el empaquetado final. Los prototipos del taller de mapas están en
+La iteración 3 (hecha) añadió el índice de símbolos, la validación con línea
+base, la localización editable sincronizada y Ctrl+K, que necesitan todas las
+capacidades. La 4 trae el motor de esquemas y la 10, el pulido, la exportación
+a zip y el empaquetado final. Los prototipos del taller de mapas están en
 [docs/diseno/prototipos/mapforge/](docs/diseno/prototipos/mapforge/README.md).
 
 ## Requisitos
@@ -486,16 +546,31 @@ src/vic2studio/
 ├── core/              núcleo sin Qt
 │   ├── clausewitz/    parser .txt sin pérdidas, edición, JSON y CLI
 │   ├── csvloc/        CSV de localización: modelo, lint, LocalisationDB y CLI
+│   ├── vfs/           sistema de archivos virtual juego + dependencias + mod, WriteGuard
+│   ├── project/       Project, Workspace, códecs, deshacer, diario, recuperación y bloqueo
+│   ├── index/         índice de símbolos: modelo, caché, construcción y extractores
+│   ├── validate/      validación con línea base: reglas, arreglos y explicador
+│   ├── rules/         reglas del juego: GameRules, ids, nombres y colores
+│   ├── locsync.py     edición sincronizada de la localización
+│   ├── lua_defines.py defines.lua sin pérdidas
+│   ├── map/, gfx/     piezas del mapa y de imágenes para iteraciones futuras (BMP, definition.csv, DDS, banderas)
+│   ├── tablecsv.py    CSV de tablas sin pérdidas (definition.csv y compañía)
 │   ├── encoding.py    detección de codificaciones y códecs sin pérdidas
 │   ├── fileio.py      lectura con huella y escritura atómica con .bak
 │   ├── modfile.py     descriptor .mod
-│   ├── modcheck.py    validación de un mod completo
+│   ├── modcheck.py    validación de un mod completo (la de la iteración 1)
+│   ├── appdirs.py     carpetas de datos y caché del Studio
+│   ├── texts.py       textos ES/EN del núcleo
 │   └── cancel.py      cancelación cooperativa (cancelled=)
-├── i18n/              traductor y textos es.json / en.json
+├── i18n/              traductor, catálogos es.json / en.json y fragmentos por sala
 ├── ui/
-│   ├── pages/         páginas de los 5 módulos
+│   ├── halls/         las 7 salas y sus secciones (registro por descubrimiento)
+│   ├── shell/         armazón: sala, barra de secciones, Cambios pendientes, Historial, Problemas y Ctrl+K
+│   ├── dialogs/       revisión del guardado, conflicto, recuperación, nuevo mod, plan de un arreglo y nueva clave
+│   ├── pages/         páginas de Archivos, Archivos CSV y la tarjeta «en desarrollo»
 │   ├── viewers/       visor Clausewitz, código, diagnósticos, imágenes, localización y validación
 │   ├── widgets/       estandarte, tarjetas, iconos, navegación, ornamentos, superficies y diseño en flujo
+│   ├── session.py     Session: el único puente entre el proyecto y Qt
 │   ├── tasks.py       tareas en segundo plano: grupos de hilos y cancelación
 │   ├── theme.py       tema procedural (con style.qss)
 │   └── main_window.py ventana principal
@@ -510,7 +585,7 @@ docs/
 ├── diseno/            wizard.md (iteraciones 2 a 10) y prototipos del taller de mapas
 ├── capturas/          20 capturas ES/EN de la muestra (T5 e iteración 2)
 ├── requisitos/        requisitos originales del usuario
-└── handoff/           workflow de la iteración 1 (contratos de API)
+└── handoff/           encargos de los agentes, guiones de workflow y tareas para otros asistentes
 ```
 
 El árbol detallado y la arquitectura están en [ARCHITECTURE.md](ARCHITECTURE.md).
@@ -557,6 +632,8 @@ that the repository still holds).
 - Iteration 1 (file engine, viewer, validation) is closed.
 - Iteration 2 (foundations) is integrated, and two adversarial review rounds
   fixed 55 confirmed findings, each with a regression test.
+- Iteration 3 (symbol index, validation with a baseline, synchronised
+  localisation editing and Ctrl+K) is integrated and reviewed.
 
 The window has 7 halls (Ctrl+1 … Ctrl+7): Project, Map, Nations, War, Events,
 Interface and Texts. Planned sections are cards that say which iteration
@@ -568,11 +645,23 @@ brings them. Project has five sections:
   cp1252.
 - **Files**: the paths, an explorer that shows the layer of each file, and the
   Clausewitz, image and CSV previews, plus a background "Validate mod" (F7).
-- **Validation**: a planned section (iteration 3); for now, "Validate mod"
-  lives in Files.
+- **Validation** (F7): cross-file validation of the effective view (unsaved
+  edits included), in the background. Problems the base game already has are
+  marked as inherited and hidden by default. **Fix** shows the planned diff
+  before applying an undoable one-click fix. The five fixes are: register a
+  TAG before `dynamic_tags`, convert to cp1252, add the missing `}`, restore
+  vanilla rows in a degraded `text.csv` copy, and trash files identical to the
+  game. **Why?** explains which layer wins and what the player will see. A
+  dockable Problems panel shows the same report.
 - **Pending changes**: the diff of each file.
 
-Texts › CSV files keeps the read-only localisation table.
+Texts › All texts is the effective localisation, editable in place. A key won
+by a mod CSV is edited where it is, and a key won by the game goes to
+`localisation/00_<prefix>_overrides.csv`; the game's CSV is never copied. It
+has filters for keys created by the Studio, untranslated keys, keys that
+override vanilla and degraded keys. Texts › CSV files keeps the read-only
+per-file table. Ctrl+K finds any indexed symbol by id or by its localised name
+("549", "Berlín", "PRU", "north_german") and opens it at its line.
 
 Edits are named, undoable steps. Saving (Ctrl+S) goes through a journal, so a
 crash leaves the mod either before or after:
@@ -591,7 +680,11 @@ repeated BOMs), a lossless Clausewitz parser with a format-preserving edit API,
 encoding diagnostics (an error for UTF-16, which the game cannot read) and
 public end positions for tree nodes, a lossless CSV model with lint and a
 localisation database that merges folders the way the game does, `.mod`
-descriptor handling, whole-mod validation and cooperative cancellation.
+descriptor handling, whole-mod validation and cooperative cancellation. Since
+iteration 3 it also has the symbol index, which caches per-file facts as
+compressed JSON lines and rebuilds incrementally. It also has rule-based
+validation with a cached base-game baseline, one-click fixes and a conflict
+explainer, game rules, a lossless `defines.lua` editor and `LocSync`.
 
 **Roadmap**: iterations 2 to 10 in
 [docs/diseno/wizard.md](docs/diseno/wizard.md) (Spanish), which replaces the
