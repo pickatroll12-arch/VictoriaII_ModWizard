@@ -18,7 +18,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from _corpus import user_mod, vanilla_root  # noqa: E402
 from _fake_index import FakeIndexEngine  # noqa: E402
 from _layers import isolate_appdirs  # noqa: E402
-from _minigame import CRLF, build_minigame  # noqa: E402
+from _minigame import CRLF, GAME_FILES, build_minigame  # noqa: E402
 
 from vic2studio.core import locsync as locsync_module  # noqa: E402
 from vic2studio.core.csvloc import InvalidFieldError  # noqa: E402
@@ -38,6 +38,19 @@ GAME_CSV = "localisation/minigame.csv"
 # Cabecera y filas sin «x», como los CSV propios de VSM (H15, csvloc/__init__.py).
 VSM_HEADER = "key;English;French;German;Polish;Spanish;Italian;Swedish;Czech;Hugarian;Dutch;Portuguese;Russian;Finish"
 VSM_STYLE = CRLF.join([VSM_HEADER, "AAA;Aland;;;;;;;;;;;;", "AAA_ADJ;Alandish;;;;Alandés;;;;;;;;", ""])
+
+
+# El minijuego puede traer más CSV del juego que minigame.csv (la iteración 3 le añade los nombres de países,
+# provincias y eventos para el índice): las pruebas de textos los dejan vacíos, para que lo que cuentan solo
+# dependa de minigame.csv y de los archivos que pone cada prueba.
+OTHER_GAME_CSVS = tuple(rel for rel in GAME_FILES if is_localisation_rel(rel) and rel != GAME_CSV)
+
+
+def only_minigame_csv(game_files=None) -> dict:
+    """``game_files`` para ``build_minigame`` con los demás CSV del juego vacíos (ver ``OTHER_GAME_CSVS``)."""
+    files: dict = dict.fromkeys(OTHER_GAME_CSVS, "")
+    files.update(game_files or {})
+    return files
 
 
 def copy_user_mod(test: unittest.TestCase, *parts: str) -> Path:
@@ -69,7 +82,8 @@ class LocSyncCase(unittest.TestCase):
 
     def open(self, *, mod: bool = True, mod_files=None, game_files=None, mod_copies=(), copy_en_to=(),
              languages=("en", "es")):
-        self.game = build_minigame(mod=mod, mod_files=mod_files, game_files=game_files, mod_copies=mod_copies)
+        self.game = build_minigame(mod=mod, mod_files=mod_files, game_files=only_minigame_csv(game_files),
+                                   mod_copies=mod_copies)
         self.addCleanup(self.game.cleanup)
         self.project = Project.open(self.game.game_root, self.game.mod_root)
         self.addCleanup(self.project.close, discard=True)
@@ -344,7 +358,7 @@ class BackgroundReadTests(LocSyncCase):
     def test_after_adopting_a_background_read_queries_read_nothing_more(self):
         loc = self.open(mod_copies=[GAME_CSV])
         entries = loc.disk_entries()
-        self.assertEqual({(str(e.rel), e.layer.kind) for e in entries},
+        self.assertEqual({(str(e.rel), e.layer.kind) for e in entries if str(e.rel) not in OTHER_GAME_CSVS},
                          {(GAME_CSV, LayerKind.MOD), (GAME_CSV, LayerKind.GAME),
                           ("localisation/00_TST_decisions.csv", LayerKind.MOD)})
         loc.adopt(read_localisation(entries))

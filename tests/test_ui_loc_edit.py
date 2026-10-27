@@ -21,6 +21,7 @@ from _minigame import CRLF, build_minigame  # noqa: E402
 from PySide6.QtCore import Qt  # noqa: E402
 from PySide6.QtTest import QTest  # noqa: E402
 from PySide6.QtWidgets import QDialog, QLineEdit  # noqa: E402
+from test_locsync import only_minigame_csv  # noqa: E402
 from test_ui_shell import DialogLog  # noqa: E402
 from test_ui_smoke import UiTestCase  # noqa: E402
 
@@ -56,6 +57,7 @@ class TextsWindowCase(UiTestCase):
                     **minigame):
         """La ventana con el minijuego abierto con el ``Project`` real y los motores falsos (``engines``: opciones
         de ``fake_engines``, o motores ya hechos con la clave ``"ready"``)."""
+        minigame["game_files"] = only_minigame_csv(minigame.get("game_files"))   # solo minigame.csv
         self.game = build_minigame(**minigame)
         self.addCleanup(self.game.cleanup)
         if read_only:

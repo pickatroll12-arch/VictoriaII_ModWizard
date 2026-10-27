@@ -370,6 +370,7 @@ class ServicesCase(unittest.TestCase):
         from _fake_index import fake_engines
         from _layers import isolate_appdirs
         from _minigame import build_minigame
+        from test_locsync import only_minigame_csv
 
         from vic2studio.i18n import language, set_language
 
@@ -377,7 +378,8 @@ class ServicesCase(unittest.TestCase):
         isolate_appdirs(self)
         self.addCleanup(set_language, language())
         set_language("es")   # la columna de la localización que se busca es la del idioma de la interfaz
-        self.game = build_minigame(mod_files={"history/countries/SIL - Silesia.txt": "capital = 1\r\n",
+        self.game = build_minigame(game_files=only_minigame_csv(),
+                                   mod_files={"history/countries/SIL - Silesia.txt": "capital = 1\r\n",
                                               "localisation/00_TESTMOD_countries.csv": "AAA;Åland;;;;Álandia;;;;;;;;x\r\n"})
         self.addCleanup(self.game.cleanup)
         self.engines = self.make_engines(fake_engines)

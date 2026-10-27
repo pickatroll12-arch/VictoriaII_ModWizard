@@ -14,6 +14,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from _layers import descriptor_bytes, isolate_appdirs  # noqa: E402
 from _minigame import build_minigame  # noqa: E402
+from test_locsync import OTHER_GAME_CSVS, only_minigame_csv  # noqa: E402
 
 from vic2studio.core.csvloc.serialization import parse_csv  # noqa: E402
 from vic2studio.core.locsync import LocSync  # noqa: E402
@@ -28,7 +29,7 @@ class EffectiveCase(unittest.TestCase):
         isolate_appdirs(self)
 
     def open(self, *, mod: bool = True, mod_files=None, game_files=None, replace_localisation: bool = False):
-        self.game = build_minigame(mod=mod, mod_files=mod_files, game_files=game_files)
+        self.game = build_minigame(mod=mod, mod_files=mod_files, game_files=only_minigame_csv(game_files))
         self.addCleanup(self.game.cleanup)
         if replace_localisation:
             self.game.descriptor.write_bytes(descriptor_bytes("TestMod", "TestMod", "TestMod",
@@ -105,7 +106,9 @@ class EffectiveViewTests(EffectiveCase):
         self.assertEqual(loc.text("free_people", "es"), "Liberar", "minigame carga antes que zz_late")
         self.assertEqual(self.keys()[0], "humble_rival")
         db = loc.localisation_db()
-        self.assertEqual([f.path.name for f in db.files], ["00_early.csv", "minigame.csv", "zz_late.csv"])
+        others = {VPath.of(rel).name for rel in OTHER_GAME_CSVS}
+        self.assertEqual([f.path.name for f in db.files if f.path.name not in others],
+                         ["00_early.csv", "minigame.csv", "zz_late.csv"])
 
     def test_editing_a_game_key_never_copies_its_csv(self):
         loc = self.open(mod=False)
