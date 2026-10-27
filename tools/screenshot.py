@@ -50,7 +50,9 @@ Iteración 3: ``--demo-index`` abre la sesión con el índice, la validación y 
 de demostración (los falsos de ``tests/_fake_index.py``, con sus textos ES/EN), para
 capturar Validación y Ctrl+K aunque el núcleo aún no los tenga. ``--check`` valida con el
 validador del núcleo (Proyecto › Validación, F7) y espera el informe; ``--explain N``
-además abre el explicador del problema N de la tabla (empezando en 0). ``--palette TEXTO``
+además abre el explicador del problema N de la tabla (empezando en 0) y espera a que llegue
+(se explica en segundo plano); ``--report`` dice en ``checks.explainer_layout`` lo que se
+vería mal en él (vacío si nada: veredictos, alto de las capas, frase final). ``--palette TEXTO``
 abre Ctrl+K con ese texto en cada captura (``<lang>_<n>_<sala>_palette.png``).
 ``--texts-search`` y ``--texts-filter`` (``all``, ``studio``, ``untranslated``,
 ``overrides``, ``degraded``) preparan Textos › Todos los textos.
@@ -270,6 +272,9 @@ def iteration3_state(window) -> dict:
             "state": session.validation_state(), "shown": checks.model.rowCount(),
             "own": len(report.visible()), "inherited": report.inherited_count(),
             "explained": checks.explainer.title.text() if checks.explainer.isVisible() else None,
+            # Lo que se vería mal en el explicador (veredictos fuera, capas sin su alto, frase cortada…): vacío si nada.
+            "explainer_layout": checks.explainer.layout_problems() if checks.explainer.isVisible() else None,
+            "stale": session.report_stale(),
         },
         "texts": None if not session.texts_ready() else {
             "rows": len(texts.model.entries), "visible": texts.proxy.rowCount(), "filter": texts.proxy.filter(),
@@ -420,6 +425,9 @@ def _prepare_iteration3(app, window, args: argparse.Namespace) -> str | None:
             page.view.setCurrentIndex(page.model.index(args.explain, 0))
             if not page.show_explanation():
                 return "no se pudo abrir el explicador"
+            settle(app, window)   # se explica en segundo plano: settle espera a la sesión
+            if not page.explainer.isVisible():
+                return f"el explicador no llegó a mostrarse: {window.status_label.text()}"
         settle(app, window)
     if args.texts_search is not None or args.texts_filter:
         page = window.page("localisation:all")

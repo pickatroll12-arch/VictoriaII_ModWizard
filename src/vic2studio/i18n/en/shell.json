@@ -28,6 +28,7 @@
   "pending.col.lines": "Lines",
   "pending.diff_caption": "Changes in {name} (− before, + after)",
   "pending.diff_empty": "{name} keeps its text (only its encoding or line breaks change).",
+  "pending.diff_more": "… and {count} more lines",
   "pending.diff_none": "Pick a file to see its changes.",
   "pending.diff_trash": "{name} goes to the project trash (.vic2studio/trash): nothing is really deleted.",
   "pending.empty_text": "Everything in memory is saved. Every change you make shows up here, with its diff, until you save.",
@@ -172,6 +173,7 @@
   "shell.unsaved_text": "Files with unsaved changes: {count}.",
   "shell.unsaved_title": "Unsaved changes",
   "status.location_in_memory": "{name} only exists in memory (unsaved): there is no file to open yet.",
+  "status.location_unsaved": "{name} has unsaved changes: save it to open it at its line (the file on disk does not have them yet).",
   "status.mod_created": "Mod created: {name}",
   "status.no_project": "No mod is open.",
   "status.nothing_to_save": "There are no changes to save.",
@@ -187,5 +189,7 @@
   "status.saved_one": "Saved: 1 file.",
   "status.saved_warning": "Saved, with {count} warnings. The first one: {warning}",
   "status.saved_warning_one": "Saved, with a warning: {warning}",
+  "status.saving": "Saving {count} files…",
+  "status.saving_one": "Saving {count} file…",
   "status.undone": "Undone: {step}"
 }

@@ -203,6 +203,7 @@
   "project.preview.entries_value": "{count} elementos",
   "project.preview.entries_value_one": "{count} elemento",
   "project.preview.excerpt": "Extracto (primeras {count} líneas)",
+  "project.preview.excerpt_at": "Líneas {first}–{last} (la {line}, marcada)",
   "project.preview.lines": "Líneas",
   "project.preview.modified": "Modificado",
   "project.preview.note": "Los scripts Clausewitz y las imágenes se abren en su propio visor, y los CSV de localisation/, en el módulo «Localización (CSV)».",
