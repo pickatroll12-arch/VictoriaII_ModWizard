@@ -36,6 +36,7 @@ from __future__ import annotations
 
 import codecs
 import sys
+import threading
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -66,6 +67,8 @@ DISPLAY_NAMES = {
 
 _CP1252_UNDEFINED = frozenset((0x81, 0x8D, 0x8F, 0x90, 0x9D))
 _ERROR_HANDLER = "vic2-cp1252-passthrough"
+_COLLECT_HANDLER = "vic2-collect-unencodable"
+_COLLECT_TLS = threading.local()
 # Bytes que se miran para reconocer UTF-16 sin BOM, y proporción de NUL exigida en
 # los bytes altos (los textos del juego son latinos: casi todos los caracteres < U+0100).
 _UTF16_SAMPLE = 4096
@@ -85,7 +88,22 @@ def _passthrough(error: UnicodeError):
     raise error
 
 
+def _collect_unencodable(error: UnicodeError):
+    if not isinstance(error, UnicodeEncodeError):
+        raise error
+    text = error.object
+    indices, is_cp1252 = _COLLECT_TLS.state
+    if is_cp1252:
+        for index in range(error.start, error.end):
+            if ord(text[index]) not in _CP1252_UNDEFINED:
+                indices.append(index)
+    else:
+        indices.extend(range(error.start, error.end))
+    return b"", error.end
+
+
 codecs.register_error(_ERROR_HANDLER, _passthrough)
+codecs.register_error(_COLLECT_HANDLER, _collect_unencodable)
 
 
 # --- codec ``utf-16-be-bom``: UTF-16 big-endian con BOM, como ``utf-8-sig`` -----------------
@@ -347,21 +365,41 @@ def _encoder(name: str):
     return lambda text: text.encode(name)
 
 
+def line_breaks(text: str, start: int = 0, end: int | None = None) -> int:
+    """Número de saltos de línea (``\\r\\n``, ``\\n`` o ``\\r`` suelto) en ``text[start:end]``."""
+    stop = len(text) if end is None else end
+    return text.count("\n", start, stop) + text.count("\r", start, stop) - text.count("\r\n", start, stop)
+
+
+def count_lines(text: str) -> int:
+    """Número de líneas de ``text`` contando ``\\r\\n``, ``\\n`` y ``\\r`` suelto (0 si está vacío)."""
+    if not text:
+        return 0
+    return line_breaks(text) + (0 if text.endswith(("\n", "\r")) else 1)
+
+
 def find_unencodable(text: str, encoding: str = GAME_ENCODING) -> list[tuple[int, int, int, str]]:
     """Devuelve (índice, línea, columna, carácter) de cada carácter no codificable."""
-    encode = _encoder(normalize_encoding(encoding))
-    problems = []
-    line, line_start = 1, 0
-    for index, char in enumerate(text):
-        if char == "\n":
-            line, line_start = line + 1, index + 1
-            continue
-        if char.isascii():
-            continue
-        try:
-            encode(char)
-        except UnicodeEncodeError:
-            problems.append((index, line, index - line_start + 1, char))
+    name = normalize_encoding(encoding)
+    indices: list[int] = []
+    previous = getattr(_COLLECT_TLS, "state", None)
+    _COLLECT_TLS.state = (indices, name == GAME_ENCODING)
+    try:
+        text.encode(name, _COLLECT_HANDLER)
+    finally:
+        _COLLECT_TLS.state = previous
+    if not indices:
+        return []
+    problems: list[tuple[int, int, int, str]] = []
+    line, prev_start = 1, 0
+    for index in indices:
+        lf = text.rfind("\n", prev_start, index)
+        last_break = max(lf, text.rfind("\r", prev_start if lf < 0 else lf + 1, index))
+        if last_break >= 0:
+            start = last_break + 1
+            line += line_breaks(text, prev_start, start)
+            prev_start = start
+        problems.append((index, line, index - prev_start + 1, text[index]))
     return problems
 
 

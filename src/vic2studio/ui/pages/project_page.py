@@ -80,7 +80,7 @@ from PySide6.QtWidgets import (
 from ...core.clausewitz import Severity
 from ...core.clausewitz.diagnostics import ENCODING_CODES
 from ...core.csvloc import is_localisation_csv
-from ...core.encoding import GAME_UNREADABLE, decode_bytes
+from ...core.encoding import GAME_UNREADABLE, count_lines, decode_bytes
 from ...core.modfile import INSIDE, ModDescriptor, find_descriptor, read_descriptor
 from ...core.vfs.guard import (
     EXPECTED_FOLDERS,
@@ -230,7 +230,7 @@ def gather_facts(path: Path, root: Path | None) -> FileFacts:
         # De uno más largo solo se lee el principio: un carácter cortado al final no cambia la codificación.
         decoded = decode_bytes(data, partial=facts.partial)
         facts.encoding = decoded.encoding
-        facts.lines = decoded.text.count("\n") + (0 if decoded.text.endswith("\n") or not decoded.text else 1)
+        facts.lines = count_lines(decoded.text)
         facts.excerpt = "\n".join(decoded.text.splitlines()[:EXCERPT_LINES])
     return facts
 
