@@ -1,8 +1,9 @@
 """Índice de símbolos, validación y línea base falsos para las pruebas de la interfaz (wizard §20).
 
-Hasta que el agente A integre ``core.index`` y ``core.validate`` (sus funciones lanzan
-``NotImplementedError``), la interfaz se prueba con estos falsos, que siguen las firmas
-del contrato y se inyectan en ``Session(index=..., validation=..., baseline=...)``:
+Las pruebas de la interfaz usan estos falsos (rápidos y sin depender de las reglas reales,
+que prueban ``test_validate_*``), que siguen las firmas del contrato y se inyectan en
+``Session(index=..., validation=..., baseline=...)``. El recorrido con los motores reales
+está en ``test_e2e_it3`` y ``test_ui_validation.RealCoreTests``:
 
 - ``FakeSymbolIndex``: la API de ``SymbolIndex`` (``names``, ``get``, ``lookup``,
   ``search``, ``display``, ``apply``…) sobre ``FileFacts`` reales, con una regla de carga
@@ -17,9 +18,7 @@ del contrato y se inyectan en ``Session(index=..., validation=..., baseline=...)
   el proyecto y su pila de deshacer quedan idénticos.
 
 Los mensajes, las etiquetas de los arreglos y los textos del explicador son de los
-falsos (``TEXTS``, ES/EN): los textos del núcleo (``issues.*.json``) son de A.
-``implemented(nombre)`` dice si una función del contrato ya existe, para
-``skipUnless`` de las pruebas que necesitan lo de A.
+falsos (``TEXTS``, ES/EN): los textos del núcleo están en ``core/validate/texts/issues.*.json``.
 """
 
 from __future__ import annotations
@@ -90,40 +89,6 @@ def fake_text(key: str, lang: str, /, **fmt) -> str:
         return template.format(**fmt)
     except (KeyError, IndexError, ValueError):
         return template
-
-
-def implemented(name: str) -> bool:
-    """True si la función o clase ``name`` del contrato de A ya no lanza ``NotImplementedError``."""
-    from vic2studio.core import index as index_package
-    from vic2studio.core import validate as validate_package
-
-    probes = {
-        "SymbolIndex": lambda: index_package.SymbolIndex(),
-        "build_index": lambda: index_package.build_index(None, None),
-        "extract_bytes": lambda: index_package.extract_bytes(VPath.of("common/countries.txt"), b"", LayerKind.GAME),
-        "FactsCache": lambda: index_package.FactsCache(),
-        "build_context": lambda: validate_package.build_context(None, None),
-        "Validator": lambda: validate_package.Validator(None),
-        "compute_baseline": lambda: validate_package.compute_baseline(None),
-        "BaselineCache": lambda: validate_package.BaselineCache(),
-        "game_only_snapshot": lambda: validate_package.game_only_snapshot(None),
-        "explain": lambda: validate_package.explain(None, None),
-        "fixes_for": lambda: validate_package.fixes_for(Problem("x", Severity.INFO, None)),
-        "plan_fix": lambda: validate_package.plan_fix("", None, None),
-    }
-    try:
-        probes[name]()
-    except NotImplementedError:
-        return False
-    except Exception:  # noqa: BLE001 - lanza otra cosa con estos argumentos: ya existe
-        return True
-    return True
-
-
-def real_core_ready() -> bool:
-    """El índice y la validación del núcleo ya existen (tras la integración con A)."""
-    return all(implemented(name) for name in ("SymbolIndex", "build_index", "build_context", "Validator",
-                                              "compute_baseline", "game_only_snapshot", "explain", "fixes_for"))
 
 
 # --- índice en memoria -------------------------------------------------------------------------------------

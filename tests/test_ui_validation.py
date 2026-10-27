@@ -4,8 +4,8 @@ El validador, el índice y la línea base son los falsos de ``_fake_index`` (los
 botón «Validar mod» de Archivos, la tabla (gravedad, mensaje, entidad, archivo y línea), los heredados ocultos con
 su conmutador, [Arreglar ▾] con el plan de cambios y la confirmación (explícita si el arreglo borra), [¿Por qué?]
 con el explicador, el doble clic que abre el archivo en su línea, los estados (esperando al índice, fallo, sin
-línea base, cancelar) y el cambio de idioma. Al final, lo mismo con los motores reales: hoy fallan con un mensaje
-claro (``NotImplementedError``) y, cuando A los integre, ``skipUnless(real_core_ready())`` activa la prueba real.
+línea base, cancelar) y el cambio de idioma. Al final, lo mismo con los motores reales del núcleo (``RealCoreTests``;
+el recorrido completo con un ``Project`` real está en ``test_e2e_it3``).
 """
 
 import sys
@@ -17,7 +17,7 @@ from types import MappingProxyType
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 import _qt  # noqa: E402  (antes de PySide6.QtWidgets: plataforma offscreen y avisos)
-from _fake_index import FIXES_OF, SEVERITIES, FakeProblem, problem, real_core_ready  # noqa: E402
+from _fake_index import FIXES_OF, SEVERITIES, FakeProblem, problem  # noqa: E402
 from PySide6.QtCore import Qt  # noqa: E402
 from PySide6.QtTest import QTest  # noqa: E402
 from test_ui_loc_edit import TextsWindowCase  # noqa: E402
@@ -362,23 +362,6 @@ class StateTests(ValidationCase):
         self.assertFalse(window.validate_mod())
 
 
-@unittest.skipIf(real_core_ready(), "el núcleo real ya está: lo prueba RealCoreTests")
-class RealEnginesBeforeIntegrationTests(ValidationCase):
-    def test_the_unimplemented_core_fails_with_a_clear_message(self):
-        """Sin lo de A, la sesión no se rompe: el índice falla, la validación lo dice y nada escribe."""
-        self.open_checks(engines={"ready": {}})
-        before = self.game.tree()
-        session = self.window.session
-        self.assertTrue(_qt.wait_until(lambda: session.index_state() == "failed", 5000))
-        self.assertIn("NotImplementedError", session.index_error())
-        self.window.validate_mod()
-        self.assertEqual(session.validation_state(), "failed")
-        self.assertIn("NotImplementedError", self.page().empty.text.text())
-        self.assertEqual(session.search("AAA"), [])
-        self.assertEqual(self.game.tree(), before, "intentar indexar y validar no escribe nada (I4)")
-
-
-@unittest.skipUnless(real_core_ready(), "necesita el índice y la validación del agente A")
 class RealCoreTests(ValidationCase):
     def test_the_real_validator_runs_on_the_minigame(self):
         self.open_checks(engines={"ready": {}})

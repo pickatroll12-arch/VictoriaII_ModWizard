@@ -218,11 +218,18 @@ class BaselineEngine:
         return baseline
 
 
-def document_overrides(project) -> dict[VPath, bytes]:
-    """Bytes (``snapshot`` del códec) de los documentos sin guardar: lo que ven el índice y la validación (I7)."""
-    overrides: dict[VPath, bytes] = {}
+def document_overrides(project) -> dict[VPath, bytes | None]:
+    """Bytes (``snapshot`` del códec) de los documentos sin guardar: lo que ven el índice y la validación (I7).
+
+    Un documento borrado sin guardar va como ``None`` (contrato de ``build_index`` y ``build_context``): sin él, el
+    índice y la validación seguían viendo el archivo del disco (un arreglo que lo manda a la papelera no se notaba).
+    """
+    overrides: dict[VPath, bytes | None] = {}
     for handle in project.ws.dirty():
-        if handle.deleted or VPath.of(handle.rel).key.startswith(PROJECT_DIR_PREFIX.upper() + "/"):
+        if VPath.of(handle.rel).key.startswith(PROJECT_DIR_PREFIX.upper() + "/"):
+            continue
+        if handle.deleted:
+            overrides[handle.rel] = None
             continue
         codec = codec_for(handle.kind)
         if not codec.writable:
@@ -312,6 +319,7 @@ class Session(QObject):
         self._index_runner.progress.connect(self._on_index_progress)
         self._reindex_runner = TaskRunner(self, pool=POOL_INDEX)
         self._reindex_runner.finished.connect(self._on_reindexed)
+        self._reindex_runner.failed.connect(self._on_reindex_failed)
         self._reindex_pending: dict[str, VPath] = {}
         self._reindex_inflight: dict[str, VPath] = {}
         self._reindex_structural = False
@@ -657,6 +665,14 @@ class Session(QObject):
 
         self._reindex_runner.start(task)
 
+    def _on_reindex_failed(self, failure) -> None:
+        """Un reindexado que lanza (ya registrado por ``TaskRunner``): la validación en espera sigue, con el índice
+        que haya, antes que quedarse esperando para siempre."""
+        self._reindex_inflight = {}
+        if self._revalidate and not self._index_behind():
+            self._revalidate = False
+            self.validate()
+
     def _on_reindexed(self, outcome: _Outcome) -> None:
         self._reindex_inflight = {}
         index = self._index
@@ -768,6 +784,20 @@ class Session(QObject):
             if self._index_state == IDLE:
                 self.rebuild_index()
             return True
+        if self._flush_timer.isActive():
+            self._flush()                       # los cambios aún sin avisar: que los recoja el reindexado
+        if self._index_behind():
+            # El índice aún no tiene algún cambio de los documentos (un Ctrl+Z, una edición de hace menos de
+            # REINDEX_DELAY_MS): validar ya daría los problemas de antes. Se valida en cuanto se ponga al día.
+            self._validation_runner.cancel()
+            self._validation_state = WAITING
+            self._validation_error = None
+            self._revalidate = True
+            self.validationStateChanged.emit()
+            if self._reindex_timer.isActive():
+                self._reindex_timer.stop()
+                self._start_reindex()
+            return True
         snapshot, overrides = project.vfs.snapshot(), document_overrides(project)
         index = self._index
         index_type, facts = type(index), list(index.facts())
@@ -803,6 +833,12 @@ class Session(QObject):
         self._validation_runner.start(task)
         self.validationStateChanged.emit()
         return True
+
+    def _index_behind(self) -> bool:
+        """True si el índice aún no refleja todos los documentos: se rehace entero o hay un reindexado pendiente (con
+        su temporizador en marcha) o en curso."""
+        return (self._index_state == BUSY or bool(self._reindex_pending) or bool(self._reindex_inflight)
+                or self._reindex_runner.is_busy())
 
     def cancel_validation(self) -> None:
         if self.is_validating():
@@ -853,8 +889,9 @@ class Session(QObject):
         project = self._require()
         with self._operation():
             self._validation_engine.apply_fix(key, problem, project)
+        # Los resultados de antes siguen a la vista hasta que el índice tenga el arreglo; entonces se revalida.
         self._revalidate = True
-        if not self._reindex_pending and not self._reindex_timer.isActive() and not self._reindex_runner.is_busy():
+        if not self._index_behind():
             self._revalidate = False
             self.validate()
 

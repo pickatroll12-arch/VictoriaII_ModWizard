@@ -13,11 +13,9 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 import _qt  # noqa: E402  (antes de PySide6.QtWidgets: plataforma offscreen y avisos)
-from _corpus import user_mod, vanilla_root  # noqa: E402
-from _fake_index import real_core_ready  # noqa: E402
+from _corpus import copy_user_mod, user_mod, vanilla_root  # noqa: E402
 from PySide6.QtCore import Qt  # noqa: E402
 from PySide6.QtTest import QTest  # noqa: E402
-from test_locsync import copy_user_mod  # noqa: E402
 from test_ui_loc_edit import TextsWindowCase  # noqa: E402
 
 APP = _qt.application()
@@ -206,7 +204,7 @@ class BannerTests(PaletteCase):
                 self.assertTrue(window.banner.tagline_label.isVisible())
 
 
-@unittest.skipUnless(real_core_ready() and vanilla_root() is not None and user_mod() is not None,
+@unittest.skipUnless(vanilla_root() is not None and user_mod() is not None,
                      "necesita el índice real del agente A y VIC2_CORPUS con vanilla y VSM")
 class CorpusCriterion7Tests(PaletteCase):
     """Criterio 7: Ctrl+K encuentra «549», «Berlín», «PRU» y «north_german» y abre el archivo en su línea."""

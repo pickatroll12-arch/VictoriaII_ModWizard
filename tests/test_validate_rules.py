@@ -198,6 +198,52 @@ _COVERED_ELSEWHERE = {
 }
 
 
+class UnsavedDeletionTests(unittest.TestCase):
+    """Un ``override`` ``None`` (borrado sin guardar) quita el archivo del mod: el del juego vuelve a ganar."""
+
+    def setUp(self):
+        isolate_appdirs(self)
+
+    def test_deleting_the_mod_copy_brings_back_the_game_file(self):
+        from vic2studio.core.vfs import LayerKind, VPath
+
+        cb = "common/cb_types.txt"
+        with build_minigame(mod=False, mod_files={cb: GAME_FILES[cb]}) as game:
+            self.assertTrue(validate(game, codes={"mod_shadow_identical"}).problems)
+            overrides = {VPath.of(cb): None}
+            snap = game.snapshot()
+            ctx = build_context(snap, build_index(snap, None, overrides), overrides)
+            self.assertEqual(ctx.layer_of(cb), LayerKind.GAME, "no «sin archivo»: gana el del juego")
+            self.assertEqual(ctx.read(cb), game.game(cb).read_bytes())
+            self.assertIn(VPath.of(cb), ctx.rels("common", "*.txt"))
+            self.assertFalse(validate(game, codes={"mod_shadow_identical"}, overrides=overrides).problems)
+            self.assertEqual(ctx.index.count("cb"), 3, "los CB del juego siguen en el índice")
+
+    def test_the_game_rules_read_the_game_file_again(self):
+        from vic2studio.core.vfs import VPath
+
+        governments = "common/governments.txt"
+        with build_minigame(mod=False, mod_files={governments: "junta = { fascist = yes election = no }\r\n"}) as game:
+            snap = game.snapshot()
+            assert "junta" in build_context(snap, build_index(snap, None)).rules.government_ideologies
+            overrides = {VPath.of(governments): None}
+            rules = build_context(snap, build_index(snap, None, overrides), overrides).rules
+            self.assertIn("monarchy", rules.government_ideologies, "el governments.txt del juego")
+            self.assertNotIn("junta", rules.government_ideologies)
+
+    def test_deleting_a_file_only_in_the_mod_removes_it(self):
+        from vic2studio.core.vfs import VPath
+
+        rel = "events/only_mod.txt"
+        with build_minigame(mod=False, mod_files={rel: "country_event = { id = 7001 }\r\n"}) as game:
+            overrides = {VPath.of(rel): None}
+            snap = game.snapshot()
+            ctx = build_context(snap, build_index(snap, None, overrides), overrides)
+            self.assertIsNone(ctx.layer_of(rel))
+            self.assertIsNone(ctx.read(rel))
+            self.assertNotIn(VPath.of(rel), ctx.all_rels())
+
+
 class SyntaxTests(unittest.TestCase):
     def setUp(self):
         isolate_appdirs(self)

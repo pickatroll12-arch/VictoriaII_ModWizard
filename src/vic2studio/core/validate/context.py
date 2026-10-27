@@ -6,7 +6,9 @@ juego. Las reglas leen archivos solo a través de ``read``/``parse``, que dan
 primero el documento sin guardar y guardan en caché lo ya analizado.
 
 Ampliaciones compatibles: un ``override`` con valor ``None`` es un documento
-borrado sin guardar (deja de existir en la vista efectiva); ``files`` limita las
+borrado sin guardar. ``build_context`` lo aplica a la instantánea
+(``apply_unsaved_deletions``: vuelve a ganar lo que haya debajo del mod); un
+``ValidationContext`` construido a mano lo da por inexistente. ``files`` limita las
 reglas de archivo (``SCOPE_FILE``) a unas rutas (lo pone ``Validator.validate``);
 ``languages`` son las columnas que el proyecto rellena (``loc_untranslated``);
 ``read_count`` cuenta los archivos distintos que se leyeron.
@@ -16,7 +18,7 @@ from __future__ import annotations
 
 from collections import OrderedDict
 from collections.abc import Collection, Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from types import MappingProxyType
 
 from ..cancel import CancelCheck
@@ -184,6 +186,7 @@ def build_context(snapshot: VfsSnapshot, index, overrides: Mapping[VPath, bytes]
     from ..rules.game import GameRules
 
     overrides = {} if game_only else dict(overrides or {})
+    snapshot, overrides = apply_unsaved_deletions(snapshot, overrides)
     if game_only:
         snapshot = game_only_snapshot(snapshot)
         if index is not None and any(f.layer is not LayerKind.GAME for f in index.facts()):
@@ -197,6 +200,26 @@ def build_context(snapshot: VfsSnapshot, index, overrides: Mapping[VPath, bytes]
     rules = GameRules.from_snapshot(snapshot, overrides)
     return ValidationContext(snapshot, index, loc, rules, MappingProxyType(overrides), date, None, game_only,
                              cancelled)
+
+
+def apply_unsaved_deletions(snapshot: VfsSnapshot, overrides: Mapping[VPath, bytes | None]
+                            ) -> tuple[VfsSnapshot, dict[VPath, bytes]]:
+    """La vista con los borrados sin guardar aplicados: un ``override`` ``None`` quita el archivo del mod de su pila,
+    así que vuelve a ganar lo de debajo (el juego o una dependencia, salvo que ``replace_path`` lo oculte), y deja de
+    ser un ``override``. Sin esto, borrar la copia del mod de un archivo del juego lo daba por inexistente.
+    """
+    deleted = {VPath.of(rel).key for rel, data in overrides.items() if data is None}
+    kept = {rel: data for rel, data in overrides.items() if data is not None}
+    if not deleted:
+        return snapshot, kept
+    entries = dict(snapshot.entries)
+    for key in deleted:
+        stack = tuple(e for e in entries.get(key, ()) if e.layer.kind is not LayerKind.MOD)
+        if stack:
+            entries[key] = stack
+        else:
+            entries.pop(key, None)
+    return replace(snapshot, entries=MappingProxyType(entries)), kept
 
 
 def effective_localisation(snapshot: VfsSnapshot, overrides: Mapping[VPath, bytes] | None = None):

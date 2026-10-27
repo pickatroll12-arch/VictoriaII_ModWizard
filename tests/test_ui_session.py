@@ -551,6 +551,58 @@ class ValidationSessionTests(ServicesCase):
         self.assertEqual([p.code for p in self.session.problems()], ["loc_key_missing"],
                          "SIL ya está registrado (y ahora le falta su nombre)")
 
+    def test_validating_right_after_ctrl_z_waits_for_the_index(self):
+        """Regresión de la integración: F7 justo tras deshacer validaba con el índice de antes (SIL seguía
+        registrado y salían los problemas del arreglo deshecho)."""
+        self.open()
+        self.session.validate()
+        self.assertTrue(_qt.wait_until(lambda: self.session.validation_state() == "ready", 5000))
+        sil = self.session.problems()[0]
+        self.session.apply_fix("register_tag", sil)
+        self.assertTrue(_qt.wait_until(lambda: self.engines["validation"].validations == 2
+                                       and self.session.validation_state() == "ready", 5000))
+        self.assertIn("SIL", self.session.index.names("tag"))
+        self.session.undo()
+        self.assertTrue(self.session.validate())
+        self.assertEqual(self.session.validation_state(), "waiting", "el índice aún no tiene el Ctrl+Z")
+        self.assertFalse(self.session._reindex_timer.isActive(), "reindexa ya, sin esperar REINDEX_DELAY_MS")
+        self.assertTrue(_qt.wait_until(lambda: self.engines["validation"].validations == 3
+                                       and self.session.validation_state() == "ready", 5000))
+        self.assertNotIn("SIL", self.session.index.names("tag"))
+        self.assertEqual([p.code for p in self.session.problems()], ["tag_not_registered"])
+
+    def test_an_edit_made_outside_the_session_is_indexed_before_validating(self):
+        """Una transacción del Workspace sin ``Session.edit`` (sus eventos esperan al temporizador de aviso): F7 los
+        recoge antes de decidir si el índice está al día."""
+        project = self.open()
+        self.session.validate()
+        self.assertTrue(_qt.wait_until(lambda: self.session.validation_state() == "ready", 5000))
+        self.assertEqual([p.code for p in self.session.problems()], ["tag_not_registered"])
+        with project.ws.transaction("undo.fix_register_tag"):
+            handle = project.ws.open("common/countries.txt")
+            project.ws.replace_text(handle, project.ws.vfs.resolve("common/countries.txt").path.read_bytes()
+                                    + b'SIL = "countries/Silesia.txt"\r\n')
+        self.assertTrue(self.session.validate())
+        self.assertEqual(self.session.validation_state(), "waiting")
+        self.assertTrue(_qt.wait_until(lambda: self.engines["validation"].validations == 2
+                                       and self.session.validation_state() == "ready", 5000))
+        self.assertIn("SIL", self.session.index.names("tag"))
+        self.assertNotIn("tag_not_registered", [p.code for p in self.session.problems()])
+
+    def test_an_unsaved_deletion_reaches_the_index_and_the_validator_as_none(self):
+        from vic2studio.core.vfs import VPath
+        from vic2studio.ui.session import document_overrides
+
+        project = self.open()
+        sil = "history/countries/SIL - Silesia.txt"
+        with self.session.edit("pending.undo_revert", name=sil):
+            project.ws.delete(sil)
+        self.assertEqual(document_overrides(project), {VPath.of(sil): None})
+        self.assertTrue(self.session.validate())
+        self.assertTrue(_qt.wait_until(lambda: self.session.validation_state() == "ready", 5000))
+        self.assertEqual(dict(self.session.validation_context.overrides), {VPath.of(sil): None})
+        self.assertNotIn("tag_not_registered", [p.code for p in self.session.problems()], "ya no hay historia")
+
     def test_explain_and_fixes_need_a_report(self):
         self.open()
         from _fake_index import problem

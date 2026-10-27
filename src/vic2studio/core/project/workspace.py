@@ -558,7 +558,6 @@ class Workspace:
                             saved_version=version)
         handle.read_only_reason = self._reason(kind, None, [])
         self._store.add(handle, len(packed))
-        self._snap[handle.rel.key] = (version, packed)
         return handle
 
     def _same_on_disk(self, handle: DocHandle) -> bool:

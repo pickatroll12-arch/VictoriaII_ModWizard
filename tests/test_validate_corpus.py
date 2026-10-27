@@ -26,7 +26,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from _corpus import user_mod, vanilla_root  # noqa: E402
+from _corpus import copy_user_mod, user_mod, vanilla_root  # noqa: E402
 from vic2studio.core.clausewitz import Severity  # noqa: E402
 from vic2studio.core.index import FactsCache, build_index, extract_bytes  # noqa: E402
 from vic2studio.core.project import Project  # noqa: E402
@@ -163,7 +163,7 @@ class RegisterSilTests(unittest.TestCase):
         isolate_appdirs(self)
 
     def test_register_sil(self):
-        mod = full_vsm()
+        mod = copy_user_mod(self, "common", "history")   # nunca el VSM real: abrirlo deja ahí su cerrojo
         project = Project.open(vanilla_root(), mod)
         self.addCleanup(project.close, discard=True)
         snap = project.vfs.snapshot()

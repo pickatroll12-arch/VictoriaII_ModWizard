@@ -130,3 +130,26 @@ def synthetic_template() -> Path:
 
 def is_synthetic(path: Path | None) -> bool:
     return path is not None and _synthetic is not None and _synthetic in path.parents
+
+
+def copy_user_mod(test, *parts: str) -> Path:
+    """Copia temporal de la carpeta VSM del corpus (sin ``.vic2studio``), con su ``VSM.mod`` al lado.
+
+    Las pruebas nunca abren el mod real: abrir un proyecto deja ahí su cerrojo y, si algo se interrumpe con
+    cambios sin guardar, una recuperación que otras pruebas encontrarían. ``parts``: solo esas subcarpetas.
+    """
+    source = user_mod()
+    base = Path(tempfile.mkdtemp(prefix="vic2studio-vsm-"))
+    test.addCleanup(shutil.rmtree, base, True)   # ``test``: el ``unittest.TestCase`` que la usa
+    target = base / source.name
+    ignore = shutil.ignore_patterns(".vic2studio")
+    if parts:
+        target.mkdir()
+        for part in parts:
+            shutil.copytree(source / part, target / part, ignore=ignore)
+    else:
+        shutil.copytree(source, target, ignore=ignore)
+    descriptor = source.parent / f"{source.name}.mod"
+    if descriptor.is_file():
+        shutil.copy2(descriptor, base / descriptor.name)
+    return target

@@ -443,6 +443,8 @@ class UnopenedDeleteTests(WorkspaceCase):
         self.assertIsNone(self.ws.peek(DECISIONS))
         self.assertIsNone(self.ws.peek(PICTURE))
         self.assertEqual(self.ws.dirty(), [])
+        # Memoria: tras deshacer la limpieza de VSM, sus 8462 instantáneas no deben quedarse en la caché.
+        self.assertNotIn(VPath.of(DECISIONS).key, self.ws._snap)
         self.ws.redo()
         self.assertTrue(self.ws.peek(DECISIONS).deleted)
         self.assertTrue(self.ws.peek(DECISIONS).unread)
@@ -482,11 +484,13 @@ class UnopenedDeleteTests(WorkspaceCase):
     def test_reviving_and_undoing_step_by_step(self):
         original = self.game.mod(DECISIONS).read_bytes()
         self.delete(DECISIONS)
+        deletion = [w.diff for w in self.ws.changeset().writes]
         with self.ws.transaction("undo.create"):
             self.ws.open(DECISIONS, create=True).model.document.append("a", "1")
         self.assertEqual(snapshot(self.ws, DECISIONS), b"a = 1\r\n")
         self.ws.undo()
         self.assertTrue(self.ws.peek(DECISIONS).deleted)
+        self.assertEqual([w.diff for w in self.ws.changeset().writes], deletion, "otra vez la lápida de antes")
         self.ws.undo()
         self.assertIsNone(self.ws.peek(DECISIONS))
         self.ws.redo()

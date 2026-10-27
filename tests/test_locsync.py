@@ -15,7 +15,7 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from _corpus import user_mod, vanilla_root  # noqa: E402
+from _corpus import copy_user_mod, user_mod, vanilla_root  # noqa: E402
 from _fake_index import FakeIndexEngine  # noqa: E402
 from _layers import isolate_appdirs  # noqa: E402
 from _minigame import CRLF, GAME_FILES, build_minigame  # noqa: E402
@@ -51,29 +51,6 @@ def only_minigame_csv(game_files=None) -> dict:
     files: dict = dict.fromkeys(OTHER_GAME_CSVS, "")
     files.update(game_files or {})
     return files
-
-
-def copy_user_mod(test: unittest.TestCase, *parts: str) -> Path:
-    """Copia temporal de la carpeta VSM del corpus (sin ``.vic2studio``), con su ``VSM.mod`` al lado.
-
-    Las pruebas nunca abren el mod real: abrir un proyecto deja ahí su cerrojo y, si algo se interrumpe con
-    cambios sin guardar, una recuperación que otras pruebas encontrarían. ``parts``: solo esas subcarpetas.
-    """
-    source = user_mod()
-    base = Path(tempfile.mkdtemp(prefix="vic2studio-vsm-"))
-    test.addCleanup(shutil.rmtree, base, True)
-    target = base / source.name
-    ignore = shutil.ignore_patterns(".vic2studio")
-    if parts:
-        target.mkdir()
-        for part in parts:
-            shutil.copytree(source / part, target / part, ignore=ignore)
-    else:
-        shutil.copytree(source, target, ignore=ignore)
-    descriptor = source.parent / f"{source.name}.mod"
-    if descriptor.is_file():
-        shutil.copy2(descriptor, base / descriptor.name)
-    return target
 
 
 class LocSyncCase(unittest.TestCase):
