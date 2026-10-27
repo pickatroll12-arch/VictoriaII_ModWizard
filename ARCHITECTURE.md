@@ -7,7 +7,7 @@ Darkness*) de forma visual.
 
 Estado: **iteración 3 integrada y revisada**. Sus piezas son el índice de
 símbolos, la validación con línea base, arreglos y explicador, la localización
-editable sincronizada y Ctrl+K (§2.3, §2.6 y §2.7). Se apoya en la iteración 2,
+editable sincronizada y Ctrl+K (§2.3, §2.6, §2.7 y §8.1.1). Se apoya en la iteración 2,
 los cimientos: VFS, proyecto transaccional con diario, deshacer por
 instantáneas, descriptor `.mod` y armazón de 7 salas. Las iteraciones 1 y 2
 están cerradas (§6.1). Los criterios que necesitaban el corpus del usuario se
@@ -564,18 +564,69 @@ y los mantiene al día con los eventos del `Workspace`; el `Project` sigue siend
 Python puro sin saber de ellos. Se aparta de wizard §6.4, que los colgaba del
 `Project`, para no meter en el núcleo el ciclo de vida de las tareas de fondo.
 
-### 2.3 Índice de símbolos *(planificado)*
+### 2.3 Índice de símbolos (`core/index`)
 
-Lo diseña wizard §7 (iteración 3): `core/index` con hechos por archivo
-(`FileFacts`: definiciones `Symbol` y referencias `SymbolRef`), caché JSON-lines
-comprimida por capa e invalidada por la versión de cada extractor, actualización
-incremental (por `(size, mtime_ns)` al abrir y por cada cambio sin guardar
-durante la sesión) y construcción en segundo plano con `ui/tasks.TaskRunner`, en
-un grupo de hilos propio, con `gc.freeze()` del resultado tras la pasada en
-frío. Con el contrato actual (§2.5), esa congelación la haría `ui/tasks.py` al
-terminar la tarea del índice, porque es el único módulo que congela; el índice
-no tendría que llamar a `gc.freeze()`. La tabla de tipos (TAG, partidos,
-provincias, culturas, claves de localización…) y sus fuentes está en wizard §7.
+Sigue wizard §7. Dice qué existe en la vista efectiva (juego, dependencias, mod
+y cambios sin guardar) y dónde se usa. Python puro, sin Qt.
+
+- **Hechos por archivo** (`model.py`). Un extractor recibe los bytes de un
+  archivo, nunca el CST vivo del `Workspace` (I12), y devuelve sus
+  definiciones (`Symbol`: tipo, nombre, ruta, línea, `attrs`) y sus referencias
+  (`SymbolRef`: tipo, nombre, ruta, línea, columna y rol, como `owner`,
+  `add_core` o `sea_starts`). Juntos son un `FileFacts`, con la capa, la raíz
+  de la dependencia, la huella y el nombre y la versión del extractor.
+- **Extractores** (`extractors/`, 9 familias: países, cultura, economía,
+  interfaz, localización, mapa, política, guion y guerra). Se registran con
+  `@extractor("patrón", version=N)` y se descubren con `pkgutil`, sin listas
+  centrales (wizard §20). `parsing.document` analiza cada archivo una sola vez
+  aunque lo procesen varios extractores (`parse_count` lo cuenta en las
+  pruebas).
+- **Construcción** (`builder.build_index`). Recorre la instantánea de la VFS y
+  reutiliza los hechos de la caché cuando coinciden la huella `(tamaño,
+  mtime_ns)` y la versión del extractor; si no, lee el archivo y lo extrae.
+  `overrides` son los documentos sin guardar (bytes del `snapshot` de su
+  códec, o `None` si están borrados): sustituyen al archivo del mod sin tocar
+  la caché. Lanza `Cancelled`.
+- **Caché** (`cache.FactsCache`). JSON-lines comprimido con gzip, nunca
+  `pickle`. Hay un archivo por capa en
+  `<cache_dir>/index/<game|mod|dependency>-<sha1(ruta real)>/facts.v<N>.jsonl.gz`:
+  la del juego se comparte entre mods. Una caché ilegible o de otro formato se
+  ignora y se reconstruye. No escribe dentro de ninguna capa de la vista, ni
+  aunque una variable de entorno apunte ahí.
+- **Combinación** (`index.SymbolIndex`). Aplica las reglas de carga (§3.3): de
+  cada ruta cuenta la capa ganadora, y `replace_path` oculta los archivos del
+  juego. En la localización gana la primera clave por orden de archivo, como
+  `LocalisationDB`. Entre dependencias gana la última declarada, como en la
+  VFS. Los hechos de las capas que pierden se conservan para el explicador
+  (`lookup` los da detrás del efectivo). Las provincias que `default.map` nombra
+  en `sea_starts` pasan a `sea_province`.
+- **Actualización incremental.** `apply(facts, removed)` sustituye los hechos
+  de unas rutas o capas e invalida solo las cachés de los tipos que tocan. La
+  llama un solo hilo, el de la interfaz.
+- **Consultas.** Ninguna lee disco: `names`, `count`, `get`, `lookup`,
+  `effective`, `exists`, `attrs`, `symbols`, `defs_in`, `refs_to`,
+  `refs_from`, `refs`, `rels` y `facts_of`. `search(texto, loc=…, lang=…)` busca
+  por id y por el nombre localizado sin mayúsculas ni acentos (`fold`), y
+  `display` da «Prusia (PRU)». `short_name` es el id que ve el usuario: el de un
+  partido es el partido, sin el archivo de país que lo hace único en el índice
+  (`archivo:partido`, H12).
+
+Rendimiento con vanilla (criterio 2 de wizard §22, `test_index_corpus`):
+
+| Construcción | Tiempo |
+|---|---|
+| En frío | unos 2,3 s |
+| Desde la caché | unos 0,3 s |
+
+Cambiar un archivo vuelve a analizar solo ese archivo. Subir la versión de un
+extractor invalida solo su caché.
+
+En la interfaz, `Session` construye el índice en segundo plano (`POOL_INDEX`) al
+abrir. Con cada cambio de un documento, a los 300 ms (`REINDEX_DELAY_MS`),
+reextrae sus hechos en una tarea y los aplica en el hilo de la interfaz
+(`symbolsChanged`). La congelación del resultado (`gc.freeze`) la hace
+`ui/tasks.py` al terminar la tarea, como con cualquier resultado grande (§2.5).
+El índice no la llama.
 
 ### 2.4 Documentos, transacciones y deshacer (`core/project`)
 
@@ -749,6 +800,139 @@ Las funciones nuevas que puedan tardar deben aceptar los dos.
   `QPainter`, un `QBrush`), moría en el hilo de la tarea y dejaba corrupto el
   motor de pintado. Era el fallo de segmentación intermitente al pintar un
   degradado (`test_tasks.test_resuming_the_collector_holds_nothing_the_interface_owns`).
+
+### 2.6 Validación cruzada (`core/validate`, `core/rules`)
+
+Sigue wizard §9, §11 y §11.1. Validar nunca bloquea guardar (I10) ni escribe en
+el mod (I4).
+
+- **Contexto** (`context.ValidationContext`). Es inmutable y apto para un hilo
+  de fondo (I12). Une:
+  - la instantánea de la VFS;
+  - los documentos sin guardar (`overrides`, bytes o `None` si están
+    borrados);
+  - el índice;
+  - la localización efectiva;
+  - las reglas del juego (`GameRules`);
+  - los idiomas del proyecto.
+
+  Las reglas leen archivos solo a través de `read` y `parse`, que dan primero
+  el documento sin guardar y guardan en caché lo ya analizado.
+  `build_context(..., game_only=True)` es el contexto de la base:
+  `base_snapshot` quita la capa del mod y deja el juego y las dependencias.
+- **Reglas** (`rules/`, 9 familias: `syntax`, `files`, `descriptor`, `countries`,
+  `provinces`, `localisation`, `events`, `decisions` y `military`).
+  - Hay 91 códigos: 57 errores, 28 avisos y 6 de información.
+  - Cada función se registra con `@rule(código, gravedad, fixes=…, scope=…)`
+    y se descubre sin listas centrales. Puede declarar varios códigos apilando
+    decoradores y se ejecuta una vez.
+  - Las reglas sacan casi todo del índice, sin volver a analizar archivos.
+  - `make_problem` crea el `Problem` con su gravedad y sus arreglos. Además
+    del código, la ruta, la línea y la columna, lleva `entity` (`("tag",
+    "SIL")`), los `args` del mensaje y `inherited`.
+- **Validador** (`validator.Validator`). Ejecuta las reglas, o solo las de unos
+  códigos con `codes`, y marca como heredados los problemas cuya huella está en
+  la línea base. Una regla que lanza no aborta la validación: sale un
+  `check_failed`. Lanza `Cancelled`.
+- **Línea base** (`baseline.py`, I11). Son las huellas de los problemas de la
+  base, es decir, el juego y las dependencias a la fecha de trabajo. La huella
+  (`Problem.fingerprint`) es el código, la ruta sin mayúsculas, la entidad, el
+  campo y los `args`. De los `args` se quitan los de posición (`line`,
+  `column`, `offset` y los que acaban en `_line` o `_column`), y los que son
+  rutas cuentan sin mayúsculas. Así un fallo de vanilla sale como
+  heredado y oculto, y no se culpa al mod.
+  - Se guarda en `<cache_dir>/baseline/` por instalación, dependencias y
+    fecha, a través de `core.fileio`.
+  - Se recalcula si cambia la firma de los archivos de la base
+    (`(capa, ruta, tamaño, mtime_ns)`, sin leerlos), la de las reglas
+    (`RULES_VERSION`, los códigos con su gravedad, `INDEX_FORMAT` y la versión
+    de cada extractor) o la fecha.
+  - `baseline_for` hace el ciclo completo.
+  - El `replace_path` del propio mod no se aplica a la base: un problema que
+    causa él es del mod.
+- **Arreglos** (`fixes.py`). Cada uno es un `FixSpec` con su etiqueta
+  (`fix.<clave>`) y si es seguro. Los de esta iteración: `register_tag`,
+  `convert_to_cp1252`, `add_closing_brace`, `restore_vanilla_loc_rows` y
+  `trash_identical_copies`.
+  - El plan y la aplicación salen del mismo cálculo: los bytes efectivos de
+    cada archivo pasan a bytes nuevos, y el plan es su diff con las cuentas
+    reales (`PlannedChange.lines`, del diff entero aunque se recorte).
+  - `plan_fix` no toca el proyecto, ni su pila de deshacer.
+  - `apply_fix(…, expected=plan)` se niega con `FixError(plan_changed)` si el
+    archivo cambió desde el plan que vio el usuario. Si no, aplica justo eso en
+    una transacción `undo.fix_<clave>`: se deshace con un Ctrl+Z y no se
+    escribe hasta guardar.
+  - Hay 12 motivos de `FixError`, con código y texto ES/EN en
+    `fix_error.<código>`. Entre ellos están `read_only`, `syntax_errors`,
+    `already_registered`, `no_country_file`, `descriptor_changed` y
+    `still_utf8`.
+- **Explicador** (`explain.py`, §11.1). `explain(problem, ctx)` reconstruye qué
+  capas definen lo mismo y en qué orden las carga el juego: el archivo del mod
+  que sustituye al de vanilla, la clave que gana por orden de archivo, el
+  `replace_path` que oculta una carpeta, el TAG detrás de `dynamic_tags`…
+  - Cada paso lleva su capa (juego, dependencia, mod, `replace_path` o sin
+    guardar), la línea real, el extracto y su veredicto (`wins`, `loses`,
+    `hidden`, `not_loaded` o `missing`).
+  - La explicación termina en una frase sobre lo que verá el jugador y en sus
+    arreglos.
+  - Cada código del catálogo tiene título y frase (`explain.title.<código>` y
+    `explain.outcome.<código>`). Los que no tienen explicador propio usan uno
+    genérico con la pila de capas del archivo.
+- **Reglas del juego** (`core/rules`).
+  - `GameRules` lee de la vista efectiva, con los `overrides`:
+    - `common/defines.lua`, con `core/lua_defines.py`, que lo edita sin
+      pérdidas;
+    - los bookmarks;
+    - `map/default.map` y la cabecera del BMP de provincias;
+    - `issues.txt` y `governments.txt`.
+
+    Un archivo roto da los valores por defecto, nunca una excepción.
+  - `ids` valida TAG, ids de provincia y de evento, y da el TAG de una bandera.
+  - `names` limpia los nombres de archivo que crea el Studio.
+  - `colors` comprueba los colores.
+
+En la interfaz:
+
+- `Session.validate` construye el contexto en `POOL_VALIDATION` con una copia
+  del índice hecha en el propio hilo, porque el vivo sigue cambiando en el de
+  la interfaz. Antes, vacía los cambios pendientes; mientras el índice va por
+  detrás, espera en el estado `waiting` en vez de validar con datos viejos.
+- La línea base se calcula allí la primera vez y se guarda para el resto de la
+  sesión.
+- Tras un arreglo, la sesión vuelve a validar sola cuando el índice se pone al
+  día.
+- Proyecto › Validación y el panel Problemas muestran el último informe
+  (§8.1.1).
+
+### 2.7 Localización editable (`core/locsync`)
+
+Sigue wizard §8 y D6. `LocSync` edita la localización con la política del
+juego: gana la primera clave cargada, por orden alfabético de archivo, y un CSV
+del mod sustituye al del juego con el mismo nombre.
+
+- **Dónde se escribe un texto.**
+  - Una clave nueva va a `localisation/00_<prefijo>_<área>.csv`.
+  - Si el ganador es un archivo del mod, la fila se edita en su sitio (en VSM,
+    su copia de `text.csv`, con un diff de 1 línea).
+  - Si el ganador es del juego, va a `00_<prefijo>_overrides.csv`, que carga
+    antes. La fila copia los 13 idiomas de la del juego, para no borrar sus
+    otras traducciones, y el CSV del juego no se copia nunca.
+  - Un archivo nuevo imita la cabecera y la convención de la `x` de los del
+    mod.
+  - Un `;` o un salto de línea en un texto se rechazan antes de escribir.
+- **Vista efectiva** (I7). Son los ganadores de `localisation/*.csv` más los
+  documentos abiertos, también los nuevos sin guardar; un borrado deja ver lo
+  de debajo. Los CSV del disco se leen una vez en segundo plano
+  (`read_localisation`) y `adopt` los incorpora, para que la primera tabla no
+  lea megas en el hilo de la interfaz.
+- **Indicadores** de cada `LocEntry`, que son los filtros de Textos:
+  - `created_by_studio`;
+  - `overrides_game`;
+  - `degraded` (H15), con la misma comparación que el aviso
+    `loc_copy_degraded` (`csvloc.degraded.is_degraded`): los dos cuentan 3 427
+    claves en el `text.csv` de VSM.
+- Todo son ediciones del `Workspace` dentro de la transacción de quien llama,
+  así que se deshacen con ella. Leer no escribe nada (I4).
 
 ---
 
@@ -2035,7 +2219,7 @@ Paradox, nombres inválidos en Windows, cambios externos, taller de mapas…).
 |---|---|
 | Escribir fuera del mod | Resuelto en la iteración 2 (§2, §3.5): todo lo que la aplicación escribe en el mod pasa por el diario y el `WriteGuard`, y `test_arch_writes` impide escribir por otro camino. Quedan sin guard, a propósito, `atomic_write_bytes`, `write_file` y `write_csv_file`, que escriben en la ruta que reciben: solo los llaman el diario (tras `WriteGuard.check`), el bloqueo (en `appdirs.locks_dir()`), los propios envoltorios y la CLI de localización, que escribe donde dice `-o`. Lo que escribe Qt (`QSettings` y los glifos) queda fuera de la regla. |
 | «Nuevo mod» que falla a medias deja rastro | `create_mod_skeleton` crea su `SaveTransaction` sin `trash_creates=False`. Si el guardado falla después de confirmar algún archivo, la reversión manda el `.mod` (y los archivos de la plantilla) a `<juego>/mod/<carpeta>/.vic2studio/trash/<txid>/`, así que la carpeta del mod queda en `<juego>/mod/` y un segundo intento con la misma carpeta da `descriptor_folder_taken`. Comprobado inyectando un fallo con `journal.FAULT_HOOK` en el primer `replace`. `test_journal_commit.NewModTests` prueba el diario con `trash_creates=False` y por eso no lo ve. |
-| «Archivos» y «Archivos CSV» muestran el disco | Siguen siendo las páginas de la iteración 1 y no pasan por el `Workspace` (§2.1): no enseñan los cambios sin guardar (I7), «Validar mod» valida lo que hay en disco y las insignias de capa (`LayerResolver`) solo miran si la misma ruta existe en la otra carpeta, sin `replace_path` ni dependencias. La pestaña «Código» sobre el `DocHandle` y la localización editable llegan en la iteración 3 (wizard §21). |
+| «Archivos» y «Archivos CSV» muestran el disco | Siguen siendo las páginas de la iteración 1 y no pasan por el `Workspace` (§2.1): no enseñan los cambios sin guardar (I7), y las insignias de capa (`LayerResolver`) solo miran si la misma ruta existe en la otra carpeta, sin `replace_path` ni dependencias. Desde la iteración 3, «Validar mod» (F7 y el botón de Archivos) usa el validador del núcleo sobre la vista efectiva, y la localización se edita en Textos › Todos los textos con `LocSync` (§2.7). Lo que queda: la pestaña «Validación» del panel izquierdo de Archivos conserva el análisis de la iteración 1 (`check_mod`, sobre el disco), y abrir un problema o un símbolo de un documento nuevo sin guardar no tiene dónde mostrarlo (se dice en la barra de estado). La pestaña «Código» sobre el `DocHandle` sigue pendiente (wizard §21). |
 | Guardar en el hilo de la interfaz | `MainWindow.save_project` llama a `Session.changeset()` (renderiza y verifica por relectura todos los documentos sucios, con su diff) y después a `Session.save()`, que los vuelve a renderizar: todo en el hilo de la interfaz. La sección «Cambios pendientes» también renderiza todos los sucios cada vez que se refresca, aunque solo mientras está a la vista. Con pocos documentos pequeños (el descriptor, `cb_types.txt`) no se nota; las pruebas de latido (§7.4) no cubren el guardado. |
 | Deshacer en memoria | Las instantáneas van comprimidas con zlib, pero siempre en memoria: `SNAPSHOT_TO_DISK` (8 MiB) y `Snapshot.before_path` no se usan (§2.4; wizard §6.3 las manda a disco). La pila se limita a 500 pasos y 256 MiB comprimidos y descarta los más viejos, y la LRU solo expulsa documentos limpios. |
 | Autoguardado antes del primer guardado | Con cambios sin guardar, `recovery/<sesión>/` se escribe cada 60 s, cada 20 transacciones y al cerrar sin «Descartar», y crea `<mod>/.vic2studio/` aunque aún no se haya guardado nada. Es lo que pide I8, pero wizard §5.4 dice que la carpeta se crea en el primer guardado; el criterio 4 (abrir y guardar sin cambios) no se ve afectado. |
