@@ -29,7 +29,7 @@ from ...index import model as m
 from ...vfs.model import LayerKind
 from ..registry import make_problem, rule
 
-W, I = Severity.WARNING, Severity.INFO
+W, INFO = Severity.WARNING, Severity.INFO
 _NON_ASCII = "[^\\x00-\\x7f]"
 # Un «?» del mod frente a una letra no ASCII del juego y hasta 2 caracteres más (o el mismo «?»).
 _DEGRADED_GAP = "(?:\\?|" + _NON_ASCII + "[\\s\\S]{0,2})"
@@ -141,7 +141,7 @@ def mod_only_keys(ctx) -> list:
     return found
 
 
-@rule("loc_untranslated", I)
+@rule("loc_untranslated", INFO)
 def untranslated(ctx):
     loc = ctx.loc
     if loc is None:
@@ -179,7 +179,7 @@ def used_names(index) -> set[str]:
     return used
 
 
-@rule("loc_key_orphan", I)
+@rule("loc_key_orphan", INFO)
 def orphans(ctx):
     candidates = mod_only_keys(ctx)
     if not candidates:

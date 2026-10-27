@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from ...clausewitz.nodes import Scalar
 from ..model import KIND_BOOKMARK, KIND_CB, KIND_PROVINCE, KIND_TAG, KIND_WAR, extractor
-from ..parsing import as_int, document, is_date, loose_values
+from ..parsing import as_int, document, is_date
 from ._support import Facts
 
 ROLE_PEACE_ORDER = "peace_order"
@@ -96,7 +96,3 @@ def diplomacy(rel, data, layer):
                     and child.value.__class__ is Scalar:
                 facts.ref(KIND_TAG, child.value.text, child, f"{relation}_{child.key.text.lower()}")
     return facts.result()
-
-
-def peace_order(block) -> list[str]:
-    return loose_values(block)

@@ -237,15 +237,18 @@ RULES_FILES: dict[str, str | bytes] = {
     # Claves emparejadas (H7): la 1.ª con los modificadores y la 2.ª con las provincias.
     "map/climate.txt": _crlf("mild_climate = {\n\tfarm_rgo_size = 0.0\n}\nmild_climate = { 1 2 3 4 }\n"
                              "harsh_climate = {\n\tmax_attrition = 5\n}\nharsh_climate = { 5 6 7 8 }\n"),
-    "map/terrain.txt": _crlf("terrain = 8\ncategories = {\n\tocean = {\n\t\tis_water = yes\n\t\tcolor = { 0 0 255 }\n\t}\n"
-                             "\tplains = {\n\t\tcolor = { 0 255 0 }\n\t}\n\thills = {\n\t\tcolor = { 120 120 0 }\n\t}\n}\n"),
+    "map/terrain.txt": _crlf("terrain = 8\ncategories = {\n"
+                             "\tocean = {\n\t\tis_water = yes\n\t\tcolor = { 0 0 255 }\n\t}\n"
+                             "\tplains = {\n\t\tcolor = { 0 255 0 }\n\t}\n"
+                             "\thills = {\n\t\tcolor = { 120 120 0 }\n\t}\n}\n"),
     "common/defines.lua": _crlf("defines = {\n\nstart_date = '1836.1.1',\nend_date = '1935.12.31',\n\ncountry = {\n"
                                 "\tYEARS_OF_PEACE = 20, -- años sin guerra\n\tBASE_TAX = 0.25,\n},\n\n}\n"),
     "common/bookmarks.txt": _crlf('bookmark = {\n\tname = "MG_START"\n\tdesc = "MG_START_DESC"\n\tdate = 1836.1.1\n}\n'
                                   'bookmark = {\n\tname = "MG_LATE"\n\tdesc = "MG_LATE_DESC"\n\tdate = 1861.1.1\n}\n'),
     "common/cultures.txt": _crlf("north_folk = {\n\tleader = european\n\tunit = NorthGC\n\talander = {\n"
                                  "\t\tcolor = { 100 20 20 }\n\t}\n\tborlander = {\n\t\tcolor = { 20 100 20 }\n\t}\n}\n"
-                                 "south_folk = {\n\tleader = european\n\tcorlander = {\n\t\tcolor = { 20 20 100 }\n\t}\n"
+                                 "south_folk = {\n\tleader = european\n"
+                                 "\tcorlander = {\n\t\tcolor = { 20 20 100 }\n\t}\n"
                                  "\tdominer = {\n\t\tcolor = { 90 90 90 }\n\t\tprimary = D01\n\t}\n}\n"),
     "common/religion.txt": _crlf("faiths = {\n\tsunfaith = {\n\t\ticon = 1\n\t\tcolor = { 0.8 0.8 0 }\n\t}\n"
                                  "\tmoonfaith = {\n\t\ticon = 2\n\t\tcolor = { 0 0 0.7 }\n\t}\n}\n"),
@@ -263,15 +266,18 @@ RULES_FILES: dict[str, str | bytes] = {
                                "\teconomic_policy = {\n\t\tinterventionism = { }\n\t\tlaissez_faire = { }\n\t}\n"
                                "\ttrade_policy = {\n\t\tprotectionism = { }\n\t\tfree_trade = { }\n\t}\n"
                                "\treligious_policy = {\n\t\tmoralism = { }\n\t\tpluralism = { }\n\t}\n"
-                               "\tcitizenship_policy = {\n\t\tlimited_citizenship = { }\n\t\tfull_citizenship = { }\n\t}\n"
+                               "\tcitizenship_policy = {\n\t\tlimited_citizenship = { }\n"
+                               "\t\tfull_citizenship = { }\n\t}\n"
                                "\twar_policy = {\n\t\tpro_military = { }\n\t\tanti_military = { }\n\t}\n}\n"
                                "political_reforms = {\n\tslavery = {\n\t\tyes_slavery = { }\n\t\tno_slavery = { }\n"
                                "\t\tnext_step_only = yes\n\t}\n}\n"
-                               "social_reforms = {\n\tsafety = {\n\t\tno_safety = { }\n\t\tgood_safety = { }\n\t}\n}\n"),
+                               "social_reforms = {\n\tsafety = {\n\t\tno_safety = { }\n"
+                               "\t\tgood_safety = { }\n\t}\n}\n"),
     "common/nationalvalues.txt": _crlf("nv_order = {\n\tmobilisation_size = 0.04\n}\n"
                                        "nv_liberty = {\n\tmobilisation_size = 0.02\n}\n"),
     "common/technology.txt": _crlf("folders = {\n\tarmy_tech = {\n\t\tarmy_doctrine\n\t\tlight_arms\n\t}\n}\n"
-                                   "schools = {\n\ttraditional_academic = {\n\t\tarmy_tech_research_bonus = 0\n\t}\n}\n"),
+                                   "schools = {\n\ttraditional_academic = {\n"
+                                   "\t\tarmy_tech_research_bonus = 0\n\t}\n}\n"),
     "technologies/army_tech.txt": _crlf("musket_drill = {\n\tarea = army_doctrine\n\tyear = 1836\n"
                                         "\tactivate_unit = infantry\n}\n"
                                         "rifled_drill = {\n\tarea = light_arms\n\tyear = 1850\n"
@@ -307,7 +313,8 @@ RULES_FILES: dict[str, str | bytes] = {
     "events/minigame_more.txt": _crlf("country_event = {\n\tid = 1003\n\ttitle = \"EVT_1003_NAME\"\n"
                                       "\tdesc = \"EVT_1003_NAME\"\n\tis_triggered_only = yes\n"
                                       "\toption = {\n\t\tname = \"EVT_1003_A\"\n\t\tcountry_event = 1001\n"
-                                      "\t\tcountry_event = { id = 1999 days = 3 }\n\t\tset_country_flag = mg_done\n\t}\n}\n"),
+                                      "\t\tcountry_event = { id = 1999 days = 3 }\n"
+                                      "\t\tset_country_flag = mg_done\n\t}\n}\n"),
     "interface/minigame.gfx": _crlf('spriteTypes = {\n\tspriteType = {\n\t\tname = "GFX_mg_icon"\n'
                                     '\t\ttexturefile = "gfx\\\\interface\\\\mg_icon.dds"\n\t\tnoOfFrames = 2\n\t}\n'
                                     '\ttextSpriteType = {\n\t\tname = "GFX_mg_button"\n'
@@ -359,6 +366,17 @@ class MiniGame:
 
     def tree(self, root: Path | None = None) -> dict[str, tuple[int, int, bytes]]:
         return self.layers.tree(root)
+
+    def vfs(self, **kwargs):
+        """``VirtualFS`` del juego y el mod ya escaneada (``kwargs``: ``replace_paths``…)."""
+        from vic2studio.core.vfs import VirtualFS
+
+        vfs = VirtualFS(self.game_root, self.mod_root, descriptor=self.descriptor, **kwargs)
+        vfs.scan()
+        return vfs
+
+    def snapshot(self, **kwargs):
+        return self.vfs(**kwargs).snapshot()
 
     def game_tree(self) -> dict[str, tuple[int, int, bytes]]:
         """Árbol del juego base sin ``mod/`` (los hashes del juego no deben cambiar nunca)."""

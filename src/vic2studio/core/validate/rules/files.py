@@ -19,6 +19,7 @@ from ...vfs.model import LayerKind
 from ...vfs.paths import DESCRIPTOR_REL, long_path_problem, windows_name_problems
 from ..registry import SCOPE_FILE, make_problem, rule
 
+
 def mod_entries(ctx):
     """Entradas de la capa del mod (todas, también las que no ganan), sin el descriptor."""
     for key, stack in sorted(ctx.snapshot.entries.items()):

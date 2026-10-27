@@ -324,8 +324,8 @@ def unknown_references(ctx):
     problems.extend(_unknown_reforms(ctx, loaded))
     for ref in index.refs(m.KIND_FILE):
         if ref.role == "oob" and loaded(ref.rel) and ctx.layer_of(VPath.of(ref.name)) is None:
-            problems.append(make_problem("oob_file_missing", ref.rel, ref.line, ref.column, entity=(m.KIND_FILE, ref.name),
-                                         field=("oob",), file=ref.name))
+            problems.append(make_problem("oob_file_missing", ref.rel, ref.line, ref.column,
+                                         entity=(m.KIND_FILE, ref.name), field=("oob",), file=ref.name))
     return problems
 
 

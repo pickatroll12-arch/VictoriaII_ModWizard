@@ -18,7 +18,7 @@ from ...vfs.paths import DESCRIPTOR_REL, VPath
 from ..model import SOURCE_CLAUSEWITZ, SOURCE_CSV, Problem
 from ..registry import RULES, SCOPE_FILE, make_problem, rule
 
-E, W, I = Severity.ERROR, Severity.WARNING, Severity.INFO
+E, W, INFO = Severity.ERROR, Severity.WARNING, Severity.INFO
 TO_CP1252 = ("convert_to_cp1252",)
 
 # Diagnósticos del parser Clausewitz (``clausewitz.diagnostics``) y del lint del CSV (``csvloc.lint``).
@@ -27,12 +27,12 @@ PARSER_CODES = {
     "missing_key": (E, ()), "unterminated_string": (E, ()), "invalid_key": (E, ()),
     "unexpected_operator": (E, ()), "invalid_character": (E, ()), "multiline_string": (W, ()),
     "control_character": (W, ()), "invisible_character": (W, ()), "non_game_encoding": (W, TO_CP1252),
-    "unreadable_encoding": (E, TO_CP1252), "stray_bom": (W, TO_CP1252), "suspicious_close_brace": (I, ()),
+    "unreadable_encoding": (E, TO_CP1252), "stray_bom": (W, TO_CP1252), "suspicious_close_brace": (INFO, ()),
 }
 CSV_CODES = {
     "missing_end_marker": (W, ()), "too_few_columns": (W, ()), "duplicate_key": (W, ()), "empty_key": (W, ()),
     "key_whitespace": (W, ()), "semicolon_in_quotes": (W, ()), "unencodable_character": (E, ()),
-    "header_row": (I, ()),
+    "header_row": (INFO, ()),
 }
 OTHER_CODES = {"read_error": (E, ()), "check_failed": (E, ())}
 

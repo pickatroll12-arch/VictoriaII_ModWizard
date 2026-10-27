@@ -125,12 +125,16 @@ class _Refs:
         self.by_name: dict[str, list[SymbolRef]] = {}
 
 
+_RANK = {layer: rank for rank, layer in enumerate(_PRIORITY)}
+
+
 def _order(symbol: Symbol) -> tuple:
-    return (symbol.rel.key, symbol.line or 0)
+    """Por ruta y línea; a igualdad, la capa con más prioridad (mod) primero: un orden estable."""
+    return (symbol.rel.key, symbol.line or 0, _RANK.get(symbol.layer, 9))
 
 
 def _ref_order(ref: SymbolRef) -> tuple:
-    return (ref.rel.key, ref.line or 0, ref.column or 0)
+    return (ref.rel.key, ref.line or 0, ref.column or 0, ref.role, ref.name)
 
 
 class SymbolIndex:
