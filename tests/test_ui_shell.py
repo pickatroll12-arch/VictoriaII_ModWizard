@@ -203,9 +203,14 @@ class CatalogFragmentTests(unittest.TestCase):
         with mock.patch.object(texts, "load_texts", return_value={"save.sample": "x"}) as load:
             self.assertEqual(i18n.core_catalog("en"), {"save.sample": "x"})
         load.assert_called_once_with("en")
-        # PUENTE: mientras core/texts.py sea del contrato no hay textos del núcleo.
-        with mock.patch.object(texts, "load_texts", side_effect=NotImplementedError):
-            self.assertEqual(i18n.core_catalog("en"), {})
+        # Con el núcleo integrado, sus textos llegan al catálogo (y un fallo al leerlos no se calla).
+        for code in ("es", "en"):
+            core = i18n.core_catalog(code)
+            self.assertIn("project.save_conflict", core, code)
+            self.assertEqual(i18n.load_catalog(code)["project.save_conflict"], core["project.save_conflict"])
+        with mock.patch.object(texts, "load_texts", side_effect=ValueError("JSON mal formado")):
+            with self.assertRaises(ValueError):
+                i18n.core_catalog("en")
 
 
 class PackagingTests(unittest.TestCase):

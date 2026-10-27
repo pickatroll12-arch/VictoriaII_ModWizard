@@ -81,11 +81,7 @@ def core_catalog(code: str) -> dict[str, str]:
     """Textos del núcleo (``core/**/texts/*.<code>.json``) para ``code``."""
     from ..core.texts import load_texts
 
-    try:
-        return dict(load_texts(code))
-    except NotImplementedError:
-        # PUENTE hasta integrar core/texts.py (agente A): mientras sea del contrato no hay textos del núcleo.
-        return {}
+    return dict(load_texts(code))
 
 
 def load_catalog(code: str) -> dict[str, str]:

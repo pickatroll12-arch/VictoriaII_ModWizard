@@ -30,10 +30,9 @@ from .clausewitz import (
     parse_file,
     render_checked,
     to_source,
-    write_file,
 )
 from .encoding import BOM, GAME_ENCODING, GAME_UNREADABLE, encode_text
-from .fileio import FileStamp, write_text
+from .fileio import FileStamp
 
 DESCRIPTOR_SUFFIX = ".mod"
 SIBLING = "sibling"
@@ -603,16 +602,10 @@ def write_descriptor(file: str | os.PathLike, descriptor: ModDescriptor, *, back
     file = Path(file)
     _new_source(descriptor)  # valida los valores antes de tocar nada
     existing = parse_file(file) if file.exists() else None
-    try:
-        data = _render_fields(descriptor, existing, archive=True)
-        if existing is not None and existing.stamp == FileStamp.of(data):
-            return None
-        return _journal_write(file, data, exists=existing is not None, backup=backup)
-    except NotImplementedError:
-        # PUENTE hasta integrar core/project/journal y serializer.render_checked (agente A): mientras sean del
-        # contrato se escribe como en la iteración 1. Quitarlo al integrar, con los imports de write_file y
-        # write_text (tests/test_arch_writes.py lo exige).
-        return _write_descriptor_directly(file, descriptor, backup=backup)
+    data = _render_fields(descriptor, existing, archive=True)
+    if existing is not None and existing.stamp == FileStamp.of(data):
+        return None
+    return _journal_write(file, data, exists=existing is not None, backup=backup)
 
 
 def _journal_write(file: Path, data: bytes, *, exists: bool, backup: bool) -> Path | None:
@@ -634,18 +627,3 @@ def _journal_write(file: Path, data: bytes, *, exists: bool, backup: bool) -> Pa
         raise DescriptorWriteError(blocking)
     result = transaction.commit()
     return result.backups[0] if result.backups else None
-
-
-def _write_descriptor_directly(file: Path, descriptor: ModDescriptor, *, backup: bool) -> Path | None:
-    """El escritor de la iteración 1 (ver el PUENTE de ``write_descriptor``)."""
-    source = _new_source(descriptor)
-    if not file.exists():
-        return write_text(file, source, GAME_ENCODING, backup=backup)
-    result = parse_file(file)
-    _apply_fields(result.document, descriptor, archive=True)
-    if result.encoding not in GAME_UNREADABLE:
-        return write_file(file, result, backup=backup)
-    text = to_source(result.document)
-    stripped = text.lstrip(BOM)
-    target = result if len(stripped) == len(text) else parse(stripped, filename=file).document
-    return write_file(file, target, encoding=GAME_ENCODING, backup=backup)

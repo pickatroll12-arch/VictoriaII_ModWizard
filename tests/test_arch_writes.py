@@ -67,10 +67,9 @@ WRITER_EXCEPTIONS = {
     "core/csvloc/cli.py": "CLI: fromjson escribe el CSV donde indica el usuario",
 }
 # Temporales: deben desaparecer en esta iteración (entonces esta prueba pide quitar la línea).
-TEMPORARY_WRITER_EXCEPTIONS = {
-    "core/modfile.py": "write_descriptor escribe con fileio.write_text y serializer.write_file; el agente B lo "
-                       "pasa a core.project.journal (iteración 2). Cuando deje de hacerlo, borra esta línea.",
-}
+# Excepciones temporales, con su motivo y su fecha de caducidad (hoy ninguna: modfile.write_descriptor ya escribe
+# con el diario desde la integración de la iteración 2).
+TEMPORARY_WRITER_EXCEPTIONS: dict[str, str] = {}
 
 
 def _module_name(rel: str) -> str:
