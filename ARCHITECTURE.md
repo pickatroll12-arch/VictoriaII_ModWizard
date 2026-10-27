@@ -5,11 +5,11 @@ aplicación de escritorio (Windows + Linux) para crear y editar mods de
 Victoria II (motor Clausewitz de Paradox, con *A House Divided* y *Heart of
 Darkness*) de forma visual.
 
-Estado: **iteración 2 integrada** (cimientos: VFS, proyecto transaccional con
+Estado: **iteración 2 cerrada** (cimientos: VFS, proyecto transaccional con
 diario, deshacer por instantáneas, descriptor `.mod` y armazón de 7 salas;
 commits `97f0386`, `f3ff809`, `d3ed5de`, `563a709` y `59e8847`, más las correcciones
-de sus dos rondas de revisión adversarial). La iteración 1 está cerrada. De la 2
-quedan las capturas y el informe (§6.1); los criterios que
+de sus dos rondas de revisión adversarial). Las iteraciones 1 y 2 están cerradas
+(§6.1); los criterios que
 necesitaban el corpus del usuario ya se cumplen con sus archivos reales. Este documento describe
 el código que hay hoy en el repositorio. El diseño de las iteraciones 2 a 10
 está en [`docs/diseno/wizard.md`](docs/diseno/wizard.md) («wizard» en adelante);
@@ -1840,7 +1840,7 @@ Estado de los criterios de aceptación de wizard §22:
 | 7. Deshacer y rehacer 3 archivos es exacto; deshacer hasta el punto guardado deja limpio | Sí | `test_project_workspace.test_acceptance_criterion_7_*`, `test_undo_property` |
 | 8. Oro de `render_descriptor` y «Dark Age Mod» en cp1252 con CRLF | Sí | `test_modfile_write` |
 | 9. `test_arch_writes` pasa | Sí, sin excepciones temporales | `test_arch_writes` |
-| 10. Capturas ES/EN a 1100×700 y 1920×1080 | `docs/capturas/` aún tiene las de la iteración 1; según el traspaso, las de la iteración 2 se generaron y revisaron el 27-10-2026 y se suben con las correcciones de la revisión | revisión visual |
+| 10. Capturas ES/EN a 1100×700 y 1920×1080 | **Sí.** Se generaron las 20 tras las correcciones y se revisaron sin defectos; en `docs/capturas/` están la 11 a la 20 (las 5 vistas en español a 1100×700 y en inglés a 1920×1080) | revisión visual |
 | 11. Verificación adversarial; el mod de «Nuevo mod» aparece en el lanzador | **Sí, en dos rondas**: 53 hallazgos confirmados (4 altos, 18 medios, 31 bajos) y, en la segunda, 2 más sobre los arreglos; todos corregidos con prueba de regresión y mutación (ver abajo). La comprobación en el juego se hace una sola vez, en la iteración 10 (decisión 6 de wizard §24) | `test_review_*` |
 
 **Revisión adversarial de la iteración 2.** Con

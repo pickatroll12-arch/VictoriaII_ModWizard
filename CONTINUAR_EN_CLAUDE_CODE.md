@@ -60,8 +60,8 @@ arreglarlo, deja una prueba de regresión que falle sin el arreglo y pasa la bat
   fusionó en `main` (PR #7–#9) y Claude las revisó (mutaciones, fuzz de 28 000 textos en 7 codificaciones,
   pruebas propias más estrictas, batería con corpus y en las tres combinaciones) y completó los dos errores de
   `core/vfs`. El parche anterior de Grok se descartó.
-- **Queda**, en orden: §5: las capturas, el README y el informe de la iteración 2. Están hechos el fallo de
-  segmentación intermitente al pintar y la segunda ronda de la revisión (§5.0).
+- **Queda**: la iteración 3 (§5.3). La iteración 2 está cerrada: revisión en dos rondas, el fallo de segmentación
+  al pintar, capturas, README e informe (§5.0 a §5.2).
 
 ---
 
@@ -471,7 +471,7 @@ Cada uno tiene su prueba y su mutación. Otros dos quedan sin código, con su mo
 quieres otra ronda con varios agentes, el guion es `docs/handoff/workflow_iteracion2_revision.js`, apuntado al
 commit de las correcciones; pero solo si el usuario lo pide (ultracode u «usa un workflow»).
 
-### 1. Capturas, README e informe de la iteración 2 (criterio 10)
+### 1. Capturas, README e informe de la iteración 2 (criterio 10): hechos
 
 Capturas ES/EN a 1100×700 y 1920×1080 de Inicio, Descriptor .mod, Archivos, Cambios pendientes y el diálogo de
 revisión, revisadas a mano (textos cortados, claves crudas, columnas estrechas):
@@ -482,11 +482,14 @@ python3 tools/screenshot.py --out DIR --lang all --size 1100x700 --mod tests/fix
     --page project:home,project:descriptor,project,project:pending --dialog save_review
 ```
 
-El 27-10-2026 se generaron y revisaron las 20 (sin defectos), pero la revisión cambió la interfaz (diálogo de
-revisión con desplazamiento, avisos en la barra de estado): regenéralas, revísalas y súbelas a `docs/capturas/`.
-Pon al día también el README: «Estado del proyecto» y «Qué funciona hoy» siguen describiendo la iteración 1
-(cinco módulos); hoy son 7 salas con proyecto, descriptor, guardado con diario, deshacer y recuperación. Informe
-al usuario en español: qué entrega la iteración 2, resultado de las pruebas y qué queda.
+**Hecho (27-10-2026).**
+
+- Las 20 capturas se regeneraron después de las correcciones y se revisaron una a una, sin defectos.
+- Se subieron 10 a `docs/capturas/` (de la 11 a la 20): las 5 vistas, en español a 1100×700 y en inglés a
+  1920×1080. Las texturas no se comprimen, y las 20 pesarían unos 20 MB; la orden de arriba regenera todas.
+- El README describe ya la iteración 2: 7 salas, proyecto, descriptor, guardado con diario, deshacer y
+  recuperación.
+- El informe de la iteración 2 se dio al usuario en el chat.
 
 ### 2. Criterios con corpus: hechos (27-10-2026)
 

@@ -20,49 +20,73 @@ puede usar en **español o inglés**, cambiando de idioma en tiempo real.
 
 ## Estado del proyecto
 
-Versión **0.1.0**, pre-alfa. La **iteración 1 está cerrada salvo dos tareas**.
-Además del núcleo y la ventana principal, se revisó la integración del parser y
-la localización con la interfaz, las pruebas dejaron de depender del corpus
-completo, cada componente pasó una verificación adversarial y los hallazgos se
-corrigieron con pruebas de regresión y una segunda ronda de verificación
-(tareas T1–T4 del [documento de traspaso](CONTINUAR_EN_CLAUDE_CODE.md)),
-incluida la última ronda de T4. Quedan la segunda revisión adversarial de la
-última ronda de la interfaz, que está en curso, y T5, el informe final al
-usuario con capturas nuevas.
+Versión **0.1.0**, pre-alfa.
+
+- **Iteración 1**: cerrada. Incluye el motor de archivos, el visor y la
+  validación.
+- **Iteración 2** (los cimientos): integrada y revisada. Llegan:
+  - un sistema de archivos virtual juego base + mod;
+  - el proyecto transaccional, con guardado todo o nada, deshacer y
+    recuperación tras un corte;
+  - el generador del descriptor `.mod`;
+  - la ventana de 7 salas.
+
+La iteración 2 pasó dos rondas de revisión adversarial: 55 hallazgos
+confirmados, todos corregidos con su prueba de regresión. Quedan su informe
+final y la [iteración 3](docs/diseno/wizard.md#22-plan-de-iteraciones). El
+estado detallado está en el
+[documento de traspaso](CONTINUAR_EN_CLAUDE_CODE.md).
 
 ### Qué funciona hoy
 
-La aplicación tiene cinco módulos en la barra de navegación (Ctrl+1 … Ctrl+5):
+La ventana tiene **7 salas** (Ctrl+1 … Ctrl+7): Proyecto, Mapa, Naciones,
+Guerra, Eventos, Interfaz y Textos. Cada sala tiene sus secciones en una barra
+lateral, o en una franja si la ventana es estrecha. Lo que aún no existe es una
+tarjeta que dice qué hará y en qué iteración llega.
 
-- **Proyecto y Archivos**: rutas del juego base (solo lectura) y del mod, con
-  comprobación de ambas carpetas y del descriptor `.mod`, y un explorador con
-  filtro. La vista previa elige visor según el archivo:
+- **Proyecto › Inicio**: el juego base (solo lectura) y los mods de su carpeta
+  `mod/` como tarjetas.
+  - Un clic abre el mod.
+  - «Crear mod nuevo» crea la carpeta, el descriptor y las carpetas básicas
+    sin copiar nada del juego, todo o nada; una plantilla es opcional.
+  - «Abrir otra carpeta» abre un mod que está fuera de `mod/`.
+  - Debajo, «¿Qué quieres hacer?» y la hoja de ruta de las 10 iteraciones.
+- **Proyecto › Descriptor .mod**: un formulario para `name`, `path`,
+  `user_dir`, `dependencies` y `replace_path`.
+  - Muestra cómo quedará el archivo y sus problemas mientras escribes.
+  - Editar un campo conserva los comentarios y el resto del archivo.
+  - Un `.mod` en UTF-16, que el juego no lee, se pasa a Windows-1252.
+- **Proyecto › Archivos**: las rutas del juego y del mod, un explorador con la
+  capa de cada archivo (juego, dependencia o mod) y la vista previa:
   - scripts Clausewitz (`.txt`, `.mod`, `.gfx`, `.gui`, `.sfx`, `.asset`,
-    `.map`): pestañas Estructura, Código fuente, Diagnósticos y JSON, con
-    buscador; doble clic en un diagnóstico salta a su línea y a su nodo; un
-    archivo en UTF-16, que el juego no puede leer, sale en rojo («Ilegible
-    para el juego»);
-  - imágenes (`.tga`, `.dds`, `.bmp`, `.png`, `.jpg`, `.jpeg`, `.gif`),
-    decodificadas con Pillow;
-  - los `.csv` de `localisation/` se abren en Localización.
-- **Validar mod** (en Proyecto y Archivos): analiza todos los scripts y CSV
-  del mod y su descriptor, con progreso y cancelación, y lista los
-  diagnósticos en una tabla filtrable; doble clic abre el archivo en esa línea.
-- **Localización (CSV)**: tabla de solo lectura con una columna por idioma,
-  buscador, conmutadores para mostrar comentarios y todas las columnas, y los
-  diagnósticos del lint traducidos.
-- **Mapa, Países y Eventos**: tarjetas con lo planificado y la hoja de ruta de
-  [wizard.md §22](docs/diseno/wizard.md#22-plan-de-iteraciones), con sus 10
-  hitos: el mapa llega en la iteración 5, los países en la 6 y los eventos en
-  la 7. El aviso de solo lectura de Localización anuncia la edición para la 3.
+    `.map`), con las pestañas Estructura, Código fuente, Diagnósticos y JSON, y
+    buscador. Un archivo en UTF-16 sale en rojo («Ilegible para el juego»);
+  - imágenes (`.tga`, `.dds`, `.bmp`, `.png`, `.jpg`, `.jpeg`, `.gif`);
+  - los `.csv` de `localisation/`, que se abren en Textos.
+  - «Validar mod» (F7) analiza todos los scripts, los CSV y el descriptor en
+    segundo plano. Muestra el progreso, se puede cancelar y lista los
+    diagnósticos.
+- **Proyecto › Cambios pendientes**: lo que escribirá Guardar, archivo a
+  archivo, con su diff. Se puede descartar un archivo.
+- **Textos › Archivos CSV**: la localización en una tabla de solo lectura,
+  con buscador y el lint traducido.
 
-El análisis, las imágenes y la validación corren en segundo plano, en grupos
-de hilos propios (`ui/tasks.py`): la interfaz sigue respondiendo con archivos de
-varios MB, abrir otro archivo cancela el análisis anterior (y suelta su
-memoria por trozos en un hilo aparte) y la validación tiene un botón
-«Cancelar». La aplicación todavía no modifica archivos del juego
-ni del mod: la escritura existe en el núcleo y en la CLI `fromjson`, y la
-edición desde la interfaz empieza en la iteración 2.
+**Editar, guardar y deshacer.** Cada cambio es un paso con nombre que se
+deshace (Ctrl+Z) y se rehace (Ctrl+Y, o Ctrl+Mayús+Z); el Historial lista los
+pasos. Guardar (Ctrl+S) escribe todo o nada a través de un diario:
+
+- un corte a mitad (el disco lleno, cerrar el proceso) deja el mod como antes o
+  como después;
+- se guarda la copia `.bak` y el original en `.vic2studio/originals/`;
+- antes de copiar un archivo del juego al mod o de mandar algo a la papelera,
+  se pide confirmación;
+- si un archivo cambió fuera del Studio, se pregunta («Conservar mis cambios»,
+  «Recargar del disco» o «Comparar»);
+- el trabajo sin guardar se autoguarda, y al reabrir se ofrece recuperarlo;
+- abrir el mismo mod en otra instancia lo deja en solo lectura.
+
+El Studio solo escribe en la carpeta del mod y en su `.mod`, nunca en el juego
+base.
 
 El núcleo (`vic2studio.core`, sin Qt) se puede usar desde Python o desde la
 terminal:
@@ -100,13 +124,11 @@ a las partes planificadas de ARCHITECTURE.md. Cubre las iteraciones 2 a 10 (la
 9 dividida en 9a y 9b), con el plan en
 [§22](docs/diseno/wizard.md#22-plan-de-iteraciones) y las decisiones del
 usuario en [§24](docs/diseno/wizard.md#24-decisiones-del-usuario-26-10-2026).
-La interfaz pasará a 7 salas (Proyecto, Mapa, Naciones, Guerra, Eventos,
-Interfaz y Textos) sobre una VFS vanilla + mod con guardado transaccional y
-deshacer. Estas son las
-[15 capacidades](docs/diseno/wizard.md#14-las-15-capacidades), con la
-iteración en que llegan:
+Las salas y el proyecto transaccional de la iteración 2 son la base de las
+[15 capacidades](docs/diseno/wizard.md#14-las-15-capacidades). Esta es la
+iteración en que llega cada una:
 
-1. Generar el archivo `.mod` (2).
+1. Generar el archivo `.mod` (2, hecha).
 2. Países: asistente, ficha, banderas `.tga` e historial (6).
 3. Provincias (5; las nuevas, 9).
 4. Unidades terrestres (4).
@@ -150,10 +172,9 @@ el empaquetado final. Los prototipos del taller de mapas están en
   PySide6 de la distribución con el numpy de pip (`venv --system-site-packages`):
   `python3 -m pip install "numpy<2"` lo arregla. Desde PySide6 6.7 no pasa.
 
-Sin corpus, la batería entera se pasó con Python 3.13.17 y PySide6 6.12.0; con
-Python 3.10.20 y PySide6 6.11.3, las 593 pruebas anteriores al aviso y a la
-nueva hoja de ruta y, aparte, las 16 que llegaron con ellos (numpy 2,
-Pillow 12).
+Sin corpus, la batería entera pasa en tres combinaciones: Python 3.13.17 y
+PySide6 6.12.0, Python 3.10.20 y PySide6 6.11.3 (numpy 2, Pillow 12), y
+PySide6 6.5.0, el mínimo, con Python 3.10, numpy 1.24 y Pillow 10.
 
 En Linux las dependencias pueden venir del gestor de paquetes (en Fedora:
 `python3-pyside6`, `python3-numpy`, `python3-pillow`) o de pip:
@@ -420,9 +441,23 @@ python3 tools/screenshot.py --out capturas --lang es --page project \
     --mod tests/fixtures/shago_mod_min/VSM --validate --left-tab validation
 ```
 
-Las 10 capturas de `docs/capturas/` (T5, 26-10-2026) se generaron con esta
-herramienta sobre la muestra del repositorio, en español e inglés, a 1100x700,
-1440x900 y 1920x1080; su nombre dice la página, el idioma y el tamaño.
+Las capturas de `docs/capturas/` se generaron con esta herramienta sobre la
+muestra del repositorio, en español e inglés; su nombre dice la página, el
+idioma y el tamaño. Son de dos tandas:
+
+- **01 a 10** (T5, iteración 1, 26-10-2026): a 1100x700, 1440x900 y
+  1920x1080.
+- **11 a 20** (iteración 2, 27-10-2026): Inicio, Descriptor .mod, Archivos,
+  Cambios pendientes y la revisión antes de guardar, en español a 1100x700 y
+  en inglés a 1920x1080.
+
+Las de la iteración 2 salen con un juego sintético y dos cambios sin guardar:
+
+```bash
+python3 tools/screenshot.py --out capturas --lang all --size 1100x700 \
+    --mod tests/fixtures/shago_mod_min/VSM --demo-game --demo-changes --no-game-art \
+    --page project:home,project:descriptor,project,project:pending --dialog save_review
+```
 
 ## Empaquetado
 
@@ -473,7 +508,7 @@ tools/screenshot.py    capturas sin pantalla
 packaging/             PyInstaller y lanzador de Linux
 docs/
 ├── diseno/            wizard.md (iteraciones 2 a 10) y prototipos del taller de mapas
-├── capturas/          10 capturas ES/EN de la muestra (T5)
+├── capturas/          20 capturas ES/EN de la muestra (T5 e iteración 2)
 ├── requisitos/        requisitos originales del usuario
 └── handoff/           workflow de la iteración 1 (contratos de API)
 ```
@@ -517,22 +552,40 @@ Interactive: the app works on each user's own copy of the game and ships no
 game graphics or fonts (see the licence notes below for the vanilla content
 that the repository still holds).
 
-**Status**: version 0.1.0, pre-alpha. Iteration 1 is done except for two
-tasks: tasks T1–T4 are done (integration review, corpus-independent tests,
-adversarial verification and fixes with a second verification round,
-including the last T4 round); the second adversarial review of the last UI
-round is in progress, and T5, the final report with new screenshots, is
-pending. Today the
-app has a project page (paths, file explorer, Clausewitz viewer with
-structure, source, diagnostics and JSON tabs, image preview, `.mod`
-descriptor check and a background "Validate mod" with progress and
-cancellation), a read-only localisation table with search and lint, and
-placeholder pages for the map, countries and events with the roadmap of
-wizard.md §22 (map in iteration 5, countries in 6, events in 7; localisation
-editing in 3). Long tasks run in background thread pools, and a large file's
-analysis is freed in chunks off the UI thread. The app does not modify game or
-mod files yet; writing exists in the core and in the `csvloc fromjson` CLI,
-and editing from the UI starts in iteration 2. The Qt-free core provides
+**Status**: version 0.1.0, pre-alpha.
+
+- Iteration 1 (file engine, viewer, validation) is closed.
+- Iteration 2 (foundations) is integrated, and two adversarial review rounds
+  fixed 55 confirmed findings, each with a regression test.
+
+The window has 7 halls (Ctrl+1 … Ctrl+7): Project, Map, Nations, War, Events,
+Interface and Texts. Planned sections are cards that say which iteration
+brings them. Project has five sections:
+
+- **Home**: the base game and the mods in its `mod/` folder; a new mod is
+  created all-or-nothing, with an optional template.
+- **.mod descriptor**: a form that keeps comments and converts UTF-16 to
+  cp1252.
+- **Files**: the paths, an explorer that shows the layer of each file, and the
+  Clausewitz, image and CSV previews, plus a background "Validate mod" (F7).
+- **Validation**: a planned section (iteration 3); for now, "Validate mod"
+  lives in Files.
+- **Pending changes**: the diff of each file.
+
+Texts › CSV files keeps the read-only localisation table.
+
+Edits are named, undoable steps. Saving (Ctrl+S) goes through a journal, so a
+crash leaves the mod either before or after:
+
+- it keeps `.bak` copies and the originals;
+- saves that copy game files or trash files are reviewed first;
+- external changes are detected;
+- unsaved work is autosaved and offered back after a crash;
+- a second instance opens the mod read-only.
+
+The Studio only ever writes to the mod folder and its `.mod`.
+
+The Qt-free core provides
 lossless encoding detection (cp1252, UTF-8, UTF-16 with or without BOM,
 repeated BOMs), a lossless Clausewitz parser with a format-preserving edit API,
 encoding diagnostics (an error for UTF-16, which the game cannot read) and
@@ -542,8 +595,8 @@ descriptor handling, whole-mod validation and cooperative cancellation.
 
 **Roadmap**: iterations 2 to 10 in
 [docs/diseno/wizard.md](docs/diseno/wizard.md) (Spanish), which replaces the
-roadmap in ARCHITECTURE.md. The UI will move to 7 rooms on top of a vanilla +
-mod virtual file system with transactional saving and undo, and will cover 15
+roadmap in ARCHITECTURE.md. On top of the 7 halls and the vanilla + mod
+virtual file system with transactional saving and undo, they will cover 15
 capabilities: `.mod` generation, countries, provinces, land units, decisions,
 an interface (`.gui`/`.gfx`) suite, events, starting wars, casus belli,
 bookmarks, governments, naval units, cultures, regions and a new-map workshop
@@ -561,9 +614,8 @@ Qt fail when importing `tests/_qt.py` with the same message;
 numpy must be older than 2 (their shiboken6 wheels were built against NumPy 1.x;
 with numpy 2 every PySide6 import prints a bogus traceback): `pip install
 "numpy<2"`. Without a corpus, the whole
-suite was run with Python 3.13.17 + PySide6 6.12.0; with Python 3.10.20 +
-PySide6 6.11.3,
-the 593 earlier tests and, separately, the 16 new ones.
+suite passes with Python 3.13.17 + PySide6 6.12.0, with Python 3.10.20 +
+PySide6 6.11.3 and with PySide6 6.5.0, the declared minimum.
 
 ```bash
 PYTHONPATH=src python3 -m vic2studio                    # run from source
