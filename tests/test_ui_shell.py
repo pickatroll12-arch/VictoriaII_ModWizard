@@ -5,6 +5,7 @@ cambios, recuperación), contra el ``Project`` falso de ``_fake_project``.
 
 import fnmatch
 import json
+import os
 import re
 import sys
 import tempfile
@@ -18,10 +19,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 import _qt  # noqa: E402  (antes de PySide6.QtWidgets: plataforma offscreen y avisos)
 from _fake_project import FakeOpener, FakeSaveProblem, Rel, isolate_app_dirs  # noqa: E402
 from _layers import build_layers  # noqa: E402
-from PySide6.QtCore import Qt  # noqa: E402
+from PySide6.QtCore import QEvent, QObject, Qt  # noqa: E402
 from PySide6.QtGui import QColor  # noqa: E402
 from PySide6.QtTest import QTest  # noqa: E402
-from PySide6.QtWidgets import QDialog, QStyleOptionViewItem  # noqa: E402
+from PySide6.QtWidgets import QDialog, QStyleOptionViewItem, QWidget  # noqa: E402
 from test_ui_smoke import UiTestCase  # noqa: E402
 
 APP = _qt.application()
@@ -30,10 +31,10 @@ isolate_app_dirs()
 from vic2studio import i18n  # noqa: E402
 from vic2studio.core.clausewitz import to_source  # noqa: E402
 from vic2studio.core.project import ChangeSet, PlannedWrite, WriteAction  # noqa: E402
-from vic2studio.core.project.model import SAVE_CONFLICT  # noqa: E402
-from vic2studio.core.vfs import DESCRIPTOR_REL  # noqa: E402
+from vic2studio.core.project.model import SAVE_CONFLICT, RecoveryResult, SaveProblem  # noqa: E402
+from vic2studio.core.vfs import DESCRIPTOR_REL, VPath  # noqa: E402
 from vic2studio.i18n import N_, set_language, tr, translator  # noqa: E402
-from vic2studio.ui.dialogs import ConflictDialog, RecoveryDialog, SaveReviewDialog  # noqa: E402
+from vic2studio.ui.dialogs import ConflictDialog, NewModDialog, RecoveryDialog, SaveReviewDialog  # noqa: E402
 from vic2studio.ui.halls import HALL_KEYS, HallSpec, SectionSpec, discover_halls  # noqa: E402
 from vic2studio.ui.halls import registry  # noqa: E402
 from vic2studio.ui.main_window import UNSAVED_CANCEL, UNSAVED_DISCARD, UNSAVED_SAVE, MainWindow  # noqa: E402
@@ -227,6 +228,62 @@ class PackagingTests(unittest.TestCase):
             for path in i18n.fragment_paths(code):
                 rel = path.relative_to(package).as_posix()
                 self.assertTrue(any(fnmatch.fnmatch(rel, p) for p in patterns), rel)
+
+
+class HarnessTests(unittest.TestCase):
+    def test_interface_tests_never_use_the_real_application_folders(self):
+        """Una ventana que abre un mod usa el Project real, y su bloqueo va a la carpeta de datos."""
+        from vic2studio.core import appdirs
+
+        for folder in (appdirs.data_dir(), appdirs.cache_dir(), appdirs.locks_dir()):
+            self.assertTrue(folder.is_relative_to(_qt.APP_DIRS), folder)
+
+    @unittest.skipUnless(sys.platform.startswith("linux"), "XDG_RUNTIME_DIR solo existe en Linux")
+    def test_runtime_dir_is_set_so_qt_6_5_0_does_not_warn(self):
+        """Qt 6.5.0 avisa al crear la aplicación sin XDG_RUNTIME_DIR (contenedores y CI) y el aviso haría fallar
+        la primera prueba que mira ``take_qt_messages``."""
+        runtime = Path(os.environ.get("XDG_RUNTIME_DIR", ""))
+        self.assertTrue(runtime.is_dir(), runtime)
+        self.assertEqual(runtime.stat().st_mode & 0o777, 0o700)
+
+
+class _ShownWindows(QObject):
+    """Filtro de la aplicación que anota cada widget que se muestra como ventana."""
+
+    def __init__(self):
+        super().__init__()
+        self.shown: list[str] = []
+
+    def eventFilter(self, obj, event) -> bool:
+        if event.type() == QEvent.Type.Show and isinstance(obj, QWidget) and obj.isWindow():
+            self.shown.append(f"{type(obj).__name__} {obj.objectName()!r}")
+        return False
+
+
+class StrayWindowTests(UiTestCase):
+    """Construir la interfaz no muestra nada: un ``setVisible(True)`` antes de que el widget tenga padre lo
+    convierte en una ventana suelta que se ve un instante (y Qt 6.5 offscreen avisa al meterla en su sitio)."""
+
+    def test_building_the_window_pages_and_dialogs_shows_no_window(self):
+        spy = _ShownWindows()
+        APP.installEventFilter(spy)
+        self.addCleanup(APP.removeEventFilter, spy)
+        window = self.make_window(show=False)
+        for hall, sections in discover_halls():
+            for section in sections:
+                window.page(f"{hall.key}:{section.key}")
+        conflict = SaveProblem(SAVE_CONFLICT, VPath.of("common/a.txt"))
+        dialogs = [
+            RecoveryDialog(["s-1", "s-2"], [RecoveryResult("t", "rolled_back", restored=(VPath.of("a.txt"),))], window),
+            SaveReviewDialog(ChangeSet(), (conflict,), window),
+            SaveReviewDialog(ChangeSet(), (), window),
+            ConflictDialog("common/a.txt", lambda: "", parent=window),
+            NewModDialog(window.session, None, window),
+        ]
+        _qt.process_events()
+        self.assertEqual(spy.shown, [])
+        for dialog in dialogs:
+            dialog.deleteLater()
 
 
 # --- insignias de capa ---------------------------------------------------------------------------------------
@@ -534,6 +591,7 @@ class ShellProjectTests(ProjectWindowCase):
         review = self.dialogs.dialogs[0]
         self.assertEqual([p.code for p in review.problems], [SAVE_CONFLICT])
         self.assertTrue(review.resolve_button.isVisibleTo(review))
+        self.assertIn(review.resolve_button, review.buttons.buttons())
         self.assertIn("External", compared[0])
         self.assertEqual(disk.read_bytes(), b'BBB = "countries/Bolivia.txt"\r\n', "«Conservar mis cambios»")
 
@@ -641,6 +699,10 @@ class ShellProjectTests(ProjectWindowCase):
         self.assertIsInstance(review, SaveReviewDialog)
         self.assertEqual([b.label.text() for b in review.problem_badges], [problem.message("es")])
         self.assertFalse(review.resolve_button.isVisibleTo(review), "solo los conflictos se resuelven")
+        # Fuera de la caja: hasta Qt 6.6, QDialogButtonBox vuelve a mostrar sus botones al recolocarlos.
+        self.assertNotIn(review.resolve_button, review.buttons.buttons())
+        review.buttons.setOrientation(Qt.Orientation.Vertical)    # lo recoloca, como un cambio de estilo
+        self.assertFalse(review.resolve_button.isVisibleTo(review))
 
 
 class PendingSectionTests(ProjectWindowCase):

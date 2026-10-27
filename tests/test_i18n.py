@@ -146,7 +146,8 @@ class TranslatorTests(unittest.TestCase):
 
     def test_set_language_emits_signal_and_persists(self):
         received = []
-        translator().languageChanged.connect(received.append)
+        slot = received.append  # el mismo objeto al desconectar: PySide6 6.5 y 6.6 no reconocen otro
+        translator().languageChanged.connect(slot)
         try:
             set_language("es")
             received.clear()
@@ -159,7 +160,7 @@ class TranslatorTests(unittest.TestCase):
             self.assertEqual(received, ["en", "es"])
             self.assertEqual(app_settings().value(SETTINGS_KEY), "es")
         finally:
-            translator().languageChanged.disconnect(received.append)
+            translator().languageChanged.disconnect(slot)
 
     def test_unknown_language_is_rejected(self):
         with self.assertRaises(ValueError):

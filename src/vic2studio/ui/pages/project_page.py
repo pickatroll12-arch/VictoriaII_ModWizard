@@ -422,8 +422,9 @@ class PathField(QWidget):
         self.descriptor.setTextInteractionFlags(Qt.TextInteractionFlag.LinksAccessibleByMouse
                                                 | Qt.TextInteractionFlag.LinksAccessibleByKeyboard)
         self.descriptor.linkActivated.connect(self._on_descriptor_link)
-        self.descriptor.setVisible(kind == "mod")
         layout.addWidget(self.descriptor)
+        # Después de meterla en la fila: sin padre, setVisible(True) la mostraría como ventana suelta.
+        self.descriptor.setVisible(kind == "mod")
         layout.addStretch(1)
         self._compact = False
         self._report = FolderReport(None)

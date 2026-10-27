@@ -25,7 +25,7 @@ from unittest import mock
 
 import _qt
 from _corpus import CLAUSEWITZ_SUFFIXES, FIXTURE_ROOT, corpus_files
-from PySide6.QtCore import QElapsedTimer, QEvent, QModelIndex, QObject, QPoint, QPointF, Qt, QTimer
+from PySide6.QtCore import QElapsedTimer, QEvent, QModelIndex, QObject, QPoint, QPointF, QRect, Qt, QTimer
 from PySide6.QtGui import QFont, QFontMetrics, QHelpEvent, QHoverEvent, QTextCursor
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QLineEdit, QStyle, QStyleOptionViewItem, QToolTip, QVBoxLayout, QWidget
@@ -556,6 +556,34 @@ class DiagnosticsViewTests(WidgetCase):
                 for row in range(len(rows)):
                     index = model.index(row, column)
                     self.assertTrue(self.cell_fits(view, index), f"{lang}: {index.data()}")
+
+    def test_fitted_header_titles_are_painted_whole(self):
+        """Qt 6.5 reserva en cada sección el ancho de la flecha de orden de la hoja de estilo, aunque la tabla
+        no ordene: con el ancho ajustado se pintaba «Gravedac» y «Líne». El título debe pintarse igual que
+        con 60 px de holgura."""
+        rows = [DiagnosticRow("error", 35, 24, _Message("m"), "c", Path("x"), "a.txt")]
+        view = self.table(rows)
+        header, model = view.horizontalHeader(), view.diagnostics_model()
+
+        def title(section: int, width: int, fitted: int):
+            header.resizeSection(section, width)
+            _qt.process_events(20)
+            # El cursor de offscreen está en (10, 10), sobre Gravedad: el ratón pasa a Mensaje, sin «:hover».
+            away = QPointF(header.width() - 5, header.height() / 2)
+            QApplication.sendEvent(header.viewport(), QHoverEvent(QEvent.Type.HoverMove, away, away, away))
+            x = header.sectionViewportPosition(section)
+            return header.grab().toImage().copy(QRect(x, 0, fitted - 2, header.height()))  # sin el borde
+
+        for lang in ("es", "en"):
+            set_language(lang)
+            model.retranslate()
+            _qt.process_events(20)
+            for column in (self.COLUMNS.index(COL_SEVERITY), self.COLUMNS.index(COL_LINE)):
+                fitted = header.sectionSize(column)
+                painted = title(column, fitted, fitted)
+                self.assertTrue(painted == title(column, fitted + 60, fitted),
+                                f"{lang}: {model.headerData(column, Qt.Orientation.Horizontal)}")
+                header.resizeSection(column, fitted)
 
     def test_line_column_follows_the_rows_and_keeps_a_manual_width(self):
         short = [DiagnosticRow("error", 35, 24, _Message("m"), "c", Path("x"), "a.txt")]

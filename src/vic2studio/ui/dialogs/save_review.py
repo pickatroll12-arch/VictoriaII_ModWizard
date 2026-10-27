@@ -99,11 +99,16 @@ class SaveReviewDialog(QDialog):
         self.cancel_button = QPushButton()
         self.cancel_button.setObjectName("reviewCancel")
         blocking = self.blocking
-        self.buttons.addButton(self.resolve_button, QDialogButtonBox.ButtonRole.ActionRole)
+        # «Resolver» solo entra en la caja si hay conflictos: hasta Qt 6.6, QDialogButtonBox vuelve a mostrar sus
+        # botones cada vez que los recoloca (hoja de estilo, idioma) y un setVisible(False) no duraría.
+        if any(p.code == SAVE_CONFLICT for p in self.problems):
+            self.buttons.addButton(self.resolve_button, QDialogButtonBox.ButtonRole.ActionRole)
+        else:
+            self.resolve_button.setParent(self)
+            self.resolve_button.hide()
         self.buttons.addButton(self.save_button, QDialogButtonBox.ButtonRole.AcceptRole)
         self.buttons.addButton(self.cancel_button, QDialogButtonBox.ButtonRole.RejectRole)
         self.save_button.setEnabled(not blocking)
-        self.resolve_button.setVisible(any(p.code == SAVE_CONFLICT for p in self.problems))
         self.resolve_button.clicked.connect(self._on_resolve)
         self.buttons.accepted.connect(self.accept)
         self.buttons.rejected.connect(self.reject)

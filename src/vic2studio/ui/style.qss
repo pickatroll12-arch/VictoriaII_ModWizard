@@ -264,6 +264,8 @@ QHeaderView::section:hover { background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
 QHeaderView::section:pressed { background: $wood_dark; }
 QHeaderView::up-arrow { image: url("$img_arrow_up_gold"); width: 10px; height: 10px; subcontrol-position: center right; right: 4px; }
 QHeaderView::down-arrow { image: url("$img_arrow_down_gold"); width: 10px; height: 10px; subcontrol-position: center right; right: 4px; }
+/* Las tablas de diagnósticos no se ordenan; Qt 6.5 reservaba igualmente el ancho de la flecha y recortaba el título. */
+QTableView[role="diagnostics"] QHeaderView::up-arrow, QTableView[role="diagnostics"] QHeaderView::down-arrow { image: none; width: 0px; height: 0px; }
 
 /* --- Barras de desplazamiento -------------------------------------------------------- */
 

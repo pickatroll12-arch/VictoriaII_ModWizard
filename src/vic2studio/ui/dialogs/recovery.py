@@ -63,8 +63,9 @@ class RecoveryDialog(QDialog):
             self.recovered_badges.append(badge)
         self.sessions_intro = QLabel()
         self.sessions_intro.setWordWrap(True)
-        self.sessions_intro.setVisible(bool(self.sessions))
         layout.addWidget(self.sessions_intro)
+        # Después de meterla en el diálogo: sin padre, setVisible(True) la mostraría como ventana suelta.
+        self.sessions_intro.setVisible(bool(self.sessions))
         self.rows: list[tuple[QLabel, QPushButton, QPushButton]] = []
         for session in self.sessions:
             row = QHBoxLayout()

@@ -31,6 +31,16 @@ if _broken is not None:
 SETTINGS_DIR = tempfile.mkdtemp(prefix="vic2studio-tests-")
 atexit.register(shutil.rmtree, SETTINGS_DIR, True)
 os.environ["VIC2STUDIO_SETTINGS_DIR"] = SETTINGS_DIR
+# Abrir un mod desde la ventana usa el Project real, que escribe su bloqueo en la carpeta de datos: tampoco la real.
+APP_DIRS = tempfile.mkdtemp(prefix="vic2studio-appdirs-")
+atexit.register(shutil.rmtree, APP_DIRS, True)
+os.environ["VIC2STUDIO_DATA_DIR"] = os.path.join(APP_DIRS, "data")
+os.environ["VIC2STUDIO_CACHE_DIR"] = os.path.join(APP_DIRS, "cache")
+# Qt 6.5.0 avisa al crear la aplicación si falta (contenedores y CI), y los avisos hacen fallar las pruebas.
+if sys.platform.startswith("linux") and not os.environ.get("XDG_RUNTIME_DIR"):
+    RUNTIME_DIR = tempfile.mkdtemp(prefix="vic2studio-runtime-")  # 0700, como pide Qt
+    atexit.register(shutil.rmtree, RUNTIME_DIR, True)
+    os.environ["XDG_RUNTIME_DIR"] = RUNTIME_DIR
 
 from PySide6.QtCore import QtMsgType, qInstallMessageHandler  # noqa: E402
 

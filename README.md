@@ -143,6 +143,12 @@ el empaquetado final. Los prototipos del taller de mapas están en
   código 1; las pruebas que usan Qt fallan al importar `tests/_qt.py` con el
   mismo mensaje. `VIC2STUDIO_ALLOW_BROKEN_PYSIDE=1` desactiva la comprobación
   (para probar una PySide6 posterior que quizá lo corrija).
+- Con PySide6 6.5 o 6.6, numpy tiene que ser anterior a la 2: sus ruedas de
+  shiboken6 se compilaron con NumPy 1.x y, con numpy 2, cada import de PySide6
+  escribe en la consola una traza falsa (la aplicación funciona, pero una
+  prueba que vigila la salida de error falla). Pasa sobre todo al combinar la
+  PySide6 de la distribución con el numpy de pip (`venv --system-site-packages`):
+  `python3 -m pip install "numpy<2"` lo arregla. Desde PySide6 6.7 no pasa.
 
 Sin corpus, la batería entera se pasó con Python 3.13.17 y PySide6 6.12.0; con
 Python 3.10.20 y PySide6 6.11.3, las 593 pruebas anteriores al aviso y a la
@@ -552,7 +558,10 @@ references to `None`, `True` and `False`, which crashes those Python versions
 already pin it. If that combination is already installed, the app says so at
 startup, before opening the window, and exits with 1, and the tests that use
 Qt fail when importing `tests/_qt.py` with the same message;
-`VIC2STUDIO_ALLOW_BROKEN_PYSIDE=1` skips the check. Without a corpus, the whole
+`VIC2STUDIO_ALLOW_BROKEN_PYSIDE=1` skips the check. With PySide6 6.5 or 6.6,
+numpy must be older than 2 (their shiboken6 wheels were built against NumPy 1.x;
+with numpy 2 every PySide6 import prints a bogus traceback): `pip install
+"numpy<2"`. Without a corpus, the whole
 suite was run with Python 3.13.17 + PySide6 6.12.0; with Python 3.10.20 +
 PySide6 6.11.3,
 the 593 earlier tests and, separately, the 16 new ones.
