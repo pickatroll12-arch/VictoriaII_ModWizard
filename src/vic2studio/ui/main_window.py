@@ -405,6 +405,7 @@ class MainWindow(QMainWindow):
         current = self.session.target
         if self._same_target(wanted, current):
             return
+        self.commit_edits()
         discard = False
         if self.session.dirty_count():
             choice = self.ask_unsaved()
@@ -427,10 +428,17 @@ class MainWindow(QMainWindow):
         if not same_folder(project.mod_path(), mod):
             project.set_mod_path(mod)
 
+    def commit_edits(self) -> None:
+        """Lleva al documento lo que haya a medio teclear: los campos del descriptor confirman al perder el foco,
+        y Ctrl+S o cerrar la ventana no lo quitan."""
+        if self.session.project is not None:
+            self.descriptor_page.commit_pending()
+
     def save_project(self) -> bool:
         """Guarda (Ctrl+S). Revisión previa solo con copias del juego base o papelera (D13); si el guardado
         encuentra conflictos o errores, los muestra sin tocar el disco y ofrece resolver los conflictos."""
         session = self.session
+        self.commit_edits()
         if session.project is None:
             self.show_status("status.no_project")
             return False
@@ -466,14 +474,19 @@ class MainWindow(QMainWindow):
                 return False
         return False
 
-    def resolve_conflicts(self, rels: list) -> bool:
-        """Un ``ConflictDialog`` por archivo; True si todos se resolvieron (conservar o recargar)."""
+    def resolve_conflicts(self, rels: list, deleted=()) -> bool:
+        """Un ``ConflictDialog`` por archivo; True si todos se resolvieron (conservar o recargar).
+
+        ``deleted``: los de ``rels`` que se borraron fuera (el diálogo lo dice y no ofrece recargar ni comparar).
+        """
         project = self.session.project
+        deleted = {str(rel) for rel in deleted}
         for rel in rels:
             handle = project.ws.peek(rel) if project is not None else None
             name = str(rel) if handle is None else write_label_for(handle, project)
             dialog = ConflictDialog(name, lambda r=rel: self.session.external_diff(r),
-                                    dirty=handle is None or handle.dirty, parent=self)
+                                    dirty=handle is None or handle.dirty, deleted=str(rel) in deleted,
+                                    parent=self)
             self.exec_dialog(dialog)
             if dialog.choice == KEEP:
                 self.session.accept_external(rel)
@@ -571,21 +584,25 @@ class MainWindow(QMainWindow):
     def _on_saved(self, report) -> None:
         if report.result is not None:
             written = len(report.result.written) + len(report.result.trashed)
-            self.show_status("status.saved_one" if written == 1 else "status.saved", count=written)
+            warnings = [problem for problem in report.problems if not problem.blocking]
+            if warnings:
+                # El texto del núcleo se evalúa en cada traducción (cambiar de idioma lo re-traduce).
+                self.show_status("status.saved_warning_one" if len(warnings) == 1 else "status.saved_warning",
+                                 count=len(warnings), warning=lambda p=warnings[0]: p.message(language()))
+            else:
+                self.show_status("status.saved_one" if written == 1 else "status.saved", count=written)
 
     def _on_external_changes(self, changes) -> None:
         if self._resolving:
             return
         self._resolving = True
         try:
-            pending = []
-            for change in changes:
-                if change.dirty or change.kind == "deleted":
-                    pending.append(change.rel)
-                else:
-                    self.session.reload(change.rel)  # sin cambios en memoria: se relee sin preguntar
+            # Workspace.check_external_changes ya releyó los limpios (y quitó los borrados): solo preguntan los sucios,
+            # y el diálogo dice si el archivo se borró fuera.
+            pending = [change.rel for change in changes if change.dirty]
+            deleted = [change.rel for change in changes if change.dirty and change.kind == "deleted"]
             if pending:
-                self.resolve_conflicts(pending)
+                self.resolve_conflicts(pending, deleted)
         finally:
             self._resolving = False
 
@@ -757,6 +774,8 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event: QCloseEvent) -> None:
         discard = False
+        if not self._closed:
+            self.commit_edits()
         if not self._closed and self.session.dirty_count():
             choice = self.ask_unsaved()
             if choice == UNSAVED_CANCEL or (choice == UNSAVED_SAVE and not self.save_project()):

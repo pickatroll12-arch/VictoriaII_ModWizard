@@ -33,14 +33,26 @@ FILEIO = "vic2studio.core.fileio"
 # Escrituras crudas por módulo de la biblioteca estándar.
 RAW_FUNCTIONS = {
     "os": {"replace", "rename", "renames", "remove", "unlink", "rmdir", "removedirs", "mkdir", "makedirs", "link",
-           "symlink", "truncate", "fdopen", "write", "ftruncate"},
-    "shutil": {"copy", "copy2", "copyfile", "copytree", "move", "rmtree", "copymode", "copystat", "copyfileobj"},
+           "symlink", "truncate", "fdopen", "write", "ftruncate", "pwrite", "writev", "pwritev", "utime", "chmod",
+           "lchmod", "fchmod", "chown", "lchown", "fchown", "mkfifo", "mknod"},
+    "shutil": {"copy", "copy2", "copyfile", "copytree", "move", "rmtree", "copymode", "copystat", "copyfileobj",
+               "chown", "make_archive", "unpack_archive"},
     "tempfile": {"mkstemp", "mkdtemp", "NamedTemporaryFile", "TemporaryDirectory", "TemporaryFile",
                  "SpooledTemporaryFile"},
+    "numpy": {"save", "savez", "savez_compressed", "savetxt"},
+    "logging": {"FileHandler"},
+    "logging.handlers": {"RotatingFileHandler", "TimedRotatingFileHandler", "WatchedFileHandler"},
 }
 # Métodos de Path que escriben (los nombres son genéricos: solo cuentan como llamada).
-PATH_WRITERS = {"write_text", "write_bytes", "unlink", "rename", "rmdir", "mkdir", "symlink_to", "hardlink_to"}
+PATH_WRITERS = {"write_text", "write_bytes", "unlink", "rename", "rmdir", "mkdir", "symlink_to", "hardlink_to",
+                "chmod", "lchmod", "tofile"}
 OS_WRITE_FLAGS = {"O_WRONLY", "O_RDWR", "O_CREAT", "O_APPEND", "O_TRUNC", "O_EXCL"}
+# Lo único que puede aparecer en las banderas de un os.open de solo lectura.
+OS_READ_FLAGS = {"os", "getattr", "O_RDONLY", "O_BINARY", "O_NOINHERIT", "O_CLOEXEC", "O_DIRECTORY", "O_NOFOLLOW",
+                 "O_NONBLOCK", "O_NOCTTY", "O_SEQUENTIAL", "O_RANDOM", "O_TEXT", "O_PATH"}
+# Funciones con la firma de open(archivo, modo): el modo decide si escriben.
+OPEN_FUNCTIONS = {("builtins", "open"), ("io", "open"), ("codecs", "open"), ("gzip", "open"), ("bz2", "open"),
+                  ("lzma", "open"), ("tarfile", "open"), ("zipfile", "ZipFile")}
 # API de escritura de fileio (fsync_dir no modifica nada) y sus envoltorios.
 FILEIO_WRITERS = {"atomic_write_bytes", "write_text", "stage_bytes", "commit_staged", "discard_staged", "copy_file",
                   "move_file", "remove_file", "make_dirs", "remove_empty_dirs", "create_exclusive"}
@@ -135,6 +147,13 @@ class _Finder(ast.NodeVisitor):
             module = self.modules.get(node.value.id)
             if module is not None:
                 return module, node.attr
+        if isinstance(node, ast.Attribute) and isinstance(node.value, ast.Attribute):
+            parts, value = [], node.value      # vic2studio.core.fileio.x tras «import vic2studio.core.fileio»
+            while isinstance(value, ast.Attribute):
+                parts.insert(0, value.attr)
+                value = value.value
+            if isinstance(value, ast.Name) and value.id in self.modules:
+                return ".".join((self.modules[value.id], *parts)), node.attr
         if isinstance(node, ast.Name) and node.id in self.functions:
             return self.functions[node.id]
         return None
@@ -173,8 +192,8 @@ class _Finder(ast.NodeVisitor):
         if raw:
             self.raw.append((node.lineno, raw))
         name = func.id if isinstance(func, ast.Name) else func.attr if isinstance(func, ast.Attribute) else None
-        if name == "open" and target != ("os", "open"):
-            method = isinstance(func, ast.Attribute) and target not in (("io", "open"), ("codecs", "open"))
+        if target in OPEN_FUNCTIONS or (name == "open" and target != ("os", "open")):
+            method = isinstance(func, ast.Attribute) and target not in OPEN_FUNCTIONS
             if self._writes_mode(node, attribute=method):
                 self.raw.append((node.lineno, "open(..., escritura)"))
         if self._qualified(func) == ("os", "open") and self._write_flags(node):
@@ -184,8 +203,9 @@ class _Finder(ast.NodeVisitor):
                 self.raw.append((node.lineno, f".{func.attr}()"))
             elif func.attr == "replace" and len(node.args) == 1 and not node.keywords:
                 self.raw.append((node.lineno, ".replace(destino)"))   # Path.replace (str.replace lleva 2)
-            elif func.attr == "touch" and not node.args:
-                self.raw.append((node.lineno, ".touch()"))
+            elif func.attr == "touch" and (not node.args or (isinstance(node.args[0], ast.Constant)
+                                                              and isinstance(node.args[0].value, int))):
+                self.raw.append((node.lineno, ".touch()"))   # Path.touch(mode); ws.touch(handle) es otra API
         self.generic_visit(node)
 
     @staticmethod
@@ -204,10 +224,18 @@ class _Finder(ast.NodeVisitor):
 
     @staticmethod
     def _write_flags(node) -> bool:
+        """Escribe salvo que las banderas sean, a la vista, solo de lectura (una constante con nombre, p. ej.
+        ``_TEMP_FLAGS`` de fileio, o un número cuentan como escritura)."""
         flags = node.args[1] if len(node.args) > 1 else None
+        for keyword in node.keywords:
+            if keyword.arg == "flags":
+                flags = keyword.value
+        if flags is None:
+            return False
         names = {n.attr if isinstance(n, ast.Attribute) else n.id
-                 for n in ast.walk(flags) if isinstance(n, (ast.Attribute, ast.Name))} if flags else set()
-        return bool(names & OS_WRITE_FLAGS) or (flags is not None and not names)
+                 for n in ast.walk(flags) if isinstance(n, (ast.Attribute, ast.Name))}
+        names |= {n.value for n in ast.walk(flags) if isinstance(n, ast.Constant) and isinstance(n.value, str)}
+        return not names or bool(names - OS_READ_FLAGS)
 
 
 def scan_source(source: str, rel: str) -> _Finder:

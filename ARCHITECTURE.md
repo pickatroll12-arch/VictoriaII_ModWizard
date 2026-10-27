@@ -7,9 +7,10 @@ Darkness*) de forma visual.
 
 Estado: **iteración 2 integrada** (cimientos: VFS, proyecto transaccional con
 diario, deshacer por instantáneas, descriptor `.mod` y armazón de 7 salas;
-commits `97f0386`, `f3ff809`, `d3ed5de`, `563a709` y `59e8847`). La iteración 1
-está cerrada. De la 2 queda el cierre de su revisión adversarial (§6.1); los criterios
-que necesitaban el corpus del usuario ya se cumplen con sus archivos reales. Este documento describe
+commits `97f0386`, `f3ff809`, `d3ed5de`, `563a709` y `59e8847`, más las correcciones
+de su revisión adversarial). La iteración 1 está cerrada. De la 2 quedan la segunda
+ronda de la revisión sobre sus arreglos y las capturas (§6.1); los criterios que
+necesitaban el corpus del usuario ya se cumplen con sus archivos reales. Este documento describe
 el código que hay hoy en el repositorio. El diseño de las iteraciones 2 a 10
 está en [`docs/diseno/wizard.md`](docs/diseno/wizard.md) («wizard» en adelante);
 lo de la iteración 2 sigue sobre todo wizard §3–§6, §13, §14.1 y §22. Lo marcado
@@ -426,6 +427,9 @@ el de la iteración 1, de solo lectura y sobre el disco.
                                          |
           si el proceso murió a medias: Project.open → recover_all(journal/) → recover():
           cleaned (staging o prepared) · rolled_forward · rolled_back; idempotente → RecoveryDialog
+          · nothing (+ nota) si no se puede llevar entero a un lado, si nombra rutas de otro mod o si es
+          ilegible: no se toca nada y el diario se queda; mientras quede uno, Workspace.save no guarda
+          (save_journal_pending), porque otro guardado encima cambiaría las .bak que ese diario usa
 
  autoguardado: Workspace.write_recovery → journal.write_recovery → <mod>/.vic2studio/recovery/<sesión>/
  (NNNN.dat + index.json, a través del WriteGuard); cada 60 s, cada 20 transacciones y al cerrar sin «Descartar»
@@ -834,7 +838,9 @@ deja su diario.
 (→ `FolderReport`: carpetas del juego presentes de `EXPECTED_FOLDERS`,
 ejecutable, número de entradas y descriptor), `evaluate_game`, `evaluate_mod`
 (el mod nunca puede ser el juego, contenerlo ni estar dentro de él salvo en
-`<juego>/mod/`), `same_folder`, `is_under` (antes `_is_under`) y `folder_key`
+`<juego>/mod/`, ni ser esa misma `<juego>/mod`; la regla es `mod_root_problem`,
+y `VirtualFS` la aplica también: con una raíz así lanza `InvalidModRootError`),
+`same_folder`, `is_under` (antes `_is_under`) y `folder_key`
 (clave de una carpeta absoluta por su ruta real; no confundir con
 `paths.folder_key`, la de una carpeta relativa). Devuelven claves del catálogo
 de la interfaz, marcadas con un `N_` local porque el núcleo no importa
@@ -1434,10 +1440,11 @@ resumen `3 archivo(s): 0 error(es), 6 aviso(s), 128 info` y código de salida 0.
   `None` si no se puede leer; `descriptor_from_result(file, result)` reutiliza
   un análisis hecho.
 - `find_descriptor(folder)` busca primero en la carpeta superior un `.mod` cuyo
-  `path` termine en el nombre de la carpeta (o, si ninguno, uno con su mismo
-  nombre) y, si no hay, el primero de dentro de la carpeta; compara sin
-  distinguir mayúsculas, salta los que no se pueden leer y solo elige uno que el
-  juego no puede leer si no hay otro.
+  `path` lleve a esta misma carpeta; si no, uno cuyo `path` termine en su nombre
+  o, si ninguno, uno con su mismo nombre, pero nunca uno cuyo `path` lleve a otra
+  carpeta que existe (es el de otro mod); si no hay, el primero de dentro de la
+  carpeta. Compara sin distinguir mayúsculas, salta los que no se pueden leer y
+  solo elige uno que el juego no puede leer si no hay otro.
 - `write_descriptor(file, descriptor, *, backup=True)` edita un descriptor
   existente cambiando solo los campos que difieren (conserva comentarios, claves
   desconocidas, formato y codificación, salvo UTF-16, que pasa a cp1252) o crea
@@ -1695,6 +1702,7 @@ VictoriaII_ModWizard/
     ├── _layers.py                       capas de juego, dependencias y mod desde diccionarios de bytes; isolate_appdirs
     ├── _minigame.py                     minijuego sintético (versión de la iteración 2): CB, países, localización, historias, eventos y decisiones
     ├── _fake_project.py                 Project falso para las pruebas de interfaz: la API del real, rápido y con fallos a la carta
+    ├── _diskfull.py                     disco lleno simulado (ENOSPC) en las primitivas de fileio, para las pruebas del diario
     ├── fixtures/shago_mod_min/          muestra mínima del mod del usuario: VSM.mod y 19 archivos de VSM/ (los 6 de países, sintéticos)
     ├── test_appdirs.py                  carpetas de datos y caché fuera de cualquier mod
     ├── test_arch_writes.py              reglas de arquitectura: quién escribe (AST), core sin PySide6, sintaxis 3.10 (criterio 9)
@@ -1730,6 +1738,8 @@ VictoriaII_ModWizard/
     ├── test_project_settings.py         project.json ⇄ ProjectSettings
     ├── test_project_workspace.py        Workspace: transacciones, deshacer exacto, guardado con diario (criterios 3 y 7)
     ├── test_recovery_autosave.py        autoguardado de recuperación, sesiones huérfanas y su restauración
+    ├── test_review_*.py                 regresiones de la revisión adversarial de la iteración 2 (§6.1): vfs, journal,
+    │                                    workspace(_open), descriptor_session, interface y otras siete, una por hallazgo
     ├── test_tasks.py                    entrega, cancelación, espera, recolector, latidos y cierre
     ├── test_texts.py                    textos del núcleo: paridad, códigos de SaveProblem y etiquetas undo.*
     ├── test_ui_counts.py                recuentos con 1 en singular
@@ -1813,7 +1823,7 @@ Estado de los criterios de aceptación de wizard §22:
 
 | Criterio | Estado | Pruebas |
 |---|---|---|
-| 1. La batería pasa sin corpus, con la muestra y con `VIC2_CORPUS` completo | **Sí.** 999 pruebas: con el corpus real del usuario (vanilla, su plantilla y el Shago Mod, de la release `recursos-v1`) pasan todas sin omitir ninguna, con ida y vuelta byte a byte de los 12 054 archivos Clausewitz (27,4 MB); sin corpus, 999 con 5 omitidas (§7.1) | toda la batería |
+| 1. La batería pasa sin corpus, con la muestra y con `VIC2_CORPUS` completo | **Sí.** 1086 pruebas: con el corpus real del usuario (vanilla, su plantilla y el Shago Mod, de la release `recursos-v1`) pasan todas sin omitir ninguna, con ida y vuelta byte a byte de los 12 054 archivos Clausewitz (27,4 MB); sin corpus, 1086 con 5 omitidas (§7.1) | toda la batería |
 | 2. `a = 1 # c\rb = 2\r` da 2 entradas y `detect_newline` da `"\r"` | Sí | `test_lexer_cr` |
 | 3. Cambiar `months` de un CB copia `cb_types.txt` con 1 línea de diff; sobre la copia de VSM, la modifica; el juego no cambia | **Sí**, con el minijuego (mod vacío y mod con su copia) y sobre vanilla real + la copia de `cb_types.txt` de VSM (1 línea de diff, `common/` de vanilla intacto) | `test_project_workspace.test_acceptance_criterion_3_*` |
 | 4. Abrir y guardar sin cambios no escribe ni crea `.vic2studio/` | Sí | `test_noop_save` |
@@ -1823,7 +1833,65 @@ Estado de los criterios de aceptación de wizard §22:
 | 8. Oro de `render_descriptor` y «Dark Age Mod» en cp1252 con CRLF | Sí | `test_modfile_write` |
 | 9. `test_arch_writes` pasa | Sí, sin excepciones temporales | `test_arch_writes` |
 | 10. Capturas ES/EN a 1100×700 y 1920×1080 | `docs/capturas/` aún tiene las de la iteración 1; según el traspaso, las de la iteración 2 se generaron y revisaron el 27-10-2026 y se suben con las correcciones de la revisión | revisión visual |
-| 11. Verificación adversarial; el mod de «Nuevo mod» aparece en el lanzador | La revisión adversarial (`docs/handoff/workflow_iteracion2_revision.js`) estaba en curso al escribir el traspaso; la comprobación en el juego se hace una sola vez, en la iteración 10 (decisión 6 de wizard §24) | — |
+| 11. Verificación adversarial; el mod de «Nuevo mod» aparece en el lanzador | **Primera ronda hecha**: 53 hallazgos confirmados (4 altos, 18 medios, 31 bajos), todos corregidos con prueba de regresión y mutación (ver abajo); queda la segunda ronda sobre los arreglos. La comprobación en el juego se hace una sola vez, en la iteración 10 (decisión 6 de wizard §24) | `test_review_*` |
+
+**Revisión adversarial de la iteración 2.** Con
+`docs/handoff/workflow_iteracion2_revision.js` sobre `59e8847`: un revisor por
+componente que reproduce cada fallo y un verificador que intenta refutarlo y
+propone el arreglo. Los 53 hallazgos se confirmaron, todos con reproducción. Los
+cuatro altos:
+
+- **`<juego>/mod` como carpeta del mod** (VFS-I1-MODS): se escribía en los demás
+  mods, en sus `.mod` y en `<juego>/mod.mod`. Ahora `mod_root_problem` la rechaza
+  en la página y en `VirtualFS` (`InvalidModRootError`).
+- **Un diario pendiente se aplicaba a medias al reabrir** y pisaba lo guardado
+  después (R1 del diario). Ahora la recuperación no toca nada si no puede llevar el
+  guardado entero a un lado, y `Workspace.save` no guarda mientras quede un diario
+  sin resolver (`save_journal_pending`).
+- **Ctrl+S o cerrar con un campo del descriptor a medio teclear perdía lo
+  escrito** (UI-IT2-01). Ahora `MainWindow.commit_edits` lo confirma antes de
+  guardar, de preguntar al cerrar y de cambiar de mod. Sin nada tecleado no hace
+  nada: un descriptor «raro» no se normaliza.
+- **Restaurar un autoguardado huérfano y sufrir otro corte perdía lo restaurado**
+  (NM-02). Ahora `restore_session` escribe el autoguardado de la sesión nueva antes
+  de borrar el huérfano.
+
+Entre los medios y bajos:
+
+- **Diario**:
+  - `.bak` apartadas y devueltas si el guardado se deshace;
+  - carpetas de la papelera creadas antes de confirmar;
+  - autoguardado en archivos nuevos con su sha;
+  - diarios con rutas de otro mod que no se tocan;
+  - «Nuevo mod» cortado que se resuelve al volver a crearlo y que, si se confirmó,
+    no es un fallo.
+- **`Workspace`**:
+  - lápidas y `open(create=True)` que se deshacen a «no existía»;
+  - `seal()` tras guardar y recargar;
+  - nombres de 230 a 255 caracteres rechazados en `prepare`;
+  - `set_settings` sin cambios que no hace nada;
+  - `close` desde otro hilo que lanza sin soltar el bloqueo.
+- **Descriptor**:
+  - `find_descriptor` que no elige el `.mod` de otro mod;
+  - un `.mod` UTF-16 que se pasa a cp1252;
+  - campos repetidos y comentarios que se conservan;
+  - nombres fuera de cp1252 y `user_dir` reservados como problema del formulario;
+  - «Nuevo mod» siempre dentro de `<juego>/mod`.
+- **`Session`**:
+  - aperturas canceladas que se cierran y sueltan su bloqueo aunque lleguen tarde;
+  - reabrir el mismo mod espera a que la apertura anterior suelte el bloqueo.
+- **Interfaz**:
+  - archivos borrados fuera que no se anuncian como modificados;
+  - avisos del guardado en la barra de estado;
+  - notas de la recuperación como alarma;
+  - lista de problemas con desplazamiento;
+  - «Cancelar» bloqueado mientras se crea un mod;
+  - plurales;
+  - la flecha de orden de Qt 6.5 en Cambios pendientes.
+
+Las pruebas están en los doce `tests/test_review_*.py` (86 pruebas). Hubo 24
+mutaciones, una por arreglo importante: cada una deshace su arreglo, y alguna de
+esas pruebas falla. Las 24 fallaron (la de la flecha, solo con PySide6 6.5.0).
 
 Lo pendiente y su orden están en `CONTINUAR_EN_CLAUDE_CODE.md` §5.
 
@@ -1903,10 +1971,10 @@ Paradox, nombres inválidos en Windows, cambios externos, taller de mapas…).
   Qt lo importan, así que fallan al cargarse en vez de abortar el proceso a
   mitad de la batería; `VIC2STUDIO_ALLOW_BROKEN_PYSIDE=1` desactiva la
   comprobación.
-- **Cifras actuales**: 999 pruebas en 58 archivos. Con el corpus completo (la
+- **Cifras actuales**: 1086 pruebas en 70 archivos. Con el corpus completo (la
   instalación de vanilla, la plantilla del usuario y su mod, de la release
-  `recursos-v1`) pasan las 999 sin omitir ninguna, con Python 3.13.17 y PySide6
-  6.12.0. Sin corpus pasan las 999, con 5 omitidas (§7.2), con Python 3.13.17 y
+  `recursos-v1`) pasan las 1086 sin omitir ninguna, con Python 3.13.17 y PySide6
+  6.12.0. Sin corpus pasan las 1086, con 5 omitidas (§7.2), con Python 3.13.17 y
   PySide6 6.12.0, con Python 3.10.20 y PySide6 6.11.3 y con PySide6 6.5.0, el
   mínimo declarado (Python 3.10, numpy 1.24.0 y Pillow 10.0.0, sin
   `XDG_RUNTIME_DIR`; la receta está en `CONTINUAR_EN_CLAUDE_CODE.md` §4). Los recuentos son exactos; los tiempos son
@@ -1923,34 +1991,41 @@ VIC2_CORPUS="/ruta/vanilla:/ruta/Plantilla Mod:/ruta/ShagoMod" python3 -m unitte
 
 | Archivo | Pruebas | Archivo | Pruebas |
 |---|---|---|---|
-| `test_appdirs.py` | 5 | `test_noop_save.py` | 3 |
-| `test_arch_writes.py` | 10 | `test_project_codecs.py` | 8 |
-| `test_clausewitz_cli.py` | 8 | `test_project_diffing.py` | 5 |
-| `test_clausewitz_corpus.py` | 7 | `test_project_open.py` | 10 |
-| `test_clausewitz_edit.py` | 88 | `test_project_settings.py` | 3 |
-| `test_clausewitz_fuzz.py` | 6 | `test_project_workspace.py` | 28 |
-| `test_clausewitz_json.py` | 26 | `test_recovery_autosave.py` | 7 |
-| `test_clausewitz_lexer.py` | 20 | `test_tasks.py` | 29 |
-| `test_clausewitz_parser.py` | 61 | `test_texts.py` | 6 |
-| `test_compat.py` | 9 | `test_ui_counts.py` | 4 |
-| `test_csvloc_cli.py` | 9 | `test_ui_descriptor.py` | 15 |
-| `test_csvloc_corpus.py` | 10 | `test_ui_integration.py` | 16 |
-| `test_csvloc_db.py` | 17 | `test_ui_localisation.py` | 22 |
-| `test_csvloc_edit.py` | 30 | `test_ui_new_mod.py` | 8 |
-| `test_csvloc_lint.py` | 26 | `test_ui_pages.py` | 47 |
-| `test_csvloc_parse.py` | 31 | `test_ui_real_project.py` | 42 |
-| `test_encoding.py` | 21 | `test_ui_roadmap.py` | 9 |
-| `test_external_change.py` | 8 | `test_ui_session.py` | 21 |
-| `test_fileio_journal.py` | 13 | `test_ui_shell.py` | 40 |
-| `test_i18n.py` | 17 | `test_ui_smoke.py` | 29 |
-| `test_journal_commit.py` | 18 | `test_ui_viewer.py` | 60 |
-| `test_journal_crash.py` | 5 | `test_undo_property.py` | 2 |
-| `test_journal_kill.py` | 2 | `test_undo_stack.py` | 6 |
-| `test_lexer_cr.py` | 2 | `test_vfs_guard.py` | 11 |
-| `test_lock.py` | 6 | `test_vfs_paths.py` | 11 |
-| `test_modcheck.py` | 29 | `test_vfs_resolution.py` | 17 |
-| `test_modfile_write.py` | 30 | `test_workspace_readonly.py` | 2 |
-| | | `test_workspace_thread.py` | 3 |
+| `test_appdirs.py` | 5 | `test_project_workspace.py` | 28 |
+| `test_arch_writes.py` | 10 | `test_recovery_autosave.py` | 7 |
+| `test_clausewitz_cli.py` | 8 | `test_review_descriptor_path_kept.py` | 3 |
+| `test_clausewitz_corpus.py` | 7 | `test_review_descriptor_session.py` | 11 |
+| `test_clausewitz_edit.py` | 88 | `test_review_external_window.py` | 2 |
+| `test_clausewitz_fuzz.py` | 6 | `test_review_interface.py` | 15 |
+| `test_clausewitz_json.py` | 26 | `test_review_journal.py` | 17 |
+| `test_clausewitz_lexer.py` | 20 | `test_review_new_mod_paths.py` | 4 |
+| `test_clausewitz_parser.py` | 61 | `test_review_undo_all_autosave.py` | 1 |
+| `test_compat.py` | 9 | `test_review_unencodable_form.py` | 1 |
+| `test_cr_line_counts.py` | 5 | `test_review_utf16_form.py` | 2 |
+| `test_csvloc_cli.py` | 9 | `test_review_vfs.py` | 12 |
+| `test_csvloc_corpus.py` | 10 | `test_review_workspace.py` | 15 |
+| `test_csvloc_db.py` | 17 | `test_review_workspace_open.py` | 3 |
+| `test_csvloc_edit.py` | 30 | `test_tasks.py` | 29 |
+| `test_csvloc_lint.py` | 26 | `test_texts.py` | 6 |
+| `test_csvloc_parse.py` | 31 | `test_ui_counts.py` | 4 |
+| `test_encoding.py` | 21 | `test_ui_descriptor.py` | 15 |
+| `test_external_change.py` | 8 | `test_ui_integration.py` | 16 |
+| `test_fileio_journal.py` | 13 | `test_ui_localisation.py` | 22 |
+| `test_i18n.py` | 17 | `test_ui_new_mod.py` | 8 |
+| `test_journal_commit.py` | 18 | `test_ui_pages.py` | 47 |
+| `test_journal_crash.py` | 5 | `test_ui_real_project.py` | 42 |
+| `test_journal_kill.py` | 2 | `test_ui_roadmap.py` | 9 |
+| `test_lexer_cr.py` | 2 | `test_ui_session.py` | 21 |
+| `test_lock.py` | 6 | `test_ui_shell.py` | 40 |
+| `test_modcheck.py` | 29 | `test_ui_smoke.py` | 29 |
+| `test_modfile_write.py` | 30 | `test_ui_viewer.py` | 60 |
+| `test_no_paradox_data.py` | 2 | `test_undo_property.py` | 2 |
+| `test_noop_save.py` | 3 | `test_undo_stack.py` | 6 |
+| `test_pickle_errors.py` | 15 | `test_vfs_guard.py` | 11 |
+| `test_project_codecs.py` | 8 | `test_vfs_paths.py` | 11 |
+| `test_project_diffing.py` | 5 | `test_vfs_resolution.py` | 17 |
+| `test_project_open.py` | 10 | `test_workspace_readonly.py` | 2 |
+| `test_project_settings.py` | 3 | `test_workspace_thread.py` | 3 |
 
 ### 7.2 Corpus y fixtures
 
@@ -2364,7 +2439,8 @@ Ninguno toca el proyecto: devuelven lo elegido y la ventana lo aplica con
   disco» y «Comparar», que muestra en el propio diálogo el diff entre el disco y
   la memoria; `choice` es `KEEP`, `RELOAD` o `None`.
 - **`RecoveryDialog`** (`recovery.py`): explica los guardados cortados que se
-  completaron o se deshicieron al abrir (`Project.recovered`; solo informa) y,
+  completaron o se deshicieron al abrir (`Project.recovered`; solo informa, y las
+  notas de un diario incompleto, ilegible o de otro mod salen como alarma) y,
   por cada autoguardado huérfano (`Project.orphan_sessions`), deja elegir
   «Restaurar» (sus documentos vuelven como cambios sin guardar, en un paso que
   se deshace) o «Descartar» (`decisions`: `{sesión: RESTORE | DISCARD}`).

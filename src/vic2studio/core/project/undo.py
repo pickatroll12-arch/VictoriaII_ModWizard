@@ -85,6 +85,10 @@ class UndoStack:
         self._mergeable = None
         return step
 
+    def seal(self) -> None:
+        """El próximo paso no se funde con el anterior (tras guardar o recargar: el punto guardado sigue alcanzable)."""
+        self._mergeable = None
+
     def can_undo(self) -> bool:
         return bool(self._undo)
 

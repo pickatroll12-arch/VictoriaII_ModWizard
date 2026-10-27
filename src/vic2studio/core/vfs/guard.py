@@ -26,13 +26,18 @@ from ..modfile import ModDescriptor, find_descriptor
 EXPECTED_FOLDERS = ("common", "history", "localisation", "map", "events", "decisions", "gfx", "interface")
 GAME_DATA_MIN_FOLDERS = 5
 
-# Código de WriteOutsideModError.
+# Código de WriteOutsideModError e InvalidModRootError.
 WRITE_OUTSIDE_MOD = "write_outside_mod"
+INVALID_MOD_ROOT = "invalid_mod_root"
 MESSAGES = {
     "es": {WRITE_OUTSIDE_MOD: "No se escribe en {path}: está fuera del mod ({mod}). El juego base y los demás mods "
-                              "son de solo lectura."},
+                              "son de solo lectura.",
+           INVALID_MOD_ROOT: "{path} no puede ser la carpeta de un mod: es el juego base, lo contiene, está dentro "
+                             "de él fuera de mod/ o es la propia carpeta mod/ con todos los mods."},
     "en": {WRITE_OUTSIDE_MOD: "Not writing to {path}: it is outside the mod ({mod}). The base game and other mods "
-                              "are read-only."},
+                              "are read-only.",
+           INVALID_MOD_ROOT: "{path} cannot be a mod folder: it is the base game, contains it, is inside it outside "
+                             "mod/ or is the mod/ folder itself, which holds every mod."},
 }
 
 
@@ -56,6 +61,23 @@ class WriteOutsideModError(PermissionError):
 
     def message(self, lang: str = "en") -> str:
         return MESSAGES.get(lang, MESSAGES["en"])[WRITE_OUTSIDE_MOD].format(path=self.path, mod=self.mod_root)
+
+
+class InvalidModRootError(ValueError):
+    """La carpeta elegida como mod no puede serlo (``mod_root_problem``): abrirla escribiría fuera del mod (I1)."""
+
+    code = INVALID_MOD_ROOT
+
+    def __init__(self, path: str | os.PathLike, problem: str):
+        self.path = Path(path)
+        self.problem = problem
+        super().__init__(self.message("es"))
+
+    def __reduce__(self):
+        return (type(self), (self.path, self.problem))
+
+    def message(self, lang: str = "en") -> str:
+        return MESSAGES.get(lang, MESSAGES["en"])[INVALID_MOD_ROOT].format(path=self.path)
 
 
 class WriteGuard:
@@ -203,20 +225,38 @@ def evaluate_game(report: FolderReport) -> tuple[str, str, dict]:
     return "error", N_("check.game_no_data"), {}
 
 
+def mod_root_problem(mod_root: Path, game_root: Path | None) -> str | None:
+    """Clave de catálogo si ``mod_root`` no puede ser un mod de ``game_root``; ``None`` si puede.
+
+    No puede ser el juego base, ni contenerlo, ni estar dentro de él fuera de ``mod/``, ni ser la propia
+    ``<juego>/mod`` (tendría dentro todos los mods y sus ``.mod``).
+    """
+    if game_root is None:
+        return None
+    if same_folder(mod_root, game_root):
+        return N_("check.mod_is_game")
+    if is_under(game_root, mod_root):
+        return N_("check.mod_contains_game")
+    mods = Path(game_root) / "mod"
+    if same_folder(mod_root, mods):
+        return N_("check.mod_is_mods_folder")
+    if is_under(mod_root, game_root) and not is_under(mod_root, mods):
+        return N_("check.mod_inside_game")
+    return None
+
+
 def evaluate_mod(report: FolderReport, game_path: Path | None) -> tuple[str, str, dict]:
     """El mod nunca puede ser el juego base, ni contenerlo, ni estar dentro de él salvo en su
-    carpeta ``mod/``: así jamás se escribe sobre el original ni se validan sus archivos."""
+    carpeta ``mod/``, ni ser esa carpeta ``mod/``: así jamás se escribe sobre el original ni en otros mods."""
     if report.path is None:
         return "neutral", N_("check.not_set"), {}
     if not report.exists:
         return "error", N_("check.missing"), {}
-    if report.is_game or same_folder(report.path, game_path):
+    if report.is_game:
         return "error", N_("check.mod_is_game"), {}
-    if game_path is not None:
-        if is_under(game_path, report.path):
-            return "error", N_("check.mod_contains_game"), {}
-        if is_under(report.path, game_path) and not is_under(report.path, game_path / "mod"):
-            return "error", N_("check.mod_inside_game"), {}
+    problem = mod_root_problem(report.path, game_path)
+    if problem is not None:
+        return "error", problem, {}
     if report.present:
         return "ok", N_("check.mod_ok_one") if len(report.present) == 1 else N_("check.mod_ok"), \
             {"count": len(report.present)}

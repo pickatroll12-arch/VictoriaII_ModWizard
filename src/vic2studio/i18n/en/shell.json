@@ -184,5 +184,7 @@
   "status.save_render_error": "A file cannot be written without losing data, so the disk was not touched: {error}",
   "status.saved": "Saved: {count} files.",
   "status.saved_one": "Saved: 1 file.",
+  "status.saved_warning": "Saved, with {count} warnings. The first one: {warning}",
+  "status.saved_warning_one": "Saved, with a warning: {warning}",
   "status.undone": "Undone: {step}"
 }

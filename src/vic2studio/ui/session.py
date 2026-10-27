@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import itertools
 import logging
+import os
 import threading
 from collections.abc import Callable, Iterable, Iterator
 from contextlib import AbstractContextManager, contextmanager
@@ -48,7 +49,7 @@ from ..core.project import (
     Workspace,
 )
 from ..core.vfs import VPath
-from ..i18n import N_
+from ..i18n import N_, language
 from .tasks import POOL_PREVIEW, TaskRunner
 
 log = logging.getLogger(__name__)
@@ -59,8 +60,15 @@ OPEN_FAILED = N_("session.open_failed")
 CREATE_FAILED = N_("session.create_failed")
 
 
-def _error_text(exc: BaseException) -> str:
-    """Motivo de un fallo sin retener la excepción (su traza formaría un ciclo con el marco del hilo)."""
+def _error_text(exc: BaseException, lang: str = "en") -> str:
+    """Motivo de un fallo sin retener la excepción (su traza formaría un ciclo con el marco del hilo); en ``lang``
+    si la excepción sabe dar su texto (``message(lang)``, los errores del núcleo)."""
+    message = getattr(exc, "message", None)
+    if callable(message):
+        try:
+            return str(message(lang))
+        except TypeError:
+            pass
     if isinstance(exc, OSError) and exc.strerror:
         return f"{exc.strerror}: {exc.filename}" if exc.filename else exc.strerror
     text = str(exc)
@@ -86,6 +94,8 @@ class _Request:
         self.mod = mod
         self.runner = runner
         self.cancel = threading.Event()
+        self.started = False
+        self.key = os.path.normcase(os.path.realpath(mod))
 
 
 class Session(QObject):
@@ -116,6 +126,7 @@ class Session(QObject):
         self._project: Project | None = None
         self._target: tuple[Path | None, Path] | None = None
         self._request: _Request | None = None
+        self._stale: list[_Request] = []   # aperturas canceladas que aún no han vuelto (pueden tener el bloqueo)
         self._numbers = itertools.count(1)
         self._unsubscribe: Callable[[], None] | None = None
         self._pending: set[VPath] = set()
@@ -171,19 +182,33 @@ class Session(QObject):
         request = _Request(next(self._numbers), game, mod, runner)
         self._request = request
         self._target = (game, mod)
-        opener, cancelled = self._opener, request.cancel.is_set
+        runner.finished.connect(lambda outcome, r=request: self._on_open_outcome(r, outcome))
+        runner.discarded.connect(lambda outcome, r=request: self._on_open_outcome(r, outcome))
+        self.projectOpening.emit(game, mod)
+        # Una apertura cancelada del mismo mod puede tener aún el bloqueo: esta espera a que vuelva.
+        if not any(stale.key == request.key for stale in self._stale):
+            self._start(request)
+
+    def _start(self, request: _Request) -> None:
+        request.started = True
+        opener, game, mod, cancelled, lang = self._opener, request.game, request.mod, request.cancel.is_set, language()
 
         def task(context) -> _Outcome:
             try:
-                return _Outcome(opener(game, mod, progress=None, cancelled=cancelled))
+                project = opener(game, mod, progress=None, cancelled=cancelled)
             except Cancelled:
                 return _Outcome()
             except Exception as exc:  # noqa: BLE001 - el motivo se muestra en la interfaz
-                return _Outcome(error=_error_text(exc))
+                return _Outcome(error=_error_text(exc, lang))
+            if cancelled() or context.cancelled():
+                try:
+                    project.close()   # aún es de este hilo: suelta el bloqueo aquí mismo
+                except Exception:  # noqa: BLE001
+                    log.exception("no se pudo cerrar un proyecto cancelado")
+                return _Outcome()
+            return _Outcome(project)
 
-        runner.finished.connect(lambda outcome, r=request: self._on_open_outcome(r, outcome))
-        self.projectOpening.emit(game, mod)
-        runner.start(task)
+        request.runner.start(task)
 
     def close_project(self, *, discard: bool = False) -> None:
         """Cancela la apertura en curso y cierra el proyecto. ``Project.close`` suelta el bloqueo y escribe la
@@ -193,6 +218,10 @@ class Session(QObject):
         had = self._request is not None or self._project is not None
         if self._request is not None:
             self._request.cancel.set()
+            if self._request.started:
+                self._stale.append(self._request)
+            else:
+                self._request.runner.deleteLater()
             self._request = None
         project, self._project = self._project, None
         self._target = None
@@ -219,6 +248,11 @@ class Session(QObject):
         if request is not self._request:
             if project is not None:
                 self._dispose(project)  # se abrió cuando ya nadie lo quería
+            if request in self._stale:
+                self._stale.remove(request)
+            waiting = self._request
+            if waiting is not None and not waiting.started and not any(s.key == waiting.key for s in self._stale):
+                self._start(waiting)
             return
         self._request = None
         if project is None:
@@ -369,13 +403,13 @@ class Session(QObject):
 
     def create_mod(self, game_root: Path, spec: DescriptorSpec, template: Path | None = None) -> None:
         """Crea el mod en segundo plano (``create_mod_skeleton``); emite modCreated o modCreateFailed."""
-        creator = self._creator
+        creator, lang = self._creator, language()
 
         def task(context) -> _Outcome:
             try:
                 return _Outcome(creator(Path(game_root), spec, template=template))
             except Exception as exc:  # noqa: BLE001 - el motivo se muestra en el diálogo
-                return _Outcome(error=_error_text(exc))
+                return _Outcome(error=_error_text(exc, lang))
 
         self._create_runner.start(task)
 
@@ -407,4 +441,6 @@ class Session(QObject):
         if count != self._last_dirty:
             self._last_dirty = count
             self.dirtyChanged.emit(count)
+            if count == 0:
+                self.write_recovery()   # todo deshecho: sin esperar al latido, el autoguardado ya no sirve
         self.undoChanged.emit()

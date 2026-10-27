@@ -14,8 +14,10 @@ from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
+    QFrame,
     QLabel,
     QPushButton,
+    QScrollArea,
     QVBoxLayout,
     QWidget,
 )
@@ -28,6 +30,7 @@ from ..shell.pending_changes import PendingChangesPanel
 from ..widgets import StatusBadge, mark_data
 
 SIZE = (860, 600)
+PROBLEMS_MAX_HEIGHT = 180   # con muchos problemas, se desplazan: la lista de cambios y los botones siguen a la vista
 
 
 REASON_CONFLICTS = N_("review.reason_conflicts")
@@ -81,11 +84,26 @@ class SaveReviewDialog(QDialog):
             layout.addWidget(badge)
             self.reasons.append(badge)
         self.problem_badges: list[StatusBadge] = []
+        self.problems_area = QScrollArea()
+        self.problems_area.setObjectName("reviewProblems")
+        self.problems_area.setFrameShape(QFrame.Shape.NoFrame)
+        self.problems_area.setWidgetResizable(True)
+        self.problems_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.problems_area.viewport().setAutoFillBackground(False)
+        problems_box = QWidget()
+        problems_box.setAutoFillBackground(False)
+        problems_column = QVBoxLayout(problems_box)
+        problems_column.setContentsMargins(0, 0, 0, 0)
+        problems_column.setSpacing(layout.spacing())
         for _ in self.problems:
             badge = StatusBadge()
             mark_data(badge.label)  # el texto viene del núcleo, ya traducido
-            layout.addWidget(badge)
+            problems_column.addWidget(badge)
             self.problem_badges.append(badge)
+        self.problems_area.setWidget(problems_box)
+        layout.addWidget(self.problems_area)
+        # Después de meterla en el diálogo: sin padre, setVisible(True) la mostraría como ventana suelta.
+        self.problems_area.setVisible(bool(self.problems))
         self.panel = PendingChangesPanel()
         self.panel.set_changeset(changeset)
         layout.addWidget(self.panel, 1)
@@ -133,11 +151,26 @@ class SaveReviewDialog(QDialog):
         lang = language()
         for badge, problem in zip(self.problem_badges, self.problems):
             badge.set_status("error" if problem.blocking else "warning", problem.message(lang))
+        self._fit_problems()
         self.save_button.setText(tr("review.save"))
         self.resolve_button.setText(tr("review.resolve"))
         self.cancel_button.setText(tr("review.cancel"))
         self.panel.retranslate()
 
+    def _fit_problems(self) -> None:
+        """Alto de la lista de problemas: el de su contenido al ancho actual, como mucho ``PROBLEMS_MAX_HEIGHT``."""
+        if not self.problem_badges:
+            return
+        column = self.problems_area.widget().layout()
+        width = self.problems_area.width()
+        height = column.totalHeightForWidth(width) if column.hasHeightForWidth() else column.sizeHint().height()
+        self.problems_area.setFixedHeight(min(height, PROBLEMS_MAX_HEIGHT))
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        self._fit_problems()
+
     def showEvent(self, event) -> None:
         super().showEvent(event)
+        self._fit_problems()
         self.panel.tree.setFocus(Qt.FocusReason.OtherFocusReason)

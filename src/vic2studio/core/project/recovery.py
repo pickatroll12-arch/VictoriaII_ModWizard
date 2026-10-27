@@ -44,6 +44,7 @@ from .model import (
 NOTE_UNREADABLE = "project.recovery_unreadable"
 NOTE_COMPLETED = "project.recovery_completed"
 NOTE_INCOMPLETE = "project.recovery_incomplete"
+NOTE_FOREIGN = "project.recovery_foreign"
 
 OUTCOME_ROLLED_BACK = "rolled_back"
 OUTCOME_ROLLED_FORWARD = "rolled_forward"
@@ -63,6 +64,8 @@ def _read(path: Path) -> dict | None:
         return None
     if not isinstance(record, dict) or not isinstance(record.get("files", []), list):
         return None
+    if record.get("format") != journal.JOURNAL_FORMAT:
+        return None        # de otra versión del Studio: no se interpreta
     return record
 
 
@@ -107,6 +110,19 @@ def _status(file: dict) -> tuple[bool, bool, bool]:
     return after_ok, can_forward, can_back
 
 
+def _journal_paths(record: dict, files: list[dict]) -> list[str]:
+    """Todas las rutas en las que la recuperación podría escribir o borrar."""
+    paths = [str(record["trash_dir"])] if record.get("trash_dir") else []
+    for file in files:
+        paths += [str(file[k]) for k in ("target", "temp", "bak", "original", "trash") if file.get(k)]
+        paths += [str(d) for d in file.get("created_dirs", ())]
+    for folder in record.get("folders", ()):
+        if isinstance(folder, dict):
+            paths += [str(folder["path"])] if folder.get("path") else []
+            paths += [str(d) for d in folder.get("created", ())]
+    return paths
+
+
 def recover(journal_dir: Path, guard: WriteGuard, txid: str, *, prefer: str = "auto") -> RecoveryResult:
     if prefer not in ("auto", "forward", "back"):
         raise ValueError(f"prefer debe ser 'auto', 'forward' o 'back', no {prefer!r}")
@@ -118,6 +134,10 @@ def recover(journal_dir: Path, guard: WriteGuard, txid: str, *, prefer: str = "a
         return RecoveryResult(txid, OUTCOME_NOTHING, notes=(NOTE_UNREADABLE,))
     state = record.get("state")
     files = [dict(f) for f in record.get("files", ())]
+    if not all(guard.allows(p) for p in _journal_paths(record, files)):
+        # El diario nombra rutas fuera de este mod (se copió o se renombró tras el corte): no se toca nada y
+        # el diario se conserva; el mod se abre igual y el diálogo lo explica.
+        return RecoveryResult(txid, OUTCOME_NOTHING, notes=(NOTE_FOREIGN,))
     if state in (JOURNAL_STAGING, JOURNAL_PREPARED):
         journal.discard_prepared(guard, path, record)
         return RecoveryResult(txid, OUTCOME_CLEANED)
@@ -136,11 +156,13 @@ def recover(journal_dir: Path, guard: WriteGuard, txid: str, *, prefer: str = "a
     else:
         forward = can_forward
     possible = can_forward if forward else can_back
+    if not possible:
+        # Ni hacia delante ni hacia atrás: aplicar una parte mezclaría estados y podría pisar lo que escribió un
+        # guardado posterior. No se toca nada y se conserva el diario; el diálogo lo explica.
+        return RecoveryResult(txid, OUTCOME_NOTHING, notes=(NOTE_INCOMPLETE,))
     restored, trashed = [], []
     order = files if forward else list(reversed(files))
-    for file, status in zip(order, statuses if forward else list(reversed(statuses))):
-        if not (status[1] if forward else status[2]):
-            continue   # sin estado al que llevarlo: se deja como está y se avisa
+    for file in order:
         done = journal.restore_from_journal(guard, file, forward=forward,
                                             trash_creates=record.get("trash_creates", True))
         rel = rel_from_text(file["rel"])
@@ -148,10 +170,6 @@ def recover(journal_dir: Path, guard: WriteGuard, txid: str, *, prefer: str = "a
             trashed.append(rel)
         elif done != "kept":
             restored.append(rel)
-    if not possible:
-        # Se conserva el diario: recuperar otra vez hará lo mismo y el diálogo lo explicará.
-        return RecoveryResult(txid, OUTCOME_ROLLED_FORWARD if forward else OUTCOME_ROLLED_BACK,
-                              tuple(restored), tuple(trashed), (NOTE_INCOMPLETE,))
     if not forward:
         journal.discard_prepared(guard, path, record)
     else:
@@ -165,8 +183,15 @@ def recover_all(journal_dir: Path, guard: WriteGuard) -> list[RecoveryResult]:
     for state in pending_journals(journal_dir):
         if state.state == JOURNAL_UNREADABLE:
             results.append(RecoveryResult(state.txid, OUTCOME_NOTHING, notes=(NOTE_UNREADABLE,)))
-        else:
+            continue
+        try:
             results.append(recover(journal_dir, guard, state.txid))
+        except OSError:
+            # Un destino bloqueado o el disco: se conserva el diario y se reintentará (también antes de guardar).
+            results.append(RecoveryResult(state.txid, OUTCOME_NOTHING, notes=(NOTE_INCOMPLETE,)))
+        except Exception:
+            # JSON válido pero con otra forma (campos que faltan, tipos raros): como uno ilegible, no impide abrir.
+            results.append(RecoveryResult(state.txid, OUTCOME_NOTHING, notes=(NOTE_UNREADABLE,)))
     return results
 
 
@@ -178,7 +203,7 @@ def _index(folder: Path) -> dict | None:
     return index if isinstance(index, dict) and isinstance(index.get("files"), list) else None
 
 
-def orphan_sessions(recovery_root: Path, *, alive: set[str] = frozenset()) -> list[str]:
+def orphan_sessions(recovery_root: Path, *, alive: set[str] = frozenset(), lock_held: bool = False) -> list[str]:
     """Sesiones de autoguardado cuyo proceso ya no existe (y que no están en ``alive``).
 
     También las que se cerraron con cambios sin guardar (``closed`` en su índice)
@@ -200,7 +225,9 @@ def orphan_sessions(recovery_root: Path, *, alive: set[str] = frozenset()) -> li
         if index is None or not index["files"]:
             continue
         pid = index.get("pid")
-        if index.get("closed") is not True and index.get("host") == host and isinstance(pid, int) and pid_alive(pid):
+        # Con el bloqueo del mod en la mano ninguna otra sesión de este equipo lo edita: un pid vivo es reutilizado.
+        if (not lock_held and index.get("closed") is not True and index.get("host") == host
+                and isinstance(pid, int) and pid_alive(pid)):
             continue
         orphans.append(name)
     return orphans

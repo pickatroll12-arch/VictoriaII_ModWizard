@@ -45,7 +45,7 @@ from vic2studio.core.project.workspace import (  # noqa: E402
     ReadOnlyDocumentError,
     WrongThreadError,
 )
-from vic2studio.core.vfs.guard import WriteOutsideModError  # noqa: E402
+from vic2studio.core.vfs.guard import InvalidModRootError, WriteOutsideModError  # noqa: E402
 from vic2studio.core.vfs.paths import DESCRIPTOR_REL, InvalidPathError, VPath  # noqa: E402
 
 
@@ -175,6 +175,10 @@ class PickleErrorsTests(unittest.TestCase):
         except InvalidPathError as error:
             restored = self.assert_roundtrip(error)
         self.assertEqual((restored.path, restored.reason), ("../outside.txt", "parent"))
+
+    def test_invalid_mod_root_error(self):
+        restored = self.assert_roundtrip(InvalidModRootError(Path("/juego/mod"), "check.mod_is_mods_folder"))
+        self.assertEqual(restored.problem, "check.mod_is_mods_folder")
 
     def test_write_outside_mod_error(self):
         restored = self.assert_roundtrip(WriteOutsideModError(Path("/juego/common/a.txt"), Path("/juego/mod/VSM")))

@@ -147,7 +147,7 @@ class JournalCommitTests(unittest.TestCase):
             self.write("events/CON.txt", WriteAction.CREATE, b"x"),
             self.write("events/Case.txt", WriteAction.CREATE, b"x"),
             self.write("events/CASE.txt", WriteAction.CREATE, b"x"),
-            self.write("events/" + "n" * 250 + ".txt", WriteAction.CREATE, b"x"),
+            self.write("events/" + "d" * 120 + "/" + "n" * 120 + ".txt", WriteAction.CREATE, b"x"),
             PlannedWrite(VPath.of("common/cb_types.txt"), self.layers.game("common/cb_types.txt"),
                          WriteAction.MODIFY, b"x", None),
         ]

@@ -123,9 +123,14 @@ SAVE_READ_ONLY = "save_read_only"            # proyecto bloqueado por otra insta
 SAVE_CASE_COLLISION = "save_case_collision"
 SAVE_NOT_WRITABLE = "save_not_writable"      # documento sin códec de escritura (binario) o ilegible (UTF-16)
 SAVE_FAILED = "save_failed"                  # el disco falló al confirmar; se revirtió (args: error)
+SAVE_JOURNAL_PENDING = "save_journal_pending"  # un guardado anterior quedó a medias sin resolver (args: journal)
+# Motivos de SAVE_NOT_WRITABLE (args["reason"]): se traducen con la clave "project.not_writable_<motivo>".
+NOT_WRITABLE_INVALID_JSON = "invalid_json"   # args: line, column
+NOT_WRITABLE_INVALID = "invalid"
+NOT_WRITABLE_REASONS = (READ_ONLY_BINARY, NOT_WRITABLE_INVALID_JSON, NOT_WRITABLE_INVALID)
 SAVE_CODES = (SAVE_OUTSIDE_MOD, SAVE_WINDOWS_NAME, SAVE_PATH_TOO_LONG, SAVE_CONFLICT, SAVE_UNENCODABLE,
               SAVE_SOURCE_MISMATCH, SAVE_NO_SPACE, SAVE_READ_ONLY, SAVE_CASE_COLLISION, SAVE_NOT_WRITABLE,
-              SAVE_FAILED)
+              SAVE_FAILED, SAVE_JOURNAL_PENDING)
 
 
 @dataclass(frozen=True)
@@ -151,7 +156,10 @@ class SaveProblem:
     def message(self, lang: str = "en") -> str:
         from ..texts import text
 
-        return text(f"project.{self.code}", lang, rel=self.rel or "", **self.args)
+        args = dict(self.args)
+        if self.code == SAVE_NOT_WRITABLE and args.get("reason") in NOT_WRITABLE_REASONS:
+            args["reason"] = text(f"project.not_writable_{args['reason']}", lang, **args)
+        return text(f"project.{self.code}", lang, rel=self.rel or "", **args)
 
 
 @dataclass(frozen=True)

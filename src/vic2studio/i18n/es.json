@@ -23,6 +23,7 @@
   "check.mod_empty": "Carpeta vacía: las subcarpetas se crearán al guardar",
   "check.mod_inside_game": "Está dentro del juego base y fuera de su carpeta mod/: elige la carpeta del mod para no modificar el original",
   "check.mod_is_game": "Es la carpeta del juego base: elige otra para no modificar el original",
+  "check.mod_is_mods_folder": "Es la carpeta mod/ del juego, con todos los mods dentro: elige la carpeta de un mod",
   "check.mod_ok": "Mod válido: {count} carpetas reconocidas",
   "check.mod_ok_one": "Mod válido: 1 carpeta reconocida",
   "check.mod_unknown": "No se reconocen carpetas de mod (common/, history/…)",

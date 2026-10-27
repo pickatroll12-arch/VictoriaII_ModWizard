@@ -41,19 +41,28 @@ arreglarlo, deja una prueba de regresión que falle sin el arreglo y pasa la bat
     punta de la interfaz contra el `Project` real (`59e8847`), que destapó cinco fallos de integración, todos
     corregidos con prueba de regresión y mutación (§3, «Iteración 2»).
   - La batería entera pasa por primera vez con **PySide6 6.5.0**, el mínimo declarado (`563a709`).
-- **Pruebas**: 999. Con el corpus real del usuario (release `recursos-v1`, descomprimido fuera del repositorio
-  según §4), las 999 OK sin omitir ninguna (criterios 1 y 3 de la iteración 2 cumplidos con sus archivos). Sin
-  corpus, 999 OK con 5 omitidas, con Python 3.13.17 + PySide6 6.12.0, con Python 3.10.20 + PySide6 6.11.3 y con
-  Python 3.10 + PySide6 6.5.0 (sin `XDG_RUNTIME_DIR`).
+  - **Revisión adversarial de la iteración 2, primera ronda** (criterio 11). Se hizo con
+    `docs/handoff/workflow_iteracion2_revision.js` sobre `59e8847`: 5 componentes, un revisor y un verificador
+    por componente.
+    - Salieron 53 hallazgos confirmados con reproducción: 4 altos, 18 medios y 31 bajos.
+    - Todos están corregidos en el commit «Correcciones de la revisión adversarial de la iteración 2», cada
+      uno con su prueba de regresión.
+    - Las pruebas están en `tests/test_review_*.py`: 12 archivos y 86 pruebas.
+    - 24 mutaciones, todas detectadas.
+    - El detalle está en ARCHITECTURE.md §6.1.
+- **Pruebas**: 1086 en 70 archivos.
+  - Con el corpus real del usuario (release `recursos-v1`, descomprimido fuera del repositorio según §4), las
+    1086 pasan sin omitir ninguna (criterios 1 y 3 de la iteración 2 cumplidos con sus archivos).
+  - Sin corpus pasan las 1086 con 5 omitidas, en tres combinaciones: Python 3.13.17 + PySide6 6.12.0, Python
+    3.10.20 + PySide6 6.11.3 y Python 3.10 + PySide6 6.5.0 (sin `XDG_RUNTIME_DIR`).
 - **Ayuda de otros asistentes** (`docs/handoff/PARA_GEMINI.md`): Gemini hizo G1 (prueba «sin datos de Paradox»),
   G2 (líneas con saltos solo CR, 12 veces más rápido) y G3 (errores serializables con `pickle`); el usuario las
   fusionó en `main` (PR #7–#9) y Claude las revisó (mutaciones, fuzz de 28 000 textos en 7 codificaciones,
   pruebas propias más estrictas, batería con corpus y en las tres combinaciones) y completó los dos errores de
   `core/vfs`. El parche anterior de Grok se descartó.
-- **En curso al escribir esto**: la revisión adversarial de la iteración 2 (criterio 11), con el guion
-  `docs/handoff/workflow_iteracion2_revision.js` sobre `59e8847`. Si la sesión se cortó antes de corregir sus
-  hallazgos, es el paso 1 de §5.
-- **Queda**, en orden: §5.
+- **Queda**, en orden: §5. Primero, un fallo de segmentación intermitente que ya existía antes de la revisión
+  (§5.0); después, la segunda ronda de la revisión sobre los arreglos, las capturas, el README y el informe de la
+  iteración 2.
 
 ---
 
@@ -300,17 +309,29 @@ dos de la última ronda de T4 y los de §0.
   se ofrecía al reabrir; deshacerlo todo no borraba el autoguardado anterior; las etiquetas `undo.*` del núcleo
   no tenían texto; sin `.mod` no se podía crear el descriptor (`FileNotFoundError` al guardar); el formulario
   aceptaba carpetas como «CON .x» que el guardado rechaza.
+- **Revisión adversarial** (primera ronda): 53 hallazgos corregidos. Los cuatro altos:
+  - `<juego>/mod` se aceptaba como carpeta del mod. Ahora la rechaza `mod_root_problem`, y `VirtualFS` lanza
+    `InvalidModRootError`.
+  - Un diario pendiente se aplicaba a medias al reabrir. Ahora la recuperación no toca nada si no puede
+    llevarlo entero a un lado, y no se guarda encima: `save_journal_pending`.
+  - Ctrl+S o cerrar perdían lo tecleado en el descriptor. Ahora lo confirma `MainWindow.commit_edits`.
+  - Restaurar un autoguardado y sufrir otro corte lo perdía. Ahora `restore_session` escribe el autoguardado
+    nuevo antes de borrar el huérfano.
+
+  La lista completa está en ARCHITECTURE.md §6.1, y cada regresión en su `tests/test_review_*.py`.
 - **Fallos de Qt 6.5** (`563a709`), ya corregidos: etiquetas que se mostraban un instante como ventana suelta
   (`setVisible` antes de tener padre; prueba `StrayWindowTests`), botón «Resolver» que `QDialogButtonBox` volvía a
   mostrar, flecha de orden que recortaba los títulos de la tabla de diagnósticos.
 
 ### Pruebas
 
-999 pruebas en 58 archivos `tests/test_*.py` (las de la iteración 1 más `test_vfs_*`, `test_project_*`,
+1086 pruebas en 70 archivos `tests/test_*.py` (las de la iteración 1 más `test_vfs_*`, `test_project_*`,
 `test_journal_*`, `test_undo_*`, `test_workspace_*`, `test_recovery_autosave`, `test_lock`, `test_arch_writes`,
 `test_texts`, `test_appdirs`, `test_modfile_write`, `test_ui_shell`, `test_ui_session`, `test_ui_descriptor`,
-`test_ui_new_mod`, `test_ui_roadmap`, `test_ui_real_project`, y de Gemini `test_no_paradox_data`,
-`test_cr_line_counts` y `test_pickle_errors`…). Sin corpus se omiten 5: valores pegados al token siguiente, el
+`test_ui_new_mod`, `test_ui_roadmap`, `test_ui_real_project`, de Gemini `test_no_paradox_data`,
+`test_cr_line_counts` y `test_pickle_errors`, y los doce `test_review_*` de la revisión adversarial…). Las que
+lanzan un proceso hijo (cortes con `os._exit`) calculan `tests/` desde `__file__`, así que funcionan con
+`discover -s tests` desde la raíz. Sin corpus se omiten 5: valores pegados al token siguiente, el
 `.csv.bak`, la carpeta vanilla, las líneas de vanilla en el repositorio y el criterio 3 de la iteración 2 sobre
 vanilla + VSM.
 `tests/_qt.py` aísla preferencias, datos y caché en carpetas temporales y crea un `XDG_RUNTIME_DIR` si falta.
@@ -421,13 +442,77 @@ Con PySide6 6.5 o 6.6 y numpy 2, cada import de PySide6 escribe una traza falsa 
 
 ## 5. Próximas tareas, en orden
 
-### 1. Cerrar la revisión adversarial de la iteración 2 (criterio 11)
+### 0. Fallo de segmentación intermitente en `test_ui_integration` (en investigación)
 
-Guion: `docs/handoff/workflow_iteracion2_revision.js` (5 componentes: VFS y arquitectura, diario, `Workspace` y
-deshacer, descriptor y `Session`, interfaz con capturas; cada uno con un verificador que intenta refutar). Las
-rutas del guion son de la sesión del 27-10-2026: cámbialas por tu carpeta temporal. Para cada hallazgo
-confirmado: reprodúcelo, prueba de regresión que falle sin el arreglo, arreglo, mutación, batería completa (al
-menos con 3.13 y con PySide6 6.5.0). Después, una segunda ronda sobre los arreglos.
+Lo encontró la batería con corpus mientras corrían otras tres a la vez.
+
+**Reproducción.** Hay que reproducir la carga:
+
+- `test_ui_integration` con `VIC2_CORPUS` y `-X faulthandler`;
+- en bucle;
+- 3 o 4 copias a la vez.
+
+**Frecuencia.** El fallo sale en 1 de cada 4 a 24 ejecuciones. La batería sola, sin esa carga, no falló en dos
+pasadas. También existe en `86dedc4`, el commit anterior a la revisión: 1 de 24 ejecuciones allí, frente a 6 de
+24 con las correcciones; con tan pocas muestras, la diferencia aún no es concluyente.
+
+**Dónde muere el proceso.** Casi siempre en el hilo de la interfaz, al pintar:
+
+- `theme.paint_surface`, en el `fillRect` de la viñeta (un `QRadialGradient` en `ObjectBoundingMode`);
+- `banner.paint_decoration`;
+- dentro de Qt, sin marco de Python.
+
+Dos veces, un hilo de tareas estaba en `tasks._resume_gc`, en `gc.get_objects(0)`.
+
+**Descartado:** un rectángulo degenerado; `paint_surface` pinta bien con tamaños de 0, negativos y enormes.
+
+**Lo siguiente:**
+
+1. Sacar la traza nativa con `gdb -batch -ex run -ex "thread apply all bt"`.
+2. Comprobar la hipótesis del recolector. `gc.get_objects` y `gc.freeze` se llaman desde hilos de tareas,
+   mientras el de la interfaz suelta objetos de PySide sin el GIL. Para probarla, cambiar `gc.get_objects(0)`
+   por otra cosa y volver a medir la frecuencia.
+
+### 1. Segunda ronda de la revisión adversarial de la iteración 2 (criterio 11)
+
+La primera ronda está hecha y corregida (§0). La hizo el guion `docs/handoff/workflow_iteracion2_revision.js`,
+con 5 componentes:
+
+- VFS y arquitectura;
+- diario;
+- `Workspace` y deshacer;
+- descriptor y `Session`;
+- interfaz con capturas.
+
+Cada componente tuvo un verificador que intentaba refutar los hallazgos. Las rutas del guion son de la sesión
+del 27-10-2026: cámbialas por tu carpeta temporal.
+
+La segunda ronda revisa solo los arreglos (`git show` del commit de correcciones), buscando dos cosas:
+
+- regresiones;
+- casos que el arreglo no cubre.
+
+Los puntos más delicados:
+
+- **Diario**:
+  - recuperación que no toca nada (`nothing`);
+  - `.bak` apartadas (`prev_bak`);
+  - `save_journal_pending`;
+  - «Nuevo mod» confirmado que falla al anotarlo.
+- **`Session`**: aperturas canceladas que llegan tarde.
+- **Descriptor**:
+  - `commit_pending`;
+  - conversión de UTF-16.
+
+Por cada hallazgo, el mismo ritmo:
+
+1. Reprodúcelo.
+2. Escribe una prueba de regresión que falle sin el arreglo.
+3. Arréglalo.
+4. Pasa una mutación.
+5. Pasa la batería completa, al menos con 3.13 y con PySide6 6.5.0.
+
+Un workflow con varios agentes solo si el usuario lo pide (ultracode u «usa un workflow»).
 
 ### 2. Capturas e informe de la iteración 2 (criterio 10)
 
@@ -440,8 +525,11 @@ python3 tools/screenshot.py --out DIR --lang all --size 1100x700 --mod tests/fix
     --page project:home,project:descriptor,project,project:pending --dialog save_review
 ```
 
-El 27-10-2026 se generaron y revisaron las 20 (sin defectos); se suben a `docs/capturas/` con las correcciones de
-la revisión. Informe al usuario en español: qué entrega la iteración 2, resultado de las pruebas y qué queda.
+El 27-10-2026 se generaron y revisaron las 20 (sin defectos), pero la revisión cambió la interfaz (diálogo de
+revisión con desplazamiento, avisos en la barra de estado): regenéralas, revísalas y súbelas a `docs/capturas/`.
+Pon al día también el README: «Estado del proyecto» y «Qué funciona hoy» siguen describiendo la iteración 1
+(cinco módulos); hoy son 7 salas con proyecto, descriptor, guardado con diario, deshacer y recuperación. Informe
+al usuario en español: qué entrega la iteración 2, resultado de las pruebas y qué queda.
 
 ### 3. Criterios con corpus: hechos (27-10-2026)
 
@@ -454,7 +542,7 @@ curl -sSL -H "Accept: application/octet-stream" -o <nombre> \
 ```
 
 (los `id` y los sha256 salen de la release). Se descomprime fuera del repositorio como dice §4. Con él, los
-criterios 1 y 3 se cumplen: 999 pruebas OK sin omitir ninguna, ida y vuelta de 12 054 archivos y el criterio 3
+criterios 1 y 3 se cumplen: 1086 pruebas OK sin omitir ninguna, ida y vuelta de 12 054 archivos y el criterio 3
 sobre vanilla real + VSM. Además, el Shago Mod completo abre sobre vanilla en 0,12 s, su `somaliland_shago.txt`
 roto se abre en solo lectura y guardar sin cambios no escribe nada.
 

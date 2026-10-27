@@ -459,6 +459,8 @@ class FakeWorkspace:
             now = fingerprint(handle.origin.path)
             if now != handle.base:
                 changes.append(ExternalChange(handle.rel, "deleted" if now is None else "modified", handle.dirty))
+                if not handle.dirty and now is not None:
+                    self.reload(handle.rel)   # como el real: los limpios se releen solos
         return changes
 
     def reload(self, rel) -> None:

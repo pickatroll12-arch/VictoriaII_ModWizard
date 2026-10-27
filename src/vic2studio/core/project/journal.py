@@ -110,7 +110,7 @@ def _guarded_write(guard: WriteGuard, path: Path, data: bytes) -> None:
 
 
 def _guarded_stage(guard: WriteGuard, target: Path, data: bytes, token: str) -> Path:
-    temp = _temp_path(target, token)
+    temp = _temp_path(_link_target(target), token)   # el que anota el diario (_file_record) y crea stage_bytes
     guard.check(temp)
     fileio.remove_file(guard.check(temp))  # restos de un intento anterior con el mismo txid (recuperación)
     return fileio.stage_bytes(guard.check(target), data, token=token)
@@ -120,8 +120,10 @@ def _guarded_commit(guard: WriteGuard, temp: Path, target: Path) -> None:
     fileio.commit_staged(guard.check(temp), guard.check(target))
 
 
-def _guarded_copy(guard: WriteGuard, source: Path, target: Path) -> None:
-    fileio.copy_file(source, guard.check(target))
+def _guarded_copy(guard: WriteGuard, source: Path, target: Path, token: str | None = None) -> None:
+    if token is not None:
+        guard.check(_temp_path(target, token))
+    fileio.copy_file(source, guard.check(target), token=token)
 
 
 def _guarded_move(guard: WriteGuard, source: Path, target: Path) -> None:
@@ -150,6 +152,22 @@ def _guarded_fsync_dirs(guard: WriteGuard, folders: Iterable[Path]) -> None:
 
 def _temp_path(target: Path, token: str) -> Path:
     return target.with_name(f".{target.name}.{token}.tmp")
+
+
+def _link_target(target: Path) -> Path:
+    """Si ``target`` es un enlace simbólico, el archivo al que lleva; si no, ``target`` tal cual. Su temporal y su
+    ``.bak`` van junto a ese archivo (misma carpeta y mismo disco): ``os.replace`` lo sustituye sin romper el
+    enlace, y el diario anota el temporal que de verdad se crea."""
+    target = Path(target)
+    return Path(os.path.realpath(target)) if os.path.islink(target) else target
+
+
+NAME_MAX = 255   # bytes en ext4/APFS, unidades UTF-16 en NTFS
+
+
+def _name_too_long(name: str) -> bool:
+    size = len(name.encode("utf-16-le")) // 2 if os.name == "nt" else len(os.fsencode(name))
+    return size > NAME_MAX
 
 
 def _stop_at(guard: WriteGuard, folder: Path) -> Path:
@@ -242,7 +260,7 @@ class SaveTransaction:
             try:
                 self._guard.check(target)
                 if write.action is not WriteAction.TRASH:
-                    self._guard.check(_temp_path(target, self._txid))
+                    self._guard.check(_temp_path(_link_target(target), self._txid))
             except WriteOutsideModError:
                 problems.append(SaveProblem(SAVE_OUTSIDE_MOD, write.rel, {"path": str(target)}))
                 continue
@@ -251,7 +269,11 @@ class SaveTransaction:
                     problems.append(SaveProblem(SAVE_WINDOWS_NAME, write.rel, {"name": name, "reason": code}))
             if write.action is not WriteAction.TRASH:
                 longest = _temp_path(target, self._txid)
-                if long_path_problem(longest) is not None:
+                if _name_too_long(longest.name):
+                    # Ningún sistema de archivos admite el temporal: el guardado fallaría a medias.
+                    problems.append(SaveProblem(SAVE_PATH_TOO_LONG, write.rel,
+                                                {"length": len(os.path.abspath(longest))}))
+                elif long_path_problem(longest) is not None:
                     problems.append(SaveProblem(SAVE_PATH_TOO_LONG, write.rel,
                                                 {"length": len(os.path.abspath(longest))}, blocking=False))
             upper = os.path.abspath(target).upper()
@@ -371,22 +393,29 @@ class SaveTransaction:
             for index, (write, file) in enumerate(zip(self._writes, files)):
                 target = Path(write.target)
                 if file["before_sha256"] is not None and write.action is not WriteAction.TRASH:
-                    _guarded_copy(guard, target, Path(file["bak"]))
+                    if file.get("prev_bak") and Path(file["bak"]).exists():
+                        # La .bak que había se aparta: si el guardado se deshace, vuelve a su sitio.
+                        _guarded_move(guard, Path(file["bak"]), Path(file["prev_bak"]))
+                    _guarded_copy(guard, target, Path(file["bak"]), _copy_token(self._txid))
                     if not file["private_bak"]:
                         backups.append(Path(file["bak"]))
                 if file["before_sha256"] is not None and file["original"] is not None:
                     original = Path(file["original"])
                     if not original.exists():
-                        _guarded_copy(guard, target, original)
+                        _guarded_copy(guard, target, original, _copy_token(self._txid))
                 _fault("backup", index)
+            # Las carpetas se crean antes de confirmar: con el disco lleno, el paso 3 solo renombra.
+            for folder in self._folders:
+                _guarded_mkdirs(guard, folder)
+            for write, file in zip(self._writes, files):
+                if write.action is WriteAction.TRASH:
+                    _guarded_mkdirs(guard, Path(file["trash"]).parent)
             record["state"] = JOURNAL_BACKED_UP
             self._write_journal(record)
             _fault("journal_backed_up")
             # 3. confirmar
             record["state"] = JOURNAL_COMMITTING
             self._write_journal(record)
-            for folder in self._folders:
-                _guarded_mkdirs(guard, folder)
             for index, (write, file) in enumerate(zip(self._writes, files)):
                 if write.action is WriteAction.TRASH:
                     continue
@@ -424,12 +453,13 @@ class SaveTransaction:
 
     def _file_record(self, index: int, write: PlannedWrite) -> dict:
         target = Path(write.target)
+        real = _link_target(target)
         before = _sha_or_none(target)
         private = not self._backup_bak
         if private:
             bak = self._journal_dir / self._txid / f"{index:04d}.bak"
         else:
-            bak = target.with_name(target.name + BACKUP_SUFFIX)
+            bak = real.with_name(real.name + BACKUP_SUFFIX)
         rel = VPath.of(write.rel)
         original = self._originals_dir.joinpath(*rel.parts) if before is not None else None
         if original is not None and original.exists():
@@ -437,10 +467,12 @@ class SaveTransaction:
         trash = self._trash_dir / self._txid / Path(*rel.parts)
         return {
             "rel": str(rel), "target": str(target), "action": write.action.value,
-            "temp": None if write.action is WriteAction.TRASH else str(_temp_path(target, self._txid)),
+            "temp": None if write.action is WriteAction.TRASH else str(_temp_path(real, self._txid)),
             "before_sha256": before,
             "after_sha256": None if write.data is None else sha256_bytes(write.data),
             "bak": str(bak) if before is not None and write.action is not WriteAction.TRASH else None,
+            "prev_bak": (str(self._journal_dir / self._txid / f"{index:04d}.prev")
+                         if before is not None and write.action is not WriteAction.TRASH and not private else None),
             "private_bak": private,
             "original": None if original is None else str(original),
             "trash": str(trash),
@@ -464,6 +496,8 @@ class SaveTransaction:
             for file in files:
                 if file["temp"]:
                     _guarded_remove(guard, Path(file["temp"]))
+            restore_previous_baks(guard, record)
+            _remove_created_dirs(guard, record)
             _finish(guard, Path(self.journal_path), record, files)
             _remove_created_dirs(guard, record)
         except BaseException:
@@ -508,15 +542,39 @@ def _remove_created_dirs(guard: WriteGuard, record: dict) -> None:
         _guarded_rmdirs(guard, folder, stop)
 
 
+def _copy_token(txid: str) -> str:
+    return f"{txid}-copy"
+
+
+def restore_previous_baks(guard: WriteGuard, record: dict) -> None:
+    """Guardado deshecho: cada ``.bak`` apartada en el paso 2 vuelve a su sitio (la nueva no aportaba nada)."""
+    for file in record.get("files", ()):
+        prev = file.get("prev_bak")
+        if prev and Path(prev).exists():
+            _guarded_move(guard, Path(prev), Path(file["bak"]))
+
+
 def _finish(guard: WriteGuard, journal: Path, record: dict, files: list[dict]) -> None:
     """Borra el diario, las copias de reversión privadas y las carpetas que quedan vacías."""
+    token = _copy_token(str(record.get("txid", "")))
+    for file in files:
+        for key in ("bak", "original"):
+            if file.get(key):
+                _guarded_remove(guard, _temp_path(Path(file[key]), token))   # copia cortada a medias
+        if file.get("prev_bak"):
+            _guarded_remove(guard, Path(file["prev_bak"]))
     _guarded_remove(guard, journal)
     journal_dir = journal.parent
+    _guarded_rmdirs(guard, journal_dir / str(record.get("txid", "")), _stop_at(guard, journal_dir))
     if record.get("private_backups"):
         for file in files:
             if file.get("bak"):
                 _guarded_remove(guard, Path(file["bak"]))
         _guarded_rmdirs(guard, journal_dir / record["txid"], _stop_at(guard, journal_dir))
+    for file in files:
+        if file.get("action") == WriteAction.TRASH.value and file.get("trash"):
+            # La carpeta de la papelera se creó antes de confirmar: si el guardado se deshizo, queda vacía.
+            _guarded_rmdirs(guard, Path(file["trash"]).parent, _stop_at(guard, journal_dir))
     _guarded_rmdirs(guard, journal_dir, _stop_at(guard, journal_dir))
 
 
@@ -533,9 +591,10 @@ def write_recovery(guard: WriteGuard, recovery_root: Path, session: str, documen
                    closed: bool = False) -> None:
     """Autoguardado: ``recovery/<sesión>/<rel>`` con el ``snapshot()`` de cada documento sucio y un índice JSON.
 
-    Los documentos van numerados (``0001.dat``…) para no depender de los nombres;
-    el índice dice qué ruta es cada uno y se escribe al final, así que un corte a
-    medias deja el autoguardado anterior entero. Sin documentos borra el de la sesión.
+    Cada documento va en ``<sha256>.dat`` (no depende de los nombres y nunca pisa uno
+    que el índice anterior nombra); el índice dice qué ruta es cada uno y se escribe
+    al final, y solo después se borran los ``.dat`` que ya no nombra, así que un corte
+    a medias deja el autoguardado anterior entero. Sin documentos borra el de la sesión.
     ``closed``: la sesión terminó con cambios sin guardar (se ofrecerá aunque su
     proceso siga vivo, p. ej. al reabrir el mod en la misma ventana).
     """
@@ -545,10 +604,12 @@ def write_recovery(guard: WriteGuard, recovery_root: Path, session: str, documen
         return
     previous = _recovery_files(folder)
     entries = []
-    for number, (rel, data) in enumerate(sorted(documents.items(), key=lambda item: VPath.of(item[0]).key), 1):
-        name = f"{number:04d}.dat"
-        _guarded_write(guard, folder / name, data)
-        entries.append({"rel": str(rel), "file": name, "sha256": sha256_bytes(data)})
+    for rel, data in sorted(documents.items(), key=lambda item: VPath.of(item[0]).key):
+        digest = sha256_bytes(data)
+        name = f"{digest}.dat"    # por contenido: nunca se pisa un archivo que el índice anterior aún nombra
+        if name not in previous:
+            _guarded_write(guard, folder / name, data)
+        entries.append({"rel": str(rel), "file": name, "sha256": digest})
     index = {"format": JOURNAL_FORMAT, "session": session, "pid": os.getpid(), "host": socket.gethostname(),
              "written": _now(), "closed": closed, "files": entries}
     _guarded_write(guard, folder / RECOVERY_INDEX, (json.dumps(index, ensure_ascii=False, indent=1) + "\n").encode())
@@ -630,6 +691,8 @@ def finish_journal(guard: WriteGuard, journal: Path, record: dict) -> None:
     for file in files:
         if file.get("temp"):
             _guarded_remove(guard, Path(file["temp"]))
+    for folder in record.get("folders", ()):
+        _guarded_mkdirs(guard, Path(folder["path"]))   # add_folder: también si el corte fue antes de crearlas
     _finish(guard, journal, record, files)
 
 
@@ -639,8 +702,10 @@ def discard_prepared(guard: WriteGuard, journal: Path, record: dict) -> None:
     for file in record.get("files", ()):
         if file.get("temp"):
             _guarded_remove(guard, Path(file["temp"]))
+    restore_previous_baks(guard, record)
+    _remove_created_dirs(guard, record)   # antes de borrar el diario: un corte aquí se repite al abrir
     _finish(guard, journal, record, list(record.get("files", ())))
-    _remove_created_dirs(guard, record)
+    _remove_created_dirs(guard, record)   # y la raíz de un mod nuevo, que contenía el diario
 
 
 def sha_of(path: Path) -> str | None:

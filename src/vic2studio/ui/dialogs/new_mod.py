@@ -31,7 +31,14 @@ from PySide6.QtWidgets import (
 )
 
 from ...core.clausewitz import Severity
-from ...core.modfile import DescriptorSpec, descriptor_problems, render_descriptor, sanitize_folder, taken_folders
+from ...core.modfile import (
+    DescriptorSpec,
+    descriptor_problems,
+    recover_interrupted_new_mods,
+    render_descriptor,
+    sanitize_folder,
+    taken_folders,
+)
 from ...core.vfs.guard import evaluate_game, inspect_folder
 from ...i18n import language, tr
 from .. import theme
@@ -49,6 +56,7 @@ class NewModDialog(QDialog):
         self.created = None
         self._folder_typed = False
         self._error: str | None = None
+        recover_interrupted_new_mods(self.game_root)   # un «Nuevo mod» cortado no deja su carpeta ocupada
         self._taken = taken_folders(self.game_root)
         self.setMinimumSize(560, 440)  # explícito: el layout no lo cambia con la ventana ya creada
         self.resize(680, 520)
@@ -244,16 +252,22 @@ class NewModDialog(QDialog):
             return False
         self._error = None
         self.session.create_mod(self.game_root, self.spec(), self.template())
+        # La creación no se puede cancelar: ni «Cancelar» ni Esc cierran el diálogo hasta que termine.
         for widget in (self.name_edit, self.folder_combo, self.user_dir_edit, self.same_check,
-                       self.template_edit, self.template_button):
+                       self.template_edit, self.template_button, self.cancel_button):
             widget.setEnabled(False)
         self.refresh()
         return True
 
     def _unlock(self) -> None:
         for widget in (self.name_edit, self.folder_combo, self.user_dir_edit, self.same_check,
-                       self.template_edit, self.template_button):
+                       self.template_edit, self.template_button, self.cancel_button):
             widget.setEnabled(True)
+
+    def reject(self) -> None:
+        if self.session.is_creating():
+            return
+        super().reject()
 
     def _on_created(self, descriptor) -> None:
         self.created = descriptor

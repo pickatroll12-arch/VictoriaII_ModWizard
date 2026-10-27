@@ -184,5 +184,7 @@
   "status.save_render_error": "Un archivo no se puede escribir sin perder datos, así que no se ha tocado el disco: {error}",
   "status.saved": "Guardado: {count} archivos.",
   "status.saved_one": "Guardado: 1 archivo.",
+  "status.saved_warning": "Guardado, con {count} avisos. El primero: {warning}",
+  "status.saved_warning_one": "Guardado, con un aviso: {warning}",
   "status.undone": "Deshecho: {step}"
 }

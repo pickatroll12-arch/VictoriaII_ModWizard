@@ -142,23 +142,22 @@ class OpenTests(SessionCase):
     def test_late_project_is_disposed(self):
         """La apertura vieja que sí construye su proyecto lo entrega tarde: se cierra (suelta el bloqueo)."""
         release = threading.Event()
+        fake = FakeOpener()
 
         def slow_opener(game, mod, **kwargs):
             release.wait(5)
-            return FakeOpener()(game, mod)
+            return fake(game, mod)
 
         session = Session(opener=slow_opener)
         self.addCleanup(lambda: (session.close_project(), wait_for_tasks(5000), _qt.dispose(session)))
         opened = []
         session.projectOpened.connect(opened.append)
         session.open_project(self.layers.game_root, self.layers.mod_root)
-        with mock.patch.object(Session, "_dispose", wraps=Session._dispose) as dispose:
-            session.close_project()
-            release.set()
-            self.assertTrue(wait_for_tasks(5000))
-            self.assertTrue(_qt.wait_until(lambda: dispose.called, 5000), "el proyecto tardío no se cerró")
-            project = dispose.call_args.args[0]
-        self.assertTrue(project.closed)
+        session.close_project()
+        release.set()
+        self.assertTrue(wait_for_tasks(5000))
+        self.assertTrue(_qt.wait_until(lambda: fake.projects and fake.projects[0].closed, 5000),
+                        "el proyecto tardío no se cerró")
         self.assertEqual(opened, [])
 
     def test_orphan_sessions_are_offered(self):

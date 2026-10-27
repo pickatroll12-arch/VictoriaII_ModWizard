@@ -26,6 +26,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from ...core.project.recovery import NOTE_INCOMPLETE, NOTE_UNREADABLE
 from ...i18n import N_, tr
 from .. import theme
 from ..widgets import StatusBadge, mark_data
@@ -103,9 +104,16 @@ class RecoveryDialog(QDialog):
         self.title.setText(tr("recovery.title"))
         for badge, result in zip(self.recovered_badges, self.recovered):
             files = ", ".join(str(rel) for rel in (*result.restored, *result.trashed)) or "—"
-            badge.set_status("warning", tr(OUTCOME_KEYS.get(result.outcome, "recovery.outcome_nothing"),
-                                           txid=result.txid, files=files))
-        self.sessions_intro.setText(tr("recovery.sessions_intro", count=len(self.sessions)))
+            alarms = [note for note in result.notes if note in (NOTE_INCOMPLETE, NOTE_UNREADABLE)]
+            if alarms:
+                # Sin resolver o ilegible: el texto del resultado («como antes», «no necesitaba nada») sería falso.
+                badge.set_status("error", " ".join(tr(note) for note in alarms))
+                continue
+            text = tr(OUTCOME_KEYS.get(result.outcome, "recovery.outcome_nothing"), txid=result.txid, files=files)
+            badge.set_status("warning", " ".join([text, *(tr(note) for note in result.notes)]))
+        count = len(self.sessions)
+        self.sessions_intro.setText(tr("recovery.sessions_intro_one") if count == 1
+                                    else tr("recovery.sessions_intro", count=count))
         for session, (name, restore, discard) in zip(self.sessions, self.rows):
             decided = self.decisions.get(session)
             restore.setText(tr("recovery.restore"))

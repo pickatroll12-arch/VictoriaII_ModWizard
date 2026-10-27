@@ -12,6 +12,7 @@ from .guard import (
     EXPECTED_FOLDERS,
     GAME_DATA_MIN_FOLDERS,
     FolderReport,
+    InvalidModRootError,
     WriteGuard,
     WriteOutsideModError,
     evaluate_game,
@@ -19,6 +20,7 @@ from .guard import (
     folder_key,
     inspect_folder,
     is_under,
+    mod_root_problem,
     same_folder,
 )
 from .model import DocKind, FileEntry, Fingerprint, Layer, LayerKind, VfsSnapshot
@@ -37,8 +39,8 @@ from .vfs import VirtualFS
 
 __all__ = [
     "DESCRIPTOR_REL", "EXPECTED_FOLDERS", "GAME_DATA_MIN_FOLDERS", "INVALID_PATH", "LOAD_RULES", "MAX_PATH_WARNING",
-    "WINDOWS_DEVICES", "DocKind", "FileEntry", "Fingerprint", "FolderReport", "InvalidPathError", "Layer",
-    "LayerKind", "LoadMode", "LoadRule", "VPath", "VfsSnapshot", "VirtualFS", "WriteGuard",
+    "WINDOWS_DEVICES", "DocKind", "FileEntry", "Fingerprint", "FolderReport", "InvalidModRootError",
+    "InvalidPathError", "Layer", "LayerKind", "LoadMode", "LoadRule", "VPath", "VfsSnapshot", "VirtualFS", "WriteGuard",
     "WriteOutsideModError", "evaluate_game", "evaluate_mod", "folder_key", "inspect_folder", "is_under",
-    "long_path_problem", "rule_for", "same_folder", "windows_name_problems",
+    "long_path_problem", "mod_root_problem", "rule_for", "same_folder", "windows_name_problems",
 ]

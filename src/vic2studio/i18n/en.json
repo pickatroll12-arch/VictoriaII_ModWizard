@@ -23,6 +23,7 @@
   "check.mod_empty": "Empty folder: subfolders will be created on save",
   "check.mod_inside_game": "It is inside the base game, outside its mod/ folder: choose the mod folder so the original is never modified",
   "check.mod_is_game": "This is the base game folder: choose another one so the original is never modified",
+  "check.mod_is_mods_folder": "This is the game's mod/ folder, which holds every mod: choose one mod's folder",
   "check.mod_ok": "Valid mod: {count} recognised folders",
   "check.mod_ok_one": "Valid mod: 1 recognised folder",
   "check.mod_unknown": "No mod folders recognised (common/, history/…)",

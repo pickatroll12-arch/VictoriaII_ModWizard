@@ -13,7 +13,12 @@
   "project.recovery_unreadable": "Hay un diario de guardado que no se puede leer; no se ha tocado. Revisa la carpeta .vic2studio/journal del mod.",
   "project.recovery_completed": "Se terminó un guardado que se había interrumpido: los archivos ya tenían sus cambios.",
   "project.recovery_incomplete": "Un guardado interrumpido no se pudo resolver del todo: algunos archivos se han dejado como estaban. Revisa la papelera (.vic2studio/trash).",
+  "project.recovery_foreign": "Un guardado interrumpido nombra archivos de otra carpeta (¿se copió o se renombró el mod después del corte?): no se ha tocado nada. Revisa la carpeta .vic2studio/journal del mod.",
   "undo.revert_file": "Descartar los cambios de {rel}",
   "undo.project_settings": "Cambiar los ajustes del proyecto",
-  "undo.restore_session": "Restaurar el autoguardado {session}"
+  "undo.restore_session": "Restaurar el autoguardado {session}",
+  "project.not_writable_binary": "es un archivo binario",
+  "project.not_writable_invalid_json": "no es un JSON válido: línea {line}, columna {column}",
+  "project.not_writable_invalid": "su contenido no se puede escribir sin pérdidas",
+  "project.save_journal_pending": "Un guardado anterior quedó a medias y no se pudo resolver, así que no se guarda nada encima: los archivos de ese guardado se dejaron como estaban. Revisa {journal} (y la papelera, .vic2studio/trash) o cierra y vuelve a abrir el mod para reintentar la recuperación."
 }

@@ -27,7 +27,7 @@ from types import MappingProxyType
 
 from ..cancel import CancelCheck, raise_if_cancelled
 from ..modfile import DESCRIPTOR_SUFFIX, ModDescriptor, read_descriptor
-from .guard import WriteGuard
+from .guard import InvalidModRootError, WriteGuard, mod_root_problem
 from .model import FileEntry, Fingerprint, Layer, LayerKind, VfsSnapshot, matching_keys, winner
 from .paths import DESCRIPTOR_REL, VPath, folder_key
 
@@ -79,9 +79,14 @@ class VirtualFS:
         """``descriptor`` es el ``.mod`` (lo admite ``guard``); ``game_root=None``: solo el mod (pruebas, mods sueltos).
 
         ``extra_roots`` pasa al ``WriteGuard`` (la carpeta de proyecto de un mod de solo lectura, §5.4).
+        Lanza ``InvalidModRootError`` si ``mod_root`` no puede ser un mod de ``game_root`` (I1: el núcleo no
+        confía en que la interfaz lo haya filtrado).
         """
         self._game_root = None if game_root is None else Path(game_root)
         self._mod_root = Path(mod_root)
+        problem = mod_root_problem(self._mod_root, self._game_root)
+        if problem is not None:
+            raise InvalidModRootError(self._mod_root, problem)
         self._descriptor = None if descriptor is None else Path(descriptor)
         self._replace = tuple(sorted({k for k in (folder_key(p) for p in replace_paths) if k}))
         self._replace_recursive = replace_recursive
