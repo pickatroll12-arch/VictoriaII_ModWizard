@@ -203,6 +203,7 @@
   "project.preview.entries_value": "{count} items",
   "project.preview.entries_value_one": "{count} item",
   "project.preview.excerpt": "Excerpt (first {count} lines)",
+  "project.preview.excerpt_at": "Lines {first}–{last} (line {line} highlighted)",
   "project.preview.lines": "Lines",
   "project.preview.modified": "Modified",
   "project.preview.note": "Clausewitz scripts and images open in their own viewer, and the CSV files in localisation/ in the “Localisation (CSV)” module.",

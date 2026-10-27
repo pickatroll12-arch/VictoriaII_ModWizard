@@ -10,8 +10,17 @@ si hay cambios sin guardar y cerrar pregunta antes de perderlos.
 
 Abrir un problema o un resultado de Ctrl+K lleva a Archivos con el archivo en su
 línea (``open_location``); una clave de localización, a Textos › Todos los textos.
-Los diálogos de las secciones de la iteración 3 (plan de un arreglo, «Añadir
-clave») pasan por ``exec_dialog``, que las pruebas sustituyen.
+Mayús+Intro en Ctrl+K abre el código (``open_symbol_code``): el script en la pestaña
+Código, un CSV que no es de localización en su ficha con la línea a la vista, y una
+clave de texto, su CSV en «Archivos CSV» en su línea. Lo que solo está en memoria (un
+documento nuevo o con cambios sin guardar) no se abre en el archivo del disco, cuyas
+líneas son otras: la barra de estado lo dice. Los diálogos de las secciones de la
+iteración 3 (plan de un arreglo, «Añadir clave») pasan por ``exec_dialog``, que las
+pruebas sustituyen.
+
+Los contadores del índice lateral (``SectionSpec.badge``) se recalculan una vez por vuelta
+del bucle de eventos (``_badge_timer``: una edición avisaba tres veces) y solo los de la
+sala a la vista; las demás se ponen al día al mostrarse.
 
 El mod abierto lo deciden las rutas de «Archivos» (``ProjectPage``, que las guarda
 en las preferencias): al cambiar, la ventana abre el proyecto con ``Session`` (que
@@ -66,6 +75,7 @@ from .shell.pending_changes import write_label
 from .shell.problems_dock import ProblemsDock
 from .tasks import cancel_all
 from .widgets import HeaderBanner, NavBar, TexturedPanel, emblem_pixmap, icons_extra, make_icon, mark_data
+from .widgets.busy import busy
 
 SETTINGS_GEOMETRY = "ui/geometry"
 SETTINGS_LAST_HALL = "ui/last_hall"
@@ -176,6 +186,12 @@ class MainWindow(QMainWindow):
         self._open_timer.setSingleShot(True)
         self._open_timer.setInterval(0)
         self._open_timer.timeout.connect(self._open_current_mod)
+        # Contadores del índice lateral: una vez por vuelta del bucle (un cambio avisaba con tres señales seguidas).
+        self._badge_timer = QTimer(self)
+        self._badge_timer.setSingleShot(True)
+        self._badge_timer.setInterval(0)
+        self._badge_timer.timeout.connect(self._refresh_badges_now)
+        self._stale_badges: set[int] = set()   # salas ocultas cuyos contadores se ponen al día al mostrarse
         self._wire_sections()
         self._wire_session()
 
@@ -339,7 +355,7 @@ class MainWindow(QMainWindow):
         self.problems_dock.validate_requested.connect(self.validate_mod)
         self.problems_dock.status_requested = self.show_status
         self.palette.symbol_activated.connect(self.open_symbol)
-        self.palette.code_requested.connect(self.open_symbol)
+        self.palette.code_requested.connect(self.open_symbol_code)
         self.palette.section_activated.connect(self.navigate)
         # Los diálogos de las secciones nuevas pasan por exec_dialog (las pruebas lo sustituyen).
         for widget in (self.validation_page, self.page("localisation:all"), self.page("localisation:pending"),
@@ -467,8 +483,9 @@ class MainWindow(QMainWindow):
 
     def is_busy(self) -> bool:
         """True mientras alguna sección o la sesión trabajan en segundo plano (las capturas esperan): también el
-        índice, la lectura de los textos y la validación."""
-        return self.session.is_busy() or self.session.is_working() or any(hall.is_busy() for hall in self.halls)
+        índice, la lectura de los textos, la validación, el explicador y los contadores pendientes."""
+        return (self.session.is_busy() or self.session.is_working() or self._badge_timer.isActive()
+                or any(hall.is_busy() for hall in self.halls))
 
     # --- proyecto --------------------------------------------------------------------------------
 
@@ -557,7 +574,11 @@ class MainWindow(QMainWindow):
                 self.show_status("status.save_cancelled")
                 return False
             try:
-                report = session.save()
+                # Síncrono (el diario y el Workspace son de este hilo): con muchas escrituras dura segundos.
+                count = len(changeset.writes)
+                self.show_status("status.saving_one" if count == 1 else "status.saving", count=count)
+                with busy(self):
+                    report = session.save()
             except OSError as exc:
                 self.show_error(tr("status.save_failed_title"), tr("status.save_failed", error=str(exc)))
                 return False
@@ -620,17 +641,33 @@ class MainWindow(QMainWindow):
         """Ctrl+K: el buscador universal sobre la ventana."""
         self.palette.open(text)
 
-    def open_location(self, rel, line: int | None = None, column: int | None = None, layer=None) -> bool:
-        """Abre ``rel`` en Archivos en ``line`` (un CSV de localisation/, en «Archivos CSV»); False si no está en
-        disco (un documento nuevo sin guardar) o no existe."""
+    def open_location(self, rel, line: int | None = None, column: int | None = None, layer=None, *,
+                      tab: str | None = None) -> bool:
+        """Abre ``rel`` en Archivos en ``line`` (un CSV de localisation/, en «Archivos CSV»; otro CSV, en su ficha
+        con esa línea a la vista); False si lo que se ve solo está en memoria (un documento nuevo, o con cambios
+        sin guardar: el archivo del disco tiene otras líneas) o no existe. ``tab``: la pestaña del visor de
+        scripts («source» para el código)."""
+        if self._refuse_in_memory(rel, layer):
+            return False
         path = self.session.location_path(rel, layer)
         if path is None:
             self.show_status("status.location_in_memory", name=str(rel))
             return False
         self.show_page("project")
-        if not self.page("project").open_file(path, line=line, column=column):
+        if not self.page("project").open_file(path, line=line, column=column, tab=tab):
             self.show_status("status.file_missing", name=str(rel))
             return False
+        return True
+
+    def _refuse_in_memory(self, rel, layer=None) -> bool:
+        """True (y lo dice) si lo que se vería de ``rel`` solo está en memoria."""
+        from .session import IN_MEMORY_MODIFIED
+
+        state = self.session.in_memory(rel, layer)
+        if state is None:
+            return False
+        self.show_status("status.location_unsaved" if state == IN_MEMORY_MODIFIED else "status.location_in_memory",
+                         name=str(rel))
         return True
 
     def open_problem(self, problem) -> bool:
@@ -653,6 +690,22 @@ class MainWindow(QMainWindow):
             if page.select_key(symbol.name):
                 return True
         return self.open_location(symbol.rel, symbol.line, layer=symbol.layer)
+
+    def open_symbol_code(self, symbol) -> bool:
+        """Mayús+Intro en Ctrl+K: el código del símbolo en su línea. Un script, en la pestaña Código; una clave de
+        texto, su CSV en «Archivos CSV» en su fila (Intro la abre en Textos)."""
+        from ..core.index.model import KIND_LOC_KEY
+
+        if symbol.kind != KIND_LOC_KEY:
+            return self.open_location(symbol.rel, symbol.line, layer=symbol.layer, tab="source")
+        if self._refuse_in_memory(symbol.rel, symbol.layer):
+            return False
+        path = self.session.location_path(symbol.rel, symbol.layer)
+        if path is None:
+            self.show_status("status.location_in_memory", name=str(symbol.rel))
+            return False
+        self.open_in_localisation(path, line=symbol.line)
+        return True
 
     def open_new_mod_dialog(self) -> int:
         game = self.page("project").game_path()
@@ -764,8 +817,21 @@ class MainWindow(QMainWindow):
         self._retranslate_problems_button()
 
     def _refresh_badges(self) -> None:
-        for hall in self.halls:
-            hall.refresh_badges()
+        """Pide los contadores del índice lateral para la próxima vuelta del bucle (una edición avisa con
+        ``textsChanged``, ``dirtyChanged`` y ``undoChanged``: con VSM, contar los textos pendientes tres veces
+        costaba 0,35–0,65 s)."""
+        self._badge_timer.start()
+
+    def _refresh_badges_now(self) -> None:
+        """Los de la sala a la vista ya; los de las demás, al mostrarse (``_on_hall_changed``)."""
+        self._badge_timer.stop()
+        current = self.current_hall_index()
+        for index, hall in enumerate(self.halls):
+            if index == current:
+                hall.refresh_badges()
+                self._stale_badges.discard(index)
+            else:
+                self._stale_badges.add(index)
 
     def _retranslate_problems_button(self) -> None:
         from ..core.clausewitz import Severity
@@ -788,8 +854,7 @@ class MainWindow(QMainWindow):
         self.redo_button.setEnabled(session.can_redo())
         self.undo_action.setEnabled(has_project)
         self.redo_action.setEnabled(has_project)
-        for hall in self.halls:
-            hall.refresh_badges()
+        self._refresh_badges()
         self._retranslate_project_actions()
         self._render_project()
         self._update_window_title()
@@ -856,6 +921,9 @@ class MainWindow(QMainWindow):
     def _on_hall_changed(self, index: int) -> None:
         self.stack.setCurrentIndex(index)
         hall = self.halls[index]
+        if index in self._stale_badges:
+            self._stale_badges.discard(index)
+            hall.refresh_badges()
         app_settings().setValue(SETTINGS_LAST_HALL, hall.spec.key)
         self._update_window_title()
         self.show_status("status.page", {"name": lambda h=hall: self._location_text(h)})

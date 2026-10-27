@@ -149,7 +149,7 @@ class TableTests(ValidationCase):
         self.assertEqual(page.model.index(0, 1).data(), "Country SIL has a history but is not in common/countries.txt.")
         self.assertEqual(page.model.headerData(2, Qt.Orientation.Horizontal), "Entity")
         self.assertEqual(page.fix_button.text(), "Fix")
-        self.assertEqual(page.inherited_check.text(), "Show inherited from the base game (3)")
+        self.assertEqual(page.inherited_check.text(), "Show inherited (3)")
 
 
 class FixTests(ValidationCase):
@@ -258,6 +258,8 @@ class ExplainerTests(ValidationCase):
         item = self.select(page, "tag_not_registered")
         page.why_button.click()
         self.assertTrue(page.explainer.isVisible())
+        self.assertTrue(_qt.wait_until(lambda: not page.explainer.loading and not window.is_busy(), 3000),
+                        "la explicación no llegó")
         self.assertEqual(self.engines["validation"].explained, [item])
         self.assertEqual(page.explainer.title.text(), f"Por qué {SIL_REL} da este problema")
         self.assertEqual(page.explainer.step_texts(), [
@@ -348,7 +350,7 @@ class StateTests(ValidationCase):
         page = self.validate()
         self.assertEqual(page.model.inherited_count(), 0)
         self.assertEqual(page.model.rowCount(), 5, "sin línea base, los de vanilla cuentan como del mod")
-        self.assertIn(tr("checks.no_baseline"), page.summary.text())
+        self.assertIn(tr("checks.no_baseline_reason", error="RuntimeError: sin juego base"), page.summary.text())
         self.assertIn("sin juego base", self.window.session.baseline_error())
 
     def test_the_baseline_is_computed_once_per_session(self):
@@ -429,6 +431,8 @@ class ScreenshotToolTests(unittest.TestCase):
         self.assertEqual(checks["state"], "ready")
         self.assertGreater(checks["shown"], 0)
         self.assertTrue(checks["explained"].startswith("Why "), checks["explained"])
+        # Lo que se veía en la captura con el explicador, aunque al final la ventana esté en otra sala.
+        self.assertEqual(checks["explainer_shots"], {"en_1_project_validation_palette.png": []})
         self.assertEqual(state["texts"]["filter"], "studio")
         self.assertGreater(state["texts"]["rows"], state["texts"]["visible"])
         self.assertEqual(state["palette"]["text"], "AGC")

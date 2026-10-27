@@ -217,11 +217,16 @@ class BannerTests(PaletteCase):
 @unittest.skipUnless(vanilla_root() is not None and user_mod() is not None,
                      "necesita el índice real del agente A y VIC2_CORPUS con vanilla y VSM")
 class CorpusCriterion7Tests(PaletteCase):
-    """Criterio 7: Ctrl+K encuentra «549», «Berlín», «PRU» y «north_german» y abre el archivo en su línea."""
+    """Criterio 7: Ctrl+K encuentra «549», «Berlín», «PRU» y «north_german» y abre el archivo en su línea.
+
+    Revisión it3 (hallazgo 4): «549» y «Berlín» abrían map/definition.csv:550 en una ficha con las primeras 160 líneas,
+    así que la línea no se veía. Ahora se comprueba la línea que queda a la vista, no solo que se abra algo.
+    """
 
     def test_the_four_searches_of_the_criterion(self):
         window = self.make_window(session=Session())
         self.window = window
+        window.resize(1100, 700)
         files = window.page("project")
         files.set_game_path(vanilla_root())
         files.set_mod_path(copy_user_mod(self))   # nunca el VSM real del corpus
@@ -234,6 +239,14 @@ class CorpusCriterion7Tests(PaletteCase):
                 self.assertIn((kind, name), [(s.kind, s.name) for s in found])
                 symbol = next(s for s in found if (s.kind, s.name) == (kind, name))
                 self.assertTrue(window.open_symbol(symbol))
+                expected = session.location_path(symbol.rel, symbol.layer)
+                self.assertTrue(_qt.wait_until(lambda: files.shown_location() == (expected, symbol.line)
+                                               and not window.is_busy(), 20000),
+                                f"{text}: se ve {files.shown_location()}, no {symbol.rel}:{symbol.line}")
+                if files.preview_stack.currentWidget() is files.preview:   # la ficha: la línea, a la vista
+                    excerpt = files.preview.excerpt
+                    self.assertTrue(excerpt.viewport().rect().contains(excerpt.cursorRect().center()))
+                    self.assertTrue(excerpt.textCursor().block().text().startswith(f"{name};"), text)
 
 
 if __name__ == "__main__":

@@ -178,6 +178,27 @@ class RuleCaseTests(unittest.TestCase):
                 self.assertNotIn("{", problem.message("en"))
                 self.assertEqual(problem.fixes, RULES[code].fixes)
 
+    def test_each_explanation_says_what_the_player_will_see(self):
+        """Integración de la revisión it3: 48 códigos explicaban con la frase genérica «El juego carga la capa que
+        gana» (nada que ver con una fila sin traducir o un id fuera de rango), y el título de loc_untranslated se
+        cortaba en «no tiene texto en». Ahora cada uno dice lo suyo, formateado con los args del problema."""
+        from vic2studio.core.texts import text
+        from vic2studio.core.validate import explain
+
+        generic = {lang: text("explain.outcome.generic", lang) for lang in ("es", "en")}
+        for code, (files, args, rel) in CASES.items():
+            with self.subTest(code=code), build_minigame(mod=False, mod_files=files) as game:
+                snap = game.snapshot()
+                ctx = build_context(snap, build_index(snap, None))
+                [problem, *_] = [p for p in Validator(ctx).validate(codes={code}).problems if p.code == code
+                                 and all(p.args.get(k) == v for k, v in args.items())]
+                explanation = explain(problem, ctx)
+                for lang in ("es", "en"):
+                    title, outcome = explanation.title(lang), explanation.outcome(lang)
+                    self.assertNotIn("{", title + outcome, f"{lang}: {title} / {outcome}")
+                    self.assertNotEqual(outcome, generic[lang])
+                    self.assertFalse(title.rstrip().endswith((" en", " in")), title)
+
     def test_the_cases_cover_the_rule_catalogue(self):
         untested = set(discover_rules()) - set(CASES) - _COVERED_ELSEWHERE
         self.assertEqual(untested, set())

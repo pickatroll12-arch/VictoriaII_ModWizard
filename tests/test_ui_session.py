@@ -535,6 +535,51 @@ class ValidationSessionTests(ServicesCase):
         self.assertEqual([p.code for p in self.session.problems()], ["tag_not_registered"])
         self.assertEqual(len(self.session.problems(inherited=True)), 3, "más los nombres que ya faltan en el juego")
 
+    def test_the_baseline_follows_the_working_date_and_the_context_gets_the_languages(self):
+        """Integración de la revisión it3: la línea base mira las historias a la fecha de trabajo (baseline_for con
+        date=) y loc_untranslated, los idiomas del proyecto; la sesión seguía con la base sin fecha ni dependencias."""
+        import dataclasses
+
+        from vic2studio.core.clausewitz.nodes import ClausewitzDate
+
+        project = self.open()
+        project.set_settings(dataclasses.replace(project.settings, languages=("en", "es", "fr")))
+        self.session._flush()
+        baseline = self.engines["baseline"]
+
+        def validate():
+            runs = self.engines["validation"].validations
+            self.assertTrue(self.session.validate())
+            self.assertTrue(_qt.wait_until(lambda: self.engines["validation"].validations == runs + 1
+                                           and self.session.validation_state() == "ready", 5000))
+
+        validate()
+        start = self.session.working_date
+        self.assertEqual(baseline.dates, [start])
+        self.assertEqual(self.engines["validation"].languages, ("en", "es", "fr"))
+        validate()
+        self.assertEqual(baseline.dates, [start], "la misma fecha: la de antes vale")
+        self.session.set_working_date(ClausewitzDate(1861, 1, 1))
+        validate()
+        self.assertEqual(baseline.dates, [start, ClausewitzDate(1861, 1, 1)], "otra fecha: otra línea base")
+        self.assertTrue(self.session.report.baseline_ready)
+
+    def test_the_real_engines_pass_the_date_and_the_languages_to_the_core(self):
+        from unittest import mock
+
+        from vic2studio.core.clausewitz.nodes import ClausewitzDate
+        from vic2studio.core.index import build_index
+        from vic2studio.ui.session import BaselineEngine, ValidationEngine
+
+        project = self.open()
+        snapshot = project.vfs.snapshot()
+        context = ValidationEngine().context(snapshot, build_index(snapshot, None), {}, languages=["en", "fr"])
+        self.assertEqual(context.languages, ("en", "fr"))
+        date = ClausewitzDate(1861, 1, 1)
+        with mock.patch("vic2studio.core.validate.baseline_for", return_value=frozenset({"x"})) as baseline_for:
+            self.assertEqual(BaselineEngine().compute(snapshot, date=date), frozenset({"x"}))
+        baseline_for.assert_called_once_with(snapshot, date=date, cancelled=None)
+
     def test_apply_fix_revalidates_once_the_index_is_up_to_date(self):
         self.open()
         self.session.validate()

@@ -28,6 +28,7 @@
   "pending.col.lines": "Líneas",
   "pending.diff_caption": "Cambios en {name} (− antes, + después)",
   "pending.diff_empty": "{name} no cambia su texto (solo su codificación o sus saltos de línea).",
+  "pending.diff_more": "… y {count} líneas más",
   "pending.diff_none": "Elige un archivo para ver sus cambios.",
   "pending.diff_trash": "{name} irá a la papelera del proyecto (.vic2studio/trash): nada se borra de verdad.",
   "pending.empty_text": "Todo lo que hay en memoria está guardado. Cada cambio que hagas aparecerá aquí, con su diff, hasta que guardes.",
@@ -172,6 +173,7 @@
   "shell.unsaved_text": "Archivos con cambios sin guardar: {count}.",
   "shell.unsaved_title": "Cambios sin guardar",
   "status.location_in_memory": "{name} solo existe en memoria (sin guardar): no hay archivo que abrir todavía.",
+  "status.location_unsaved": "{name} tiene cambios sin guardar: guárdalo para abrirlo en su línea (el archivo del disco aún no los tiene).",
   "status.mod_created": "Mod creado: {name}",
   "status.no_project": "No hay ningún mod abierto.",
   "status.nothing_to_save": "No hay cambios que guardar.",
@@ -187,5 +189,7 @@
   "status.saved_one": "Guardado: 1 archivo.",
   "status.saved_warning": "Guardado, con {count} avisos. El primero: {warning}",
   "status.saved_warning_one": "Guardado, con un aviso: {warning}",
+  "status.saving": "Guardando {count} archivos…",
+  "status.saving_one": "Guardando {count} archivo…",
   "status.undone": "Deshecho: {step}"
 }

@@ -15,10 +15,17 @@ filtro «sin traducir» puesto.
 La tabla se rellena cuando ``Session.textsReady`` dice que los CSV del disco ya están
 leídos (en segundo plano), y se refresca con ``textsChanged`` (ediciones, deshacer,
 recargas) conservando la fila seleccionada. Ningún widget lee ni escribe archivos.
+
+Coste con VSM (21 661 claves): cada pasada por todas las claves cuesta décimas en el
+hilo de la interfaz, así que se hace lo menos posible. Una página oculta no se refresca
+hasta mostrarse (las dos de la sala se refrescaban en cada edición); los recuentos
+(``pending_count``, ``LocEntriesProxy.counts``) se guardan mientras ``LocSync.entries()``
+devuelva la misma lista, que reutiliza mientras no cambia nada.
 """
 
 from __future__ import annotations
 
+import weakref
 from bisect import bisect_left
 
 from PySide6.QtCore import QAbstractTableModel, QModelIndex, Qt, QTimer, Signal
@@ -93,6 +100,26 @@ def origin_of(entry: LocEntry) -> str:
     return "override" if entry.overrides_game else "mod"
 
 
+# LocSync → (lista de entries() con la que se contó, idiomas, recuento). La clave es débil: cerrar el proyecto
+# suelta la LocSync y su lista; el valor no apunta a la LocSync.
+_PENDING_COUNTS: weakref.WeakKeyDictionary = weakref.WeakKeyDictionary()
+
+
+def pending_count(locsync) -> int:
+    """Claves del mod sin traducir a algún idioma del proyecto (el contador de «Pendientes de traducir»).
+
+    Se cuenta una vez por lista de ``entries()``: una edición avisaba tres veces y, con VSM, cada recuento recorría
+    las 21 661 claves."""
+    entries = locsync.entries()
+    languages = tuple(locsync.languages)
+    cached = _PENDING_COUNTS.get(locsync)
+    if cached is not None and cached[0] is entries and cached[1] == languages:
+        return cached[2]
+    count = sum(1 for entry in entries if entry.layer is LayerKind.MOD and locsync.untranslated(entry))
+    _PENDING_COUNTS[locsync] = (entries, languages, count)
+    return count
+
+
 class LocEntriesModel(QAbstractTableModel):
     """Las ``LocEntry`` efectivas; editables las columnas de idioma (``edit_requested`` con clave, idioma y texto).
 
@@ -112,7 +139,10 @@ class LocEntriesModel(QAbstractTableModel):
         self._accepted: bool | None = None
 
     def set_entries(self, entries: list[LocEntry]) -> bool:
-        """Sustituye las filas; True si cambió el conjunto de claves (se reinició el modelo)."""
+        """Sustituye las filas; True si cambió el conjunto de claves (se reinició el modelo). La misma lista (``LocSync``
+        la reutiliza si nada cambió) no hace nada."""
+        if entries is self.entries:
+            return False
         same = len(entries) == len(self.entries) and all(a.key == b.key for a, b in zip(entries, self.entries))
         if same:
             self.entries = entries
@@ -250,6 +280,7 @@ class LocEntriesProxy(QAbstractTableModel):
         self._filter = FILTER_ALL
         self._needle = ""
         self._haystack: list[str] | None = None
+        self._counts: tuple[list, object, dict[str, int]] | None = None   # (entries, pending_check, recuentos)
         source.modelAboutToBeReset.connect(self.beginResetModel)
         source.modelReset.connect(self._on_source_reset)
         source.dataChanged.connect(self._on_source_changed)
@@ -284,19 +315,25 @@ class LocEntriesProxy(QAbstractTableModel):
         return True
 
     def counts(self) -> dict[str, int]:
-        """Filas de cada filtro (sin la búsqueda), en una sola pasada."""
+        """Filas de cada filtro (sin la búsqueda), en una sola pasada; la misma lista de filas, el mismo recuento."""
+        entries, check = self.source.entries, self.source.pending_check
+        cached = self._counts
+        if cached is not None and cached[0] is entries and cached[1] == check:
+            return dict(cached[2])
         counts = dict.fromkeys((data for data, _ in FILTERS), 0)
-        check = self.source.pending_check
-        for entry in self.source.entries:
+        for entry in entries:
             counts[FILTER_ALL] += 1
             counts[FILTER_STUDIO] += entry.created_by_studio
             counts[FILTER_OVERRIDES] += entry.overrides_game
             counts[FILTER_DEGRADED] += entry.degraded
             if entry.layer is LayerKind.MOD and check is not None and check(entry):
                 counts[FILTER_UNTRANSLATED] += 1
-        return counts
+        self._counts = (entries, check, counts)
+        return dict(counts)
 
     def _visible(self) -> list[int]:
+        if self._filter == FILTER_ALL and not self._needle:
+            return list(range(len(self.source.entries)))
         rows = [i for i, entry in enumerate(self.source.entries) if self.matches(entry)]
         if self._needle:
             haystack = self._search_texts()
@@ -397,6 +434,7 @@ class TextsPage(BasePage):
 
     def build(self) -> None:
         self.exec_dialog = lambda dialog: dialog.exec()   # la ventana lo sustituye (y las pruebas)
+        self._stale = False   # oculta, los textos cambiaron: se refresca al mostrarse
         self._refresh_timer = QTimer(self)
         self._refresh_timer.setSingleShot(True)
         self._refresh_timer.setInterval(0)
@@ -499,16 +537,24 @@ class TextsPage(BasePage):
 
     # --- API -----------------------------------------------------------------------------------------
 
-    def refresh(self) -> None:
-        """Vuelve a leer los textos efectivos de ``LocSync`` conservando la celda seleccionada."""
+    def refresh(self, *, force: bool = False) -> None:
+        """Vuelve a leer los textos efectivos de ``LocSync`` conservando la celda seleccionada. Oculta, solo lo apunta
+        (``showEvent`` refresca): con VSM, cada refresco recorre 21 661 claves."""
         self._refresh_timer.stop()
         locsync = self.session.locsync
         ready = locsync is not None and self.session.texts_ready()
+        if ready and not force and not self.isVisible():
+            self._stale = True
+            return
+        self._stale = False
         self.model.editable = ready and not self.session.is_read_only()
         if locsync is not None:
             self.model.languages = tuple(locsync.languages)
             self.model.pending_check = locsync.untranslated
             self.model.prefix = locsync.prefix
+        else:
+            self.model.pending_check = None   # que la página no retenga la LocSync del proyecto cerrado
+            self.model.prefix = ""
         current = self._current_key()
         column = max(self.table.currentIndex().column(), 0)
         entries = locsync.entries() if ready else []
@@ -517,6 +563,16 @@ class TextsPage(BasePage):
             self.select_key(current, column, scroll=False, reveal=False)
         self._update_state()
         self._retranslate_hint()
+
+    def showEvent(self, event) -> None:
+        super().showEvent(event)
+        if self._stale:
+            self.refresh()
+
+    def _ensure_fresh(self) -> None:
+        """Antes de buscar una clave o escribir: la tabla, al día aunque la página no se haya mostrado aún."""
+        if self._stale:
+            self.refresh(force=True)
 
     def _retranslate_hint(self) -> None:
         locsync = self.session.locsync
@@ -528,6 +584,8 @@ class TextsPage(BasePage):
         la ocultaban, los quita; sin él (al refrescar), deja la vista como está."""
         if isinstance(column, str):
             column = COLUMNS.index(column)
+        if reveal:
+            self._ensure_fresh()
         source = self.model.row_of(key)
         if source is None:
             return False
@@ -551,6 +609,7 @@ class TextsPage(BasePage):
         return True
 
     def visible_keys(self) -> list[str]:
+        self._ensure_fresh()
         return [self.model.entries[self.proxy.source_row(row)].key for row in range(self.proxy.rowCount())]
 
     def set_text(self, key: str, lang: str, text: str) -> bool:
@@ -558,6 +617,7 @@ class TextsPage(BasePage):
         locsync = self.session.locsync
         if locsync is None or self.session.project is None:
             return False
+        self._ensure_fresh()
         try:
             with self.session.edit(LABEL_EDIT, key=key, lang=ENDONYMS.get(lang, lang)):
                 rel = locsync.set_text(key, lang, text)
@@ -594,11 +654,14 @@ class TextsPage(BasePage):
         try:
             with self.session.edit(LABEL_ADD, key=key):
                 locsync.ensure({key: texts}, area=area)
-        except (InvalidFieldError, UnencodableTextError) as exc:
-            self.request_status("texts.status_invalid", error=exc.message(core_language())
-                         if isinstance(exc, InvalidFieldError) else str(exc))
+        except InvalidFieldError as exc:
+            self.request_status("texts.status_invalid", error=exc.message(core_language()))
             return 0
-        self.refresh()
+        except UnencodableTextError as exc:   # el diálogo ya lo impide; el mensaje, en el idioma de la interfaz
+            char = exc.problems[0][3]
+            self.request_status("texts.status_unencodable", char=char, code=f"U+{ord(char):04X}")
+            return 0
+        self.refresh(force=True)
         self.select_key(key, "es" if "es" in texts else "en")
         self.request_status("texts.status_added", name=key, file=str(locsync.target_file(area)))
         return result
@@ -638,8 +701,11 @@ class TextsPage(BasePage):
     def _update_state(self) -> None:
         session = self.session
         # Los textos del estado vacío se ponen siempre, se vea o no: oculto también cambia de idioma.
+        error = session.texts_error() if session.project is not None else None
         if session.project is None:
             self.empty.set_texts(tr("texts.empty_no_project_title"), tr("texts.empty_no_project"))
+        elif error is not None:
+            self.empty.set_texts(tr("texts.failed_title"), tr("texts.failed", error=error))
         else:
             self.empty.set_texts(tr("texts.loading_title"), tr("texts.loading"))
         ready = session.project is not None and session.locsync is not None and session.texts_ready()

@@ -11,7 +11,13 @@ Los ``.csv`` de ``localisation/`` se abren en la página de Localización: al ha
 clic en ellos (o con Intro / doble clic) se emite ``csv_requested(Path, línea |
 None)``. Con el teclado, moverse por encima de un CSV solo muestra su ficha, para
 que recorrer ``localisation/`` con las flechas no cambie de página a cada paso. Los
-demás CSV (``map/definition.csv``…) no son de localización y muestran su ficha.
+demás CSV (``map/definition.csv``…) no son de localización y muestran su ficha; abiertos
+en una línea (Ctrl+K «549», un problema), el extracto de la ficha son las
+``EXCERPT_LINES`` líneas que la rodean, con su numeración y esa línea marcada y centrada
+(no las primeras: la provincia 549 está en la línea 550). Se eligió esto, y no un visor
+de código del archivo entero, porque la ficha ya lee solo los primeros ``MAX_SCAN_BYTES``
+en el hilo de la interfaz y el extracto acota lo que se maqueta (cualquier tamaño de
+archivo cuesta lo mismo).
 
 Con el teclado la vista previa espera a que la selección se asiente
 (``SELECTION_DELAY_MS``) para no analizar cada archivo por el que se pasa; con el
@@ -63,7 +69,6 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QMenu,
-    QPlainTextEdit,
     QPushButton,
     QScrollArea,
     QSizePolicy,
@@ -96,6 +101,7 @@ from ...i18n import N_, tr, translator
 from ...settings import app_settings
 from .. import theme
 from ..viewers import CLAUSEWITZ_SUFFIXES, IMAGE_SUFFIXES, ClausewitzViewer, ImageViewer, ValidationPanel
+from ..viewers.code_view import CodeView, display_text
 from ..viewers.common import ElidedLabel, file_stamp, format_seconds, format_size
 from ..widgets import (
     Divider,
@@ -150,6 +156,7 @@ ENCODING_KEYS = {
 }
 MAX_SCAN_BYTES = 2 * 1024 * 1024
 EXCERPT_LINES = 160
+_LINE_RE = re.compile(r"\r\n|\r|\n")   # los saltos del juego y del índice (``str.splitlines`` parte en más)
 
 PREVIEW_CLAUSEWITZ, PREVIEW_IMAGE, PREVIEW_CSV = "clausewitz", "image", "csv"
 
@@ -198,6 +205,8 @@ class FileFacts:
     excerpt: str | None = None
     partial: bool = False
     stamp: tuple[int, int] | None = None  # ``file_stamp`` al leerlo: si cambia, la ficha está desfasada
+    excerpt_first: int = 1                # número de la primera línea del extracto
+    focus_line: int | None = None         # la línea pedida, si está en el extracto
 
 
 def relative_text(path: Path, root: Path | None) -> str:
@@ -208,8 +217,9 @@ def relative_text(path: Path, root: Path | None) -> str:
         return path.as_posix()
 
 
-def gather_facts(path: Path, root: Path | None) -> FileFacts:
-    """Metadatos de la ficha; de los archivos de texto, también la codificación y un extracto."""
+def gather_facts(path: Path, root: Path | None, line: int | None = None) -> FileFacts:
+    """Metadatos de la ficha; de los archivos de texto, también la codificación y un extracto: las primeras
+    ``EXCERPT_LINES`` líneas o, si se pide ``line``, las que la rodean (``excerpt_first``, ``focus_line``)."""
     relative = relative_text(path, root)
     stat = path.stat()
     stamp = stat.st_mtime_ns, stat.st_size  # como ``file_stamp``
@@ -231,7 +241,15 @@ def gather_facts(path: Path, root: Path | None) -> FileFacts:
         decoded = decode_bytes(data, partial=facts.partial)
         facts.encoding = decoded.encoding
         facts.lines = count_lines(decoded.text)
-        facts.excerpt = "\n".join(decoded.text.splitlines()[:EXCERPT_LINES])
+        lines = _LINE_RE.split(decoded.text)
+        if lines and lines[-1] == "":
+            lines.pop()   # el salto final no abre otra línea
+        first = 1
+        if line is not None and 1 <= line <= len(lines):
+            first = max(1, min(line - EXCERPT_LINES // 2, len(lines) - EXCERPT_LINES + 1))
+            facts.focus_line = line
+        facts.excerpt_first = first
+        facts.excerpt = "\n".join(lines[first - 1:first - 1 + EXCERPT_LINES])
     return facts
 
 
@@ -597,13 +615,10 @@ class FilePreview(QWidget):
         self.excerpt_caption.setProperty("role", "caption")
         self.excerpt_caption.setFont(theme.font("caption"))
         column.addWidget(self.excerpt_caption)
-        self.excerpt = QPlainTextEdit()
+        # Con números de línea: abierto en una línea (Ctrl+K «549»), el extracto la rodea y la marca.
+        self.excerpt = CodeView()
         self.excerpt.setObjectName("previewExcerpt")
-        self.excerpt.setReadOnly(True)
-        self.excerpt.setFont(theme.font("mono"))
-        self.excerpt.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
         self.excerpt.setMinimumHeight(140)
-        mark_data(self.excerpt)
         column.addWidget(self.excerpt, 1)
         self.note = QLabel()
         self.note.setProperty("role", "caption")
@@ -623,6 +638,7 @@ class FilePreview(QWidget):
         scroll.setWidget(details)
         self.stack.addWidget(scroll)
         self.details = details
+        self.details_scroll = scroll
 
     def show_facts(self, facts: FileFacts | None) -> None:
         self.facts = facts
@@ -637,11 +653,23 @@ class FilePreview(QWidget):
         name = facts.path.name or facts.relative  # la fila «Ruta» lo lleva entero
         self.name.set_text(name, name)
         self.csv_button.setVisible(not facts.is_dir and preview_kind(facts.path) == PREVIEW_CSV)
-        self.excerpt.setPlainText(facts.excerpt or "")
+        self.excerpt.set_source(display_text(facts.excerpt or ""), highlight=False, first_line=facts.excerpt_first)
+        if facts.focus_line is not None:
+            self.excerpt.go_to_line(facts.focus_line)
         self.excerpt.setVisible(facts.excerpt is not None)
         self.excerpt_caption.setVisible(facts.excerpt is not None)
         self.details_stretch.setVisible(facts.excerpt is None)
         self.retranslate()
+        if facts.focus_line is not None:
+            # Con poca altura la ficha se desplaza: que el extracto, con su línea, quede a la vista.
+            self.details_scroll.ensureWidgetVisible(self.excerpt, 0, 0)
+
+    def shown_line(self) -> int | None:
+        """La línea marcada en el extracto (la pedida al abrir), o None."""
+        facts = self.facts
+        if facts is None or facts.focus_line is None or not self.excerpt.isVisible():
+            return None
+        return self.excerpt.current_line()
 
     def retranslate(self) -> None:
         self.empty.set_texts(tr("project.preview.empty_title"), tr("project.preview.empty_text"))
@@ -670,7 +698,12 @@ class FilePreview(QWidget):
         for row_id, value in values.items():
             self.form.setRowVisible(self.form_values[row_id], value is not None)
             self.form_values[row_id].setText(value or "")
-        self.excerpt_caption.setText(tr("project.preview.excerpt", count=EXCERPT_LINES))
+        if facts.focus_line is not None and facts.excerpt is not None:
+            last = facts.excerpt_first + max(facts.excerpt.count("\n"), 0)
+            self.excerpt_caption.setText(tr("project.preview.excerpt_at", first=locale.toString(facts.excerpt_first),
+                                            last=locale.toString(last), line=locale.toString(facts.focus_line)))
+        else:
+            self.excerpt_caption.setText(tr("project.preview.excerpt", count=EXCERPT_LINES))
         self.note.setText(tr("project.preview.note"))
 
     def _on_csv_clicked(self) -> None:
@@ -1014,6 +1047,18 @@ class ProjectPage(BasePage):
         self._show_preview(path, line=line, column=column, tab=tab)
         return True
 
+    def shown_location(self) -> tuple[Path, int | None] | None:
+        """(archivo, línea con el cursor) de lo que muestra la vista previa: el script cargado o la ficha (con la
+        línea marcada en su extracto, si se abrió en una); None si no hay archivo a la vista. Para las pruebas del
+        criterio 7 de la iteración 3."""
+        widget = self.preview_stack.currentWidget()
+        if widget is self.clausewitz_viewer:
+            load = self.clausewitz_viewer.current_load()
+            return None if load is None else (load.path, self.clausewitz_viewer.code.current_line())
+        if widget is self.preview and self.preview.facts is not None and not self.preview.facts.is_dir:
+            return self.preview.facts.path, self.preview.shown_line()
+        return None
+
     def validate_mod(self) -> bool:
         """Valida en segundo plano el mod (y su descriptor .mod); ``False`` si no hay mod válido."""
         self._validate()  # la carpeta y el descriptor pueden haber cambiado desde que se eligió el mod
@@ -1219,11 +1264,11 @@ class ProjectPage(BasePage):
             self.image_viewer.load(path, root=root)
         else:
             try:
-                facts = gather_facts(path, self._explorer_root)
+                facts = gather_facts(path, self._explorer_root, line=line)
             except OSError:
                 facts = None
-            self.preview.show_facts(facts)
             self.set_preview_widget(None)
+            self.preview.show_facts(facts)   # ya a la vista: el extracto se cuelga y va a su línea en el acto
         self._preview_path = path
 
     def _on_application_state(self, state: Qt.ApplicationState) -> None:

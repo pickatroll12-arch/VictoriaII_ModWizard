@@ -153,6 +153,24 @@ class SpecificTests(unittest.TestCase):
         self.assertEqual(explanation.steps[0].excerpt, "annex")
         self.assertIn("annex", explanation.outcome("es"))
 
+    def test_a_tag_no_province_uses_does_not_say_empty_parentheses(self):
+        """Integración de la revisión it3: sin provincias que lo nombren, la frase decía «… dueño o núcleo ()»."""
+        history = {"history/countries/EEE - Esland.txt": "capital = 1\r\nprimary_culture = alander\r\n"}
+        owned = {**history, "history/provinces/north/1 - Capital.txt": "owner = EEE\r\nadd_core = EEE\r\n"}
+        for files, key, shows in ((history, "explain.outcome.tag_not_registered_no_provinces", None),
+                                  (owned, "explain.outcome.tag_not_registered", "(1)")):
+            with self.subTest(provinces=shows), build_minigame(mod=False, mod_files=files) as game:
+                ctx = context(game)
+                [problem] = found(ctx, "tag_not_registered")
+                explanation = explain(problem, ctx)
+                self.assertEqual(explanation.outcome_key, key)
+                for lang in ("es", "en"):
+                    outcome = explanation.outcome(lang)
+                    self.assertNotIn("()", outcome)
+                    self.assertNotIn("{", outcome)
+                    if shows:
+                        self.assertIn(shows, outcome)
+
     def test_a_failing_explainer_falls_back_to_the_generic_one(self):
         with build_minigame(mod=False, mod_files=ESLAND) as game:
             ctx = context(game)

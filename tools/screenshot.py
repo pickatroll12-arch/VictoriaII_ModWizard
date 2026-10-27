@@ -50,7 +50,11 @@ Iteración 3: ``--demo-index`` abre la sesión con el índice, la validación y 
 de demostración (los falsos de ``tests/_fake_index.py``, con sus textos ES/EN), para
 capturar Validación y Ctrl+K aunque el núcleo aún no los tenga. ``--check`` valida con el
 validador del núcleo (Proyecto › Validación, F7) y espera el informe; ``--explain N``
-además abre el explicador del problema N de la tabla (empezando en 0). ``--palette TEXTO``
+además abre el explicador del problema N de la tabla (empezando en 0) y espera a que llegue
+(se explica en segundo plano); ``--report`` dice en ``checks.explainer_layout`` lo que se
+vería mal en él (vacío si nada: veredictos, alto de las capas, frase final) y, en
+``checks.explainer_shots``, lo mismo para cada captura en que se ve (por idioma: el estado
+final ya puede estar en otra sala); si algo se ve mal se avisa en stderr. ``--palette TEXTO``
 abre Ctrl+K con ese texto en cada captura (``<lang>_<n>_<sala>_palette.png``).
 ``--texts-search`` y ``--texts-filter`` (``all``, ``studio``, ``untranslated``,
 ``overrides``, ``degraded``) preparan Textos › Todos los textos.
@@ -270,6 +274,9 @@ def iteration3_state(window) -> dict:
             "state": session.validation_state(), "shown": checks.model.rowCount(),
             "own": len(report.visible()), "inherited": report.inherited_count(),
             "explained": checks.explainer.title.text() if checks.explainer.isVisible() else None,
+            # Lo que se vería mal en el explicador (veredictos fuera, capas sin su alto, frase cortada…): vacío si nada.
+            "explainer_layout": checks.explainer.layout_problems() if checks.explainer.isVisible() else None,
+            "stale": session.report_stale(),
         },
         "texts": None if not session.texts_ready() else {
             "rows": len(texts.model.entries), "visible": texts.proxy.rowCount(), "filter": texts.proxy.filter(),
@@ -420,6 +427,9 @@ def _prepare_iteration3(app, window, args: argparse.Namespace) -> str | None:
             page.view.setCurrentIndex(page.model.index(args.explain, 0))
             if not page.show_explanation():
                 return "no se pudo abrir el explicador"
+            settle(app, window)   # se explica en segundo plano: settle espera a la sesión
+            if not page.explainer.isVisible():
+                return f"el explicador no llegó a mostrarse: {window.status_label.text()}"
         settle(app, window)
     if args.texts_search is not None or args.texts_filter:
         page = window.page("localisation:all")
@@ -522,6 +532,8 @@ def _run(args: argparse.Namespace) -> int:
 
     args.out.mkdir(parents=True, exist_ok=True)
     width, height = args.size
+    explainer = window.page("project:validation").explainer
+    explainer_shots: dict[str, list[str]] = {}
     for code in lang_list:
         set_language(code)
         for key, name in shots:
@@ -536,6 +548,10 @@ def _run(args: argparse.Namespace) -> int:
                 print(f"no se pudo guardar {target}", file=sys.stderr)
                 return 1
             print(target)
+            if args.explain is not None and explainer.isVisible():
+                problems = explainer_shots[target.name] = explainer.layout_problems()
+                for problem in problems:
+                    print(f"aviso: el explicador de {target.name} se ve mal: {problem}", file=sys.stderr)
         for name in args.dialog:
             dialog = dialog_for(window, name)
             if name == "save_review":  # el diff aprovecha el sitio; los demás tienen su tamaño
@@ -551,7 +567,10 @@ def _run(args: argparse.Namespace) -> int:
                 return 1
             print(target)
     if args.report:
-        args.report.write_text(json.dumps(window_state(window), ensure_ascii=False, indent=2), encoding="utf-8")
+        state = window_state(window)
+        if state["checks"] is not None:
+            state["checks"]["explainer_shots"] = explainer_shots
+        args.report.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
     window.ask_unsaved = lambda: "discard"  # las capturas nunca guardan lo que hayan cambiado
     window.close()
     return 0

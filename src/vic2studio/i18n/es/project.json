@@ -152,5 +152,5 @@
   "section.project.home": "Inicio",
   "section.project.pending": "Cambios pendientes",
   "section.project.validation": "Validación",
-  "section.project.validation.intro": "La validación del mod con las reglas del juego y una línea base: lo que ya falla en el juego base sale como heredado y no cuenta"
+  "section.project.validation.intro": "La validación del mod con las reglas del juego y una línea base: lo que ya falla en el juego base o en las dependencias sale como heredado y no cuenta"
 }

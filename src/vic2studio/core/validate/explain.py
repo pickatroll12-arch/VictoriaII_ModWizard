@@ -84,8 +84,12 @@ def _keys(code: str) -> tuple[str, str]:
 
 
 def _explanation(problem: Problem, steps: list[ExplainStep], *, max_steps: int = MAX_STEPS,
-                 **extra) -> Explanation:
+                 outcome_variant: str | None = None, **extra) -> Explanation:
+    """``outcome_variant``: la frase ``explain.outcome.<código>_<variante>`` en vez de la del código (cuando la de
+    siempre no encaja, como un TAG que no usa ninguna provincia)."""
     title, outcome = _keys(problem.code)
+    if outcome_variant is not None:
+        outcome = f"explain.outcome.{problem.code}_{outcome_variant}"
     args = {k: v for k, v in problem.args.items() if k != "source"}
     args.setdefault("rel", str(problem.rel) if problem.rel is not None else "")
     args.update(extra)
@@ -210,7 +214,9 @@ def _tag_not_registered(problem: Problem, ctx: ValidationContext) -> Explanation
     provinces = sorted({r.rel.name.split(" ")[0].split("-")[0].strip() for r in uses}, key=_numeric)
     for ref in first_use.values():
         steps.append(_step_at(ctx, ref.rel, ref.line, VERDICT_MISSING))
-    return _explanation(problem, steps, max_steps=len(steps), tag=tag, flags=len(flags),
+    # Sin provincias que lo nombren, la frase de siempre decía «… dueño o núcleo ()».
+    variant = None if provinces or problem.code != "tag_not_registered" else "no_provinces"
+    return _explanation(problem, steps, max_steps=len(steps), outcome_variant=variant, tag=tag, flags=len(flags),
                         provinces=", ".join(provinces), uses=len(uses))
 
 

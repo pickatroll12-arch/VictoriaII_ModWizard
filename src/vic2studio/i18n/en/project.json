@@ -152,5 +152,5 @@
   "section.project.home": "Home",
   "section.project.pending": "Pending changes",
   "section.project.validation": "Validation",
-  "section.project.validation.intro": "Validation of the mod against the game's rules with a baseline: whatever already fails in the base game shows as inherited and does not count"
+  "section.project.validation.intro": "Validation of the mod against the game's rules with a baseline: whatever already fails in the base game or the dependencies shows as inherited and does not count"
 }

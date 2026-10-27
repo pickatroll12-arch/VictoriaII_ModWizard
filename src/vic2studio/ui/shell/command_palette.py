@@ -7,8 +7,10 @@ ventana aparte: sale en las capturas y no depende del gestor de ventanas). Busca
 y secciones. Cada resultado muestra el icono y el nombre de su tipo, el nombre para
 mostrar (``Session.display``: «Prusia (PRU)»), el id, el archivo y la línea, y su
 origen (juego base o mod). Intro abre el archivo en esa línea (``symbol_activated``;
-desde la iteración 4, el editor de la entidad); Mayús+Intro, el código
-(``code_requested``); una sección, la sección (``section_activated``). Esc cierra.
+desde la iteración 4, el editor de la entidad; una clave de texto, en Textos);
+Mayús+Intro, el código (``code_requested``: el archivo en su línea, y una clave de
+texto, su CSV en su línea); una sección, la sección (``section_activated``). Esc
+cierra y devuelve el foco a donde estaba al abrirla.
 """
 
 from __future__ import annotations
@@ -26,6 +28,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from shiboken6 import isValid
 
 from ...core.index import model as kinds
 from ...core.index.model import fold, short_name
@@ -158,6 +161,7 @@ class CommandPalette(QFrame):
         self._timer.setInterval(SEARCH_DELAY_MS)
         self._timer.timeout.connect(self.search)
         self._results: list[PaletteResult] = []
+        self._return_focus: QWidget | None = None   # dónde estaba el foco al abrirla (Esc lo devuelve)
         self.hide()
         app = QApplication.instance()
         app.focusChanged.connect(self._on_focus_changed)
@@ -169,6 +173,9 @@ class CommandPalette(QFrame):
 
     def open(self, text: str = "") -> None:
         """Muestra la paleta arriba en el centro de la ventana, con ``text`` buscado y el foco en el buscador."""
+        focus = QApplication.focusWidget()
+        if focus is not None and focus is not self and not self.isAncestorOf(focus):
+            self._return_focus = focus
         self.place()
         self.show()
         self.raise_()
@@ -177,9 +184,14 @@ class CommandPalette(QFrame):
         self.edit.setFocus(Qt.FocusReason.ShortcutFocusReason)
         self.search()
 
-    def close_palette(self) -> None:
+    def close_palette(self, *, restore_focus: bool = False) -> None:
+        """Cierra la paleta. Con ``restore_focus`` (Esc) el foco vuelve a donde estaba al abrirla; al elegir un
+        resultado no, porque el resultado lleva a otra sección."""
         if self.isVisible():
+            back, self._return_focus = self._return_focus, None
             self.hide()
+            if restore_focus and back is not None and isValid(back) and back.isVisible() and back.isEnabled():
+                back.setFocus(Qt.FocusReason.OtherFocusReason)
             self.closed.emit()
 
     def results(self) -> list[PaletteResult]:
@@ -278,7 +290,7 @@ class CommandPalette(QFrame):
         if event.type() == QEvent.Type.KeyPress and watched in (self.edit, self.list):
             key = event.key()
             if key == Qt.Key.Key_Escape:
-                self.close_palette()
+                self.close_palette(restore_focus=True)
                 return True
             if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
                 if self._timer.isActive():
