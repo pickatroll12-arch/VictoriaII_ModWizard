@@ -70,6 +70,15 @@ arreglarlo, deja una prueba de regresión que falle sin el arreglo y pasa la bat
   Los encargos de los dos agentes son `docs/handoff/iteracion3_agente_A.md` (núcleo) y `…_agente_B.md`
   (`LocSync` e interfaz). Si la sesión se corta, mira qué ramas de agente quedaron en `.claude/worktrees/` antes
   de relanzarlos.
+- **Gemini, segunda tanda (G4–G7, en curso).** Son piezas del núcleo para iteraciones futuras, en archivos nuevos
+  que nadie más toca:
+  - G4: `core/tablecsv.py` y `core/map/definition.py`;
+  - G5: el códec BMP, `core/map/bmp.py`;
+  - G6: DDS A8R8G8B8, `core/gfx/dds.py`;
+  - G7: banderas TGA, `core/gfx/flags.py`.
+
+  El encargo es `docs/handoff/PARA_GEMINI.md`. Llegan como ramas `gemini/g4`…`g7`, con un PR contra esta rama.
+  Revísalas de forma adversarial (mutaciones, corpus, las 4 combinaciones) antes de fusionarlas.
 
 ---
 

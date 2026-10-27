@@ -1,69 +1,301 @@
 # Tareas para Gemini (ayuda en paralelo)
 
-> **Estado (27-10-2026): las tres entregadas e integradas.** Gemini las subió como `gemini/g1`, `gemini/g2` y
-> `gemini/g3`, y el usuario las fusionó en `main` (PR #7, #8 y #9). Claude las revisó: mutaciones propias
-> detectadas (8 de 8), `find_unencodable` sin discrepancias contra una referencia en 28 000 textos aleatorios con
-> 7 codificaciones y 12 veces más rápida que antes, pruebas de control más estrictas y batería completa con el
-> corpus real y con Python 3.13, 3.10 y PySide6 6.5.0 (999 OK). Única desviación: `DescriptorFieldError` admite
-> ahora un `params` posicional (compatible con todos los llamadores). Claude completó los dos errores de
-> `core/vfs` que la tarea G3 dejaba para él. Este documento queda como modelo de encargo.
+> **Estado (27-10-2026).**
+> - **Primera tanda (G1–G3): entregada e integrada.** Gemini la subió como `gemini/g1`, `gemini/g2` y `gemini/g3`,
+>   el usuario la fusionó en `main` (PR #7, #8 y #9) y Claude la revisó: 8 de 8 mutaciones detectadas,
+>   `find_unencodable` 12 veces más rápida y sin discrepancias en 28 000 textos aleatorios, y la batería completa
+>   en verde. Sus encargos siguen abajo como modelo.
+> - **Segunda tanda (G4–G7): en curso.** Cuatro piezas del núcleo para iteraciones futuras (mapa, interfaz y
+>   banderas), en archivos nuevos que nadie más toca.
 
-Este documento reparte trabajo de **Victoria II Mod Studio** con otro asistente mientras Claude Code cierra la
-revisión adversarial de la iteración 2. Las tres tareas son independientes entre sí y de lo que Claude está
-cambiando ahora. Cada una dice qué tocar, qué no tocar, cómo probar y qué entregar. Léelas enteras antes de
-empezar: los requisitos de las pruebas son tan obligatorios como los del código.
+Este documento reparte trabajo de **Victoria II Mod Studio** con otro asistente. Ahora mismo Claude Code está en la
+iteración 3 con dos agentes (A: índice de símbolos y validación, en `core/index`, `core/validate` y `core/rules`; B:
+localización editable e interfaz, en `core/locsync.py` y `ui/`). Las tareas de la segunda tanda son
+independientes entre sí y de lo que hacen ellos. Cada una dice qué crear, cómo probar y qué entregar. Léelas
+enteras antes de empezar: los requisitos de las pruebas son tan obligatorios como los del código.
 
 ## Contexto mínimo
 
 - Repositorio: `pickatroll12-arch/VictoriaII_ModWizard`, rama de trabajo `claude/keen-fermi-nw8itc`. Aplicación
   de escritorio en **Python 3.10+ y PySide6** para crear mods de Victoria II (motor Clausewitz).
-- Lee antes `CONTINUAR_EN_CLAUDE_CODE.md` §2 (decisiones y convenciones) y, si hace falta, `ARCHITECTURE.md`.
-- `src/vic2studio/core/` es Python puro: **nunca** importa PySide6. La interfaz está en `src/vic2studio/ui/`.
+- Lee antes `CONTINUAR_EN_CLAUDE_CODE.md` §2 (decisiones y convenciones) y, de `docs/diseno/wizard.md`, la §2 (los
+  hechos del corpus H1, H4, H8, H22 y H23), la §3 (invariantes, sobre todo I3: sin pérdidas) y las secciones que
+  cite cada tarea.
+- `src/vic2studio/core/` es Python puro: **nunca** importa PySide6. Puede usar numpy y Pillow (dependencias del
+  proyecto: `numpy>=1.24`, `Pillow>=10`).
 
 ## Reglas comunes (obligatorias)
 
 1. **Convenciones.** Identificadores en inglés; docstrings y comentarios en español, concisos y en el mismo
-   estilo que el código de alrededor. Código compatible con **Python 3.10** (nada de `TestCase.enterContext`,
-   `tomllib`, `ExceptionGroup`, `typing.Self`…) y con la API de **Qt 6.5**. Pruebas con `unittest`. Líneas de
-   120 caracteres como máximo.
+   estilo que el código de alrededor (mira `src/vic2studio/core/encoding.py` o `core/vfs/model.py`). Código
+   compatible con **Python 3.10** (nada de `TestCase.enterContext`, `tomllib`, `ExceptionGroup`,
+   `typing.Self`…). Pruebas con `unittest`. Líneas de 120 caracteres como máximo.
 2. **Cómo empieza un archivo de pruebas.** Copia el preámbulo de las pruebas que ya existen (por ejemplo
-   `tests/test_encoding.py` o `tests/test_ui_counts.py`):
+   `tests/test_encoding.py`):
    - `sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))` antes de importar `vic2studio`;
-   - si el archivo importa algo de `vic2studio.ui` o de PySide6, `import _qt` **antes** (pone la plataforma
-     `offscreen` y aísla preferencias y carpetas de datos);
    - los ayudantes de `tests/` se importan por su nombre (`from _corpus import vanilla_root`), nunca como
-     `tests._corpus`: `tests/` no es un paquete.
+     `tests._corpus`: `tests/` no es un paquete;
+   - ninguna de estas tareas necesita Qt: no importes `_qt` ni PySide6.
+
    Cada archivo nuevo tiene que pasar **de las dos maneras**: con la batería entera desde la raíz y solo, desde
    `tests/`:
    ```bash
    QT_QPA_PLATFORM=offscreen python3 -m unittest discover -s tests
-   cd tests && QT_QPA_PLATFORM=offscreen python3 -m unittest test_<tu_archivo>
+   cd tests && python3 -m unittest test_<tu_archivo>
    ```
-3. **Escrituras.** Solo `src/vic2studio/core/fileio.py` escribe archivos en crudo (`tests/test_arch_writes.py` lo
-   comprueba). Las pruebas escriben en carpetas temporales.
-4. **Datos de Paradox.** Nunca copies al repositorio líneas ni archivos del juego (ni en código, ni en pruebas, ni
-   en documentos). El corpus vive fuera del repositorio.
-5. **Prueba de regresión.** Cada arreglo lleva una prueba que **falla sin el arreglo** y pasa con él. Compruébalo
-   deshaciendo el arreglo (mutación) y di en la entrega qué deshiciste y qué prueba falló.
-6. **Datos realistas.** Las pruebas construyen los objetos como los construye el código de verdad (rutas
-   `VPath.of(...)`, `Issue` salidos de `descriptor_problems`, `SaveProblem` del núcleo…), no con clases de
-   imitación definidas en la prueba: un doble de prueba puede pasar donde el objeto real falla.
-7. **Batería completa** antes de entregar (regla 2). Hoy da 978 pruebas OK (4 omitidas sin corpus). Con el corpus
-   (variable `VIC2_CORPUS`, rutas separadas por `:`; en Windows `;`), 978 sin omitidas. El corpus está en la
+3. **Sin escrituras a disco.** Estos módulos convierten bytes en datos y datos en bytes: `to_bytes`/`write_*`
+   **devuelven** `bytes`, nunca escriben archivos. Solo `src/vic2studio/core/fileio.py` escribe en crudo, y lo
+   comprueba `tests/test_arch_writes.py`; el guardado del proyecto escribe lo que tú devuelves. Las pruebas que
+   necesiten archivos usan carpetas temporales.
+4. **Datos de Paradox.** Nunca copies al repositorio archivos, líneas, píxeles ni paletas del juego: ni en código,
+   ni en pruebas, ni en documentos. Las pruebas construyen sus datos de forma sintética (con numpy, Pillow o bytes
+   escritos a mano). El corpus vive fuera del repositorio, y las pruebas que lo leen se saltan si no está.
+   `tests/test_no_paradox_data.py` vigila que ninguna línea de vanilla acabe en el repositorio.
+5. **Prueba de regresión y mutaciones.** Cada comportamiento importante tiene una prueba que **falla si se
+   rompe**. Compruébalo rompiéndolo a propósito (mutación) y di en la entrega qué rompiste y qué prueba falló.
+6. **Datos realistas.** Prueba con los casos difíciles de verdad (anchos impares, filas con relleno, saltos de
+   línea mezclados, valores raros como `223.`), no solo con el caso feliz.
+7. **Ida y vuelta exacta.** Donde la tarea pide «sin pérdidas», `to_bytes(from_bytes(b)) == b` **byte a byte**
+   para cualquier entrada válida, también con el corpus real. Es el invariante I3 del proyecto.
+8. **Batería completa** antes de entregar (regla 2). Hoy da 1094 pruebas OK (5 omitidas sin corpus). Con el
+   corpus (variable `VIC2_CORPUS`, rutas separadas por `:`; en Windows `;`), ninguna omitida. El corpus está en la
    release `recursos-v1` del repositorio; cómo descomprimirlo **fuera del repositorio** lo explica
-   `CONTINUAR_EN_CLAUDE_CODE.md` §4, «Corpus». Las pruebas de «latido» miden pausas de la interfaz: en una
-   máquina cargada pueden fallar; repítelas solas antes de darlas por rotas.
-8. **No toques** estos archivos, que Claude está cambiando ahora: `src/vic2studio/core/vfs/**`,
-   `src/vic2studio/core/project/journal.py`, `recovery.py`, `project.py`, `src/vic2studio/ui/session.py`,
-   `src/vic2studio/ui/main_window.py`, `tests/test_arch_writes.py` y `tests/_fake_project.py`. Si una tarea te
-   obliga a tocarlos, para y dilo en la entrega.
-9. **Entrega.** Un parche por tarea contra la punta de la rama `claude/keen-fermi-nw8itc` (`git format-patch` o
-   `git diff`, con los archivos nuevos incluidos), o una rama `gemini/<tarea>` si puedes empujar. Añade un
-   resumen en español: qué cambiaste, qué mutaciones hiciste y qué prueba falló con cada una, las medidas que
-   pide la tarea y el resultado de la batería (de las dos maneras de la regla 2). Claude lo integrará, lo revisará
-   de forma adversarial y pasará la batería con Python 3.13, 3.10 y PySide6 6.5.0, también con el corpus.
+   `CONTINUAR_EN_CLAUDE_CODE.md` §4, «Corpus». Las pruebas de «latido» miden pausas de la interfaz: en una máquina
+   cargada pueden fallar; repítelas solas antes de darlas por rotas.
+9. **Archivos.** **Solo creas** los archivos que nombra tu tarea; **no modifiques ningún archivo existente**
+   (tampoco `pyproject.toml`, `requirements.txt`, `tests/_corpus.py`, `tests/_minigame.py` ni
+   `tests/test_arch_writes.py`). Si una tarea te obliga a tocar algo existente, para y dilo en la entrega.
+10. **Entrega.** Una rama por tarea, `gemini/g4`…`gemini/g7`, creada desde la punta actual de
+    `claude/keen-fermi-nw8itc`, con un pull request **contra `claude/keen-fermi-nw8itc`** (no contra `main`).
+    Claude la revisará de forma adversarial y la integrará él mismo: no hace falta fusionarla. Si no puedes
+    empujar, un parche por tarea (`git format-patch`, con los archivos nuevos incluidos).
+
+    En la descripción, un resumen en español con:
+    - qué hiciste;
+    - qué mutaciones hiciste y qué prueba falló con cada una;
+    - las medidas que pide la tarea;
+    - el resultado de la batería, de las dos maneras de la regla 2, sin y con corpus.
 
 ---
+
+## G4. Tablas `;` sin pérdidas y `definition.csv` (wizard.md §4.1, §6.1, §16.1 y H4)
+
+**Por qué.** `map/definition.csv` (id → color de provincia) y `map/adjacencies.csv` son tablas separadas por `;`.
+El Studio tiene que leerlas, cambiar una fila y escribirlas sin tocar nada más (iteración 5, editor de mapa).
+El formato real es irregular:
+
+- la cabecera `province;red;green;blue;x;x`;
+- 3 248 filas con id y 56 filas sin id al final;
+- valores como `1825;208;17;223.;Zouar;x`, con el `223.` que el motor lee como 223 (al estilo `atoi`);
+- `adjacencies.csv` empieza con líneas de comentario `#From;To;Type;Through;Data;Comment`, `#` y `# American
+  Straits`.
+
+**Qué crear.**
+
+1. `src/vic2studio/core/tablecsv.py`, la tabla genérica:
+   - `Table.from_bytes(data)` detecta la codificación con `vic2studio.core.encoding.decode_bytes`; los archivos
+     del juego están en cp1252. `Table.to_bytes()` devuelve la tabla en esa misma codificación.
+   - **Sin pérdidas** (regla 7). Se conservan:
+     - el salto de línea de cada fila (CRLF, LF o CR, mezclados);
+     - que la última fila tenga o no salto;
+     - un BOM si lo hay;
+     - las filas en blanco y los comentarios `#`.
+   - Cada fila (`TableRow`) tiene `line` (desde 1), `kind` (dato, comentario o en blanco), `raw` (su texto exacto,
+     sin el salto), `fields` (`raw` partido por `;`) y su salto.
+   - Editar:
+     - `row.set(column, value)` regenera **solo esa fila**, con los demás campos tal cual;
+     - `insert(index, fields)` y `append(fields)` usan el salto predominante del archivo;
+     - `remove(row)`.
+     - Un valor con `;` o un salto de línea lanza `ValueError` sin cambiar nada.
+   - `cell_int(text) -> int | None` imita a `atoi`: espacios delante, signo opcional y dígitos; se para en el
+     primer carácter que no es dígito (`"223."` → 223, `" 12abc"` → 12). Si no hay ningún dígito, None.
+2. `src/vic2studio/core/map/__init__.py` (paquete) y `src/vic2studio/core/map/definition.py`, encima de
+   `tablecsv`, con la API de §16.1:
+   - `DefinitionRow(line, id, rgb, name, raw)` (`id` None en las filas sin id).
+   - `DefinitionTable.parse(text_or_bytes) -> tuple[DefinitionTable, list[Problem]]`. `Problem` es
+     `vic2studio.core.validate.model.Problem`; créalo directamente con `Severity.WARNING`.
+     - Una primera fila cuyo primer campo no es un entero es la cabecera.
+     - Las filas sin id se toleran.
+     - Códigos de problema: `definition_bad_row` (un id con colores que no son números),
+       `definition_duplicate_id` y `definition_duplicate_color`.
+   - `id_of(rgb)`, `rgb_of(pid)` e `ids()`.
+   - `add(pid, rgb, name)` añade `pid;r;g;b;name;x` tras la última fila con id, delante de las filas sin id.
+   - `set_rgb(pid, rgb)` y `to_bytes()`, sin pérdidas en las filas no tocadas.
+   - Los textos de los tres códigos, en `src/vic2studio/core/map/texts/map.es.json` y `map.en.json`, con las
+     claves `issue.definition_bad_row` y demás. `core/texts.py` los carga solo.
+
+**Pruebas:** `tests/test_tablecsv.py` y `tests/test_map_definition.py`.
+
+- Sintéticas:
+  - la ida y vuelta con saltos mezclados, sin salto final, con BOM, con comentarios y con líneas en blanco;
+  - `set` de un campo cambia exactamente una línea del resultado (compáralo con `difflib`);
+  - `cell_int` en todos sus casos;
+  - una cabecera, filas sin id, `223.`, ids y colores repetidos;
+  - `add` delante de las filas sin id.
+- Con corpus (`vanilla_root()` de `tests/_corpus.py`; `skipTest` si no hay juego):
+  - ida y vuelta exacta de `map/definition.csv` y `map/adjacencies.csv`;
+  - 3 248 ids (del 1 al 3248) y 56 filas sin id;
+  - la fila de 1825 da `(208, 17, 223)`.
+- Mide cuánto tarda `parse` + `to_bytes` de `definition.csv` y dalo en la entrega.
+
+**Hecho cuando:** todo lo anterior pasa, las mutaciones lo demuestran y la batería sigue en verde.
+
+---
+
+## G5. Códec BMP propio con numpy (wizard.md D11, §6.1, §16.1 y H1)
+
+**Por qué.** El mapa del juego son BMP enormes: `map/provinces.bmp` (24 bits, 5616×2160, cabecera de 54 bytes,
+36 391 736 B), y `terrain.bmp` y `rivers.bmp` (8 bits con paleta, 1 078 B de cabecera, 12 131 640 B). El editor
+de mapa (iteración 5) los cambia píxel a píxel, y guardarlos tiene que reproducir el archivo exacto salvo los
+píxeles tocados. Pillow no lo garantiza, así que el proyecto tiene su propio códec (D11).
+
+**Qué crear:** `src/vic2studio/core/map/bmp.py` (y `core/map/__init__.py` si G4 aún no lo ha creado; si las dos
+lo crean, que sea idéntico y vacío salvo un docstring de una línea):
+
+- **`read_bmp(data) -> BmpImage`** para BMP sin compresión (`BI_RGB`) de 24 bits y de 8 bits con paleta, con alto
+  positivo (filas de abajo arriba, lo normal) y negativo (de arriba abajo).
+  - `BmpImage.pixels` es un `numpy.ndarray`: `(alto, ancho, 3)` `uint8` en orden **RGB** para 24 bits, y
+    `(alto, ancho)` `uint8` con los índices de la paleta para 8 bits. `BmpImage.palette` es `(n, 4)` `uint8`, tal
+    como está en el archivo (BGRA).
+  - **Orden de las filas:** igual que `numpy.asarray(PIL.Image.open(...))`, es decir, la fila 0 es la de arriba
+    de la imagen tal como la enseña un visor. En los mapas del juego esa fila es la `y` del motor (H1); no la
+    voltees.
+- **`write_bmp(img) -> bytes`** con `write_bmp(read_bmp(b)) == b` **byte a byte** (regla 7). Para eso,
+  `BmpImage` guarda todo lo que no son píxeles:
+  - la cabecera entera (también los campos que no se usan);
+  - la paleta y el hueco que haya entre cabecera y píxeles;
+  - el contenido de los bytes de relleno de cada fila (pueden no ser cero);
+  - lo que haya después de los píxeles.
+
+  Si se cambian los píxeles, se escriben en su sitio con el mismo formato.
+- **`new_bmp(pixels, palette=None) -> bytes`**: un BMP nuevo y estándar. 24 bits si `pixels` es `(alto, ancho, 3)`,
+  8 bits si es `(alto, ancho)` con paleta. Cabecera de 54 B (más 1 024 B de paleta en 8 bits), filas de abajo
+  arriba y relleno a 4 bytes con ceros.
+- **`read_bmp_header(data) -> tuple[int, int, int]`** (ancho, alto, bits por píxel), sin decodificar los píxeles.
+- Un BMP que no está en esos formatos (comprimido, 32 bits, cabecera rara) lanza `BmpError(ValueError)` con un
+  código (`bmp_unsupported`, `bmp_truncated`…). El error se copia bien con `pickle` (mira cómo lo hacen los
+  errores de `tests/test_pickle_errors.py`).
+
+**Rendimiento (obligatorio y medido).** `read_bmp` y `write_bmp` de `provinces.bmp` sin recorrer píxeles en
+Python: `numpy.frombuffer`, recortes y `reshape`. Mídelos y compáralos con
+`numpy.asarray(Image.open(path).convert("RGB"))`. No pueden tardar más del doble que Pillow. Da las cifras en la
+entrega.
+
+**Pruebas:** `tests/test_map_bmp.py`.
+
+- Sintéticas, construidas con Pillow y a mano:
+  - 24 y 8 bits;
+  - anchos que obligan a rellenar (1, 2, 3, 5 y 7 píxeles);
+  - alto negativo;
+  - relleno con bytes distintos de cero;
+  - bytes de más al final;
+  - una paleta de menos de 256 colores.
+- En todos esos casos: la ida y vuelta exacta y los píxeles iguales a los de Pillow.
+- Una imagen **asimétrica** de prueba (un solo píxel rojo en la columna 1 de la fila 0) fija la orientación.
+- Editar un píxel y escribir solo cambia sus 3 bytes (o su byte, en 8 bits).
+- `new_bmp` se relee con Pillow igual.
+- Con corpus:
+  - ida y vuelta exacta de `provinces.bmp`, `terrain.bmp` y `rivers.bmp`;
+  - sus píxeles, iguales a los de Pillow;
+  - `read_bmp_header` da (5616, 2160, 24) y (5616, 2160, 8);
+  - `provinces.bmp` tiene 3 275 colores distintos (H4).
+
+**Hecho cuando:** todo lo anterior pasa, el rendimiento cumple y las mutaciones lo demuestran.
+
+---
+
+## G6. DDS sin comprimir: escritor y lector (wizard.md D11, §17.3, §18.5 y H8, H23)
+
+**Por qué.** Las texturas del mapa y de la interfaz son DDS. Pillow las lee (también las comprimidas DXT1/3/5),
+pero no garantiza escribirlas, así que el proyecto escribe DDS **A8R8G8B8 sin comprimir** con las mismas cabeceras
+que vanilla. Valores medidos en el corpus:
+
+| Archivo | Tamaño | `flags` | `pitchOrLinearSize` | Mips | Formato de píxel | `caps` |
+|---|---|---|---|---|---|---|
+| `map/terrain/colormap.dds` (1880×720) | 5 414 528 B | `0x81007` | 5 414 400 (= ancho·alto·4) | 0 | `flags` `0x41`, 32 bits, máscaras R `0xFF0000`, G `0xFF00`, B `0xFF`, A `0xFF000000` | `0x1000` |
+| `map/terrain/colormap_water.dds` (936×360) | 1 796 960 B | `0xA1007` | 1 347 840 (= ancho·alto·4) | 10, hasta 1×1 | el mismo | `0x401008` |
+
+**Qué crear:** `src/vic2studio/core/gfx/__init__.py` (paquete) y `src/vic2studio/core/gfx/dds.py`:
+
+- **`write_dds(rgba, *, mipmaps=False) -> bytes`**:
+  - `rgba` es `(alto, ancho, 4)` `uint8`. La cabecera es de 128 bytes (`"DDS "` + 124), con los campos de la
+    tabla (`flags` `0x81007`, o `0xA1007` con mips, y `pitchOrLinearSize` = ancho·alto·4).
+  - Los píxeles van en orden BGRA, filas de arriba abajo.
+  - Con `mipmaps`, niveles hasta 1×1: cada uno es el anterior reducido a la mitad (redondeando hacia abajo, con
+    un mínimo de 1) con un filtro de caja que funcione con lados impares, y `mipMapCount` dice cuántos hay.
+    Compruébalo con `colormap_water`: 936×360 da 10 niveles y 1 796 960 B.
+- **`read_dds(data) -> DdsImage`**: el nivel 0 en RGBA `(alto, ancho, 4)` `uint8` y la información de la cabecera
+  (`DdsInfo`).
+  - A8R8G8B8 y X8R8G8B8 los lee él mismo, con numpy (X8: alfa 255).
+  - DXT1, DXT3 y DXT5 se los pasa a Pillow (`Image.open(BytesIO(data)).convert("RGBA")`).
+  - Lo que no reconoce lanza `DdsError(ValueError)` con un código; se copia bien con `pickle`.
+- **`dds_info(data) -> DdsInfo`**: ancho, alto, `flags`, `pitch`, mips, `fourcc` (o None), bits por píxel,
+  máscaras y `caps`, sin decodificar nada.
+
+**Pruebas:** `tests/test_gfx_dds.py`.
+
+- Sintéticas:
+  - `write_dds` de imágenes con lados impares y que no son potencia de dos, con y sin mips;
+  - Pillow las relee **iguales** a la entrada (el nivel 0);
+  - `read_dds` también;
+  - el tamaño total cuadra con la suma de los niveles;
+  - `dds_info` da los campos de la tabla;
+  - X8R8G8B8 hecho a mano.
+- Con corpus:
+  - `dds_info` de `colormap.dds`, `colormap_water.dds` y `colormap_no_shadow.dds` (DXT3);
+  - `write_dds(read_dds(colormap_water.dds).rgba, mipmaps=True)` tiene **el mismo tamaño y los mismos campos de
+    cabecera** que el original. Di en la entrega si algún byte de la cabecera difiere, cuál y por qué.
+  - `read_dds` de un DDS DXT del juego no falla y coincide con Pillow.
+
+**Hecho cuando:** todo lo anterior pasa y las mutaciones lo demuestran.
+
+---
+
+## G7. Banderas TGA (wizard.md §14.2 y H22)
+
+**Por qué.** Cada país tiene 5 banderas en `gfx/flags/`: `<TAG>.tga`, `<TAG>_communist.tga`, `_fascist`,
+`_monarchy` y `_republic`. Son TGA de 32 bits, 93×64, con el origen abajo a la izquierda (descriptor `0x08`). En
+vanilla, 1 038 van con RLE (tipo 10). El asistente de países (iteración 6) generará las banderas a partir de una
+imagen cualquiera.
+
+**Qué crear:** `src/vic2studio/core/gfx/flags.py` (y `core/gfx/__init__.py` si G6 aún no lo ha creado; si las
+dos lo crean, que sea idéntico):
+
+- Constantes `FLAG_SIZE = (93, 64)` y `FLAG_SUFFIXES = ("", "_communist", "_fascist", "_monarchy", "_republic")`.
+- **`write_tga(rgba) -> bytes`**: TGA tipo 2, sin comprimir, de 32 bits, descriptor `0x08`, filas de abajo
+  arriba y píxeles en BGRA, con numpy. `rgba` va en orden de arriba abajo, como `numpy.asarray(Image)`.
+- **`fit_flag(img, *, mode="cover", focus=(0.5, 0.5)) -> PIL.Image.Image`**: lleva una imagen cualquiera
+  (RGB, RGBA, P o L) a 93×64 RGBA.
+  - `cover` escala hasta cubrir y recorta alrededor de `focus` (fracciones de ancho y alto: (0, 0) es arriba a
+    la izquierda).
+  - `contain` escala hasta caber y rellena con transparente.
+  - `stretch` deforma.
+  - Usa un remuestreo de calidad (`LANCZOS`).
+- **`make_flag_set(images) -> dict[str, bytes]`**: de `{sufijo: imagen}` a `{sufijo: TGA}` para los sufijos de
+  `FLAG_SUFFIXES`; un sufijo que no está en la lista lanza `ValueError`.
+- Todas las salidas se releen con Pillow para verificarlas: 93×64, RGBA, mismos píxeles. Si no coinciden, lanza
+  `ValueError`.
+
+**Pruebas:** `tests/test_gfx_flags.py`.
+
+- Sintéticas:
+  - `write_tga` de una imagen asimétrica (un solo píxel en una esquina): Pillow la relee igual (orientación) y la
+    cabecera tiene tipo 2, 32 bits y descriptor `0x08`;
+  - `fit_flag` en sus tres modos con imágenes más anchas, más altas y del mismo aspecto: tamaño, recorte
+    centrado y con `focus` en un extremo, y transparencia de `contain`;
+  - `make_flag_set` con los 5 sufijos y con uno inválido.
+- Con corpus: lee un par de banderas de `gfx/flags/` del juego con Pillow, pásalas por `fit_flag` (ya son de
+  93×64, así que no deben cambiar) y por `write_tga`, y compara los píxeles. Ningún píxel ni archivo del juego
+  entra en el repositorio (regla 4).
+
+**Hecho cuando:** todo lo anterior pasa y las mutaciones lo demuestran.
+
+---
+
+# Primera tanda (hecha): G1–G3
+
+Se conserva como modelo. Las cifras y las reglas de esta parte son las de entonces (978 pruebas, otros
+archivos vetados).
 
 ## G1. Prueba «sin datos de Paradox» (wizard.md §19.5)
 
