@@ -399,15 +399,12 @@ def taken_folders(game_root: str | os.PathLike | None) -> frozenset[str]:
 
 
 def _windows_rejects(name: str) -> bool:
-    """True si Windows no admite ``name`` como carpeta: dispositivo (también ``CON.x``), carácter prohibido o punto
-    o espacio final. Las mismas reglas y constantes que ``core.vfs.paths.windows_name_problems``."""
-    from .vfs.paths import WINDOWS_DEVICES, WINDOWS_FORBIDDEN
+    """True si Windows no admite ``name`` como carpeta: dispositivo (también ``CON.x`` y ``CON .x``), carácter
+    prohibido o punto o espacio final. Delega en ``core.vfs.paths.windows_name_problems``, la regla con la que el
+    guardado rechaza un nombre: el formulario no puede aceptar una carpeta que luego no se pueda crear."""
+    from .vfs.paths import windows_name_problems
 
-    if not name or name != name.rstrip(" ."):
-        return True
-    if any(char in WINDOWS_FORBIDDEN for char in name):
-        return True
-    return name.split(".", 1)[0].upper() in WINDOWS_DEVICES
+    return bool(windows_name_problems(name))
 
 
 def _has_files(folder: Path) -> bool:

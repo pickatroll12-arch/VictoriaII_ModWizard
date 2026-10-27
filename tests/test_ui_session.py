@@ -6,7 +6,6 @@ se pidió otra o se cerró) no se adopta y se cierra para soltar el bloqueo.
 """
 
 import sys
-import tempfile
 import threading
 import unittest
 from pathlib import Path
@@ -179,6 +178,17 @@ class OpenTests(SessionCase):
         self.session.close_project()
         self.assertEqual(self.events.names(), [], "sin proyecto, cerrar no avisa")
 
+    def test_closing_keeps_the_recovery_unless_the_changes_are_discarded(self):
+        for discard in (False, True):
+            with self.subTest(discard=discard):
+                project = self.open()
+                with self.session.edit("descriptor.undo_edit", field="x"):
+                    project.ws.touch(project.ws.open("common/countries.txt"))
+                self.session.close_project(discard=discard)
+                self.assertTrue(project.closed)
+                self.assertIs(project.closed_with_discard, discard)
+                self.assertEqual(project.ws.recovery_finals, 0 if discard else 1)
+
 
 class EditTests(SessionCase):
     def test_edit_emits_once_at_the_end(self):
@@ -285,7 +295,9 @@ class SaveTests(SessionCase):
 class RecoveryTests(SessionCase):
     def test_write_recovery_only_with_changes(self):
         project = self.open()
-        self.session.write_recovery()
+        with mock.patch.object(project.ws, "write_recovery", wraps=project.ws.write_recovery) as write:
+            self.session.write_recovery()
+        write.assert_called_once_with()   # sin cambios también: el núcleo borra entonces el autoguardado anterior
         self.assertEqual(project.ws.recovery_writes, 0, "sin cambios no se escribe nada")
         with self.session.edit("descriptor.undo_edit", field="x"):
             handle = project.ws.open("common/countries.txt")
@@ -313,10 +325,8 @@ class RecoveryTests(SessionCase):
         restored = self.session.restore_session("s-1")
         self.assertEqual([str(r) for r in restored], ["common/countries.txt"])
         self.assertEqual(self.session.dirty_count(), 1)
-        with mock.patch("vic2studio.core.project.journal.clear_recovery") as clear:
-            self.session.discard_recovery("s-2")
-        clear.assert_called_once()
-        self.assertEqual(clear.call_args.args[2], "s-2")
+        self.session.discard_recovery("s-2")
+        self.assertEqual(project.discarded_sessions, ["s-2"], "lo borra el núcleo (Project.discard_session)")
         self.assertEqual(project.orphan_sessions, [])
 
 

@@ -51,6 +51,19 @@ def corpus_files(suffixes: frozenset[str] | set[str]) -> list[Path]:
     return sorted(files)
 
 
+def vanilla_root() -> Path | None:
+    """El juego base real: ``VIC2_GAME`` o la primera raíz de ``VIC2_CORPUS`` con ``map/default.map`` (wizard §19.1).
+
+    None sin corpus: la plantilla del repositorio y la muestra mínima no son el juego.
+    """
+    explicit = os.environ.get("VIC2_GAME")
+    if explicit and Path(explicit, "common").is_dir():
+        return Path(explicit)
+    if not os.environ.get("VIC2_CORPUS"):
+        return None
+    return next((root for root in corpus_roots() if (root / "map" / "default.map").is_file()), None)
+
+
 def user_mod() -> Path | None:
     """Carpeta ``VSM`` del mod del usuario (completo o la muestra mínima), si está en el corpus."""
     return next((r / USER_MOD_NAME for r in corpus_roots() if (r / USER_MOD_NAME / "decisions").is_dir()), None)

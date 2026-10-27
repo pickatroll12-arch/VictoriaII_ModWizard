@@ -19,7 +19,7 @@ from vic2studio.core.clausewitz import ClausewitzDate  # noqa: E402
 from vic2studio.core.project import Project, ProjectSettings  # noqa: E402
 from vic2studio.core.project import project as project_module  # noqa: E402
 from vic2studio.core.project.lock import ProjectLock  # noqa: E402
-from vic2studio.core.vfs import LayerKind  # noqa: E402
+from vic2studio.core.vfs import DESCRIPTOR_REL, LayerKind  # noqa: E402
 
 CB = "common/cb_types.txt"
 
@@ -77,6 +77,28 @@ class ProjectOpenTests(unittest.TestCase):
         self.addCleanup(explicit.close)
         self.assertTrue(explicit.read_only, "el primero tiene el bloqueo")
         self.assertIsNotNone(explicit.vfs.resolve("history/provinces/north/1 - Capital.txt"))
+
+    def test_a_missing_descriptor_is_created_next_to_the_mod_folder(self):
+        """Sin ``.mod``, el descriptor se puede crear y guardar donde lo busca el juego: ``<juego>/mod/<Carpeta>.mod``
+        (wizard §14.1), junto a la carpeta del mod; el guardado lo escribe con el diario, nunca dentro del mod."""
+        game = self.minigame()
+        game.descriptor.unlink()
+        project = self.open(game)
+        self.assertIsNone(project.descriptor)
+        target = game.mod_root.with_name(game.mod_root.name + ".mod")
+        self.assertEqual(target, game.descriptor)
+        self.assertEqual(project.vfs.descriptor_path, target)
+        self.assertEqual(project.vfs.mod_target(DESCRIPTOR_REL), target)
+        self.assertTrue(project.vfs.guard.allows(target))
+        self.assertIsNone(project.vfs.resolve(DESCRIPTOR_REL), "no existe hasta que se guarde")
+        data = descriptor_bytes("TestMod", "TestMod", "TestMod")
+        with project.edit("descriptor.undo_edit", field="name"):
+            handle = project.ws.open(DESCRIPTOR_REL, create=True)
+            project.ws.replace_text(handle, data)
+        report = project.save()
+        self.assertTrue(report.ok, report.problems)
+        self.assertEqual(target.read_bytes(), data)
+        self.assertFalse(game.mod("TestMod.mod").exists())
 
     def test_missing_mod_and_mod_without_game(self):
         game = self.minigame()

@@ -1,5 +1,6 @@
 """Textos del núcleo en JSON (``core.texts``, wizard §4) y los de ``SaveProblem`` (``core/project/texts``)."""
 
+import ast
 import json
 import string
 import sys
@@ -17,8 +18,31 @@ from vic2studio.core.project.model import SaveProblem  # noqa: E402
 from vic2studio.core.vfs import VPath  # noqa: E402
 
 
+PROJECT_SRC = Path(__file__).resolve().parents[1] / "src" / "vic2studio" / "core" / "project"
+
+
 def _fields(template: str) -> set[str]:
     return {name for _, name, _, _ in string.Formatter().parse(template) if name}
+
+
+def core_undo_labels() -> dict[str, set[str]]:
+    """Etiqueta → campos de formato de cada ``transaction(LABEL_..., campo=...)`` de ``core/project``.
+
+    Solo cuentan las etiquetas que son constantes del módulo: las que llegan como argumento (``Project.edit``)
+    las pone y las traduce quien llama.
+    """
+    labels: dict[str, set[str]] = {}
+    for path in sorted(PROJECT_SRC.glob("*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        constants = {target.id: node.value.value for node in tree.body if isinstance(node, ast.Assign)
+                     and isinstance(node.value, ast.Constant) and isinstance(node.value.value, str)
+                     for target in node.targets if isinstance(target, ast.Name)}
+        for node in ast.walk(tree):
+            if (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == "transaction"
+                    and node.args and isinstance(node.args[0], ast.Name) and node.args[0].id in constants):
+                fields = labels.setdefault(constants[node.args[0].id], set())
+                fields.update(keyword.arg for keyword in node.keywords if keyword.arg != "merge_key")
+    return labels
 
 
 class CoreTextsTests(unittest.TestCase):
@@ -42,6 +66,18 @@ class CoreTextsTests(unittest.TestCase):
             with self.subTest(key=key):
                 self.assertIn(key, es)
                 self.assertIn(key, en)
+
+    def test_every_undo_label_of_the_core_has_text(self):
+        """Los pasos que crea el núcleo salen en el historial y en el botón Deshacer: cada etiqueta necesita texto en
+        los dos idiomas, con los mismos huecos que los campos que le pasa."""
+        labels = core_undo_labels()
+        self.assertEqual(labels, {"undo.revert_file": {"rel"}, "undo.project_settings": set(),
+                                  "undo.restore_session": {"session"}})
+        es, en = texts.load_texts("es"), texts.load_texts("en")
+        for label, fields in labels.items():
+            with self.subTest(label=label):
+                self.assertEqual(_fields(es[label]), fields)
+                self.assertEqual(_fields(en[label]), fields)
 
     def test_save_problem_message(self):
         problem = SaveProblem(project_model.SAVE_UNENCODABLE, VPath.of("common/a.txt"),

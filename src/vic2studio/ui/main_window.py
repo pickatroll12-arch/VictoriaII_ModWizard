@@ -405,14 +405,16 @@ class MainWindow(QMainWindow):
         current = self.session.target
         if self._same_target(wanted, current):
             return
+        discard = False
         if self.session.dirty_count():
             choice = self.ask_unsaved()
             if choice == UNSAVED_CANCEL or (choice == UNSAVED_SAVE and not self.save_project()):
                 self._restore_paths(current)
                 return
-        if wanted is None:
-            self.session.close_project()
-        else:
+            discard = choice == UNSAVED_DISCARD
+        # «Descartar» no deja autoguardado: al volver a este mod no se ofrecería recuperar lo que se tiró.
+        self.session.close_project(discard=discard)
+        if wanted is not None:
             self.session.open_project(*wanted)
 
     def _restore_paths(self, target) -> None:
@@ -754,18 +756,20 @@ class MainWindow(QMainWindow):
             hall.set_compact(compact)
 
     def closeEvent(self, event: QCloseEvent) -> None:
+        discard = False
         if not self._closed and self.session.dirty_count():
             choice = self.ask_unsaved()
             if choice == UNSAVED_CANCEL or (choice == UNSAVED_SAVE and not self.save_project()):
                 event.ignore()
                 return
+            discard = choice == UNSAVED_DISCARD
         self._closed = True
         self._open_timer.stop()
         app_settings().setValue(SETTINGS_GEOMETRY, self.saveGeometry())
         for hall in self.halls:
             hall.shutdown()
-        # Escribe la recuperación de lo que quede sin guardar y suelta el bloqueo del proyecto.
-        self.session.close_project()
+        # Suelta el bloqueo del proyecto y escribe la recuperación de lo que quede sin guardar (salvo «Descartar»).
+        self.session.close_project(discard=discard)
         # Sin esperar: la ventana se cierra en el acto y app.main espera a que las tareas paren.
         cancel_all()
         super().closeEvent(event)

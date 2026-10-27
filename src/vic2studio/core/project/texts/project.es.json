@@ -12,5 +12,8 @@
   "project.save_failed": "No se pudo completar el guardado y todo quedó como estaba: {error}",
   "project.recovery_unreadable": "Hay un diario de guardado que no se puede leer; no se ha tocado. Revisa la carpeta .vic2studio/journal del mod.",
   "project.recovery_completed": "Se terminó un guardado que se había interrumpido: los archivos ya tenían sus cambios.",
-  "project.recovery_incomplete": "Un guardado interrumpido no se pudo resolver del todo: algunos archivos se han dejado como estaban. Revisa la papelera (.vic2studio/trash)."
+  "project.recovery_incomplete": "Un guardado interrumpido no se pudo resolver del todo: algunos archivos se han dejado como estaban. Revisa la papelera (.vic2studio/trash).",
+  "undo.revert_file": "Descartar los cambios de {rel}",
+  "undo.project_settings": "Cambiar los ajustes del proyecto",
+  "undo.restore_session": "Restaurar el autoguardado {session}"
 }

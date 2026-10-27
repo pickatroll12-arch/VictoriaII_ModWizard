@@ -1,4 +1,4 @@
-"""``Project`` falso para las pruebas de interfaz mientras ``core/project`` es del contrato (wizard §20).
+"""``Project`` falso para las pruebas de interfaz (wizard §20): rápido y con fallos a la carta.
 
 Imita la API pública que usa la interfaz (``Project``, ``Workspace`` y lo que la
 interfaz mira de ``VirtualFS``) sobre carpetas reales, normalmente de
@@ -8,17 +8,15 @@ pruebas pueden; el núcleo real escribe con el diario). Solo documentos Clausewi
 lo demás se abre como binario de solo lectura. Comprueba el hilo dueño como el
 real: hasta ``bind_to_current_thread`` solo lo usa el hilo que lo construyó.
 
-``implemented(...)`` dice si las funciones del contrato ya están implementadas,
-para marcar con ``skipUnless`` las pruebas que necesitan el núcleo real.
+Sigue la API del real (``close(discard=)``, ``discard_session``, ``autosave_due``...);
+``test_ui_real_project`` repite contra el ``Project`` real las pruebas de la
+ventana que lo usan, para que una diferencia entre los dos no pase inadvertida.
 """
 
 from __future__ import annotations
 
-import ast
 import difflib
-import inspect
 import shutil
-import textwrap
 import threading
 from contextlib import contextmanager
 from pathlib import Path
@@ -72,25 +70,6 @@ def isolate_app_dirs() -> Path:
         os.environ["VIC2STUDIO_DATA_DIR"] = str(base / "data")
         os.environ["VIC2STUDIO_CACHE_DIR"] = str(base / "cache")
     return Path(os.environ["VIC2STUDIO_DATA_DIR"])
-
-
-def implemented(*functions) -> bool:
-    """False si alguna de ``functions`` (funciones, métodos o propiedades) solo lanza ``NotImplementedError``."""
-    for function in functions:
-        target = function.fget if isinstance(function, property) else getattr(function, "__func__", function)
-        target = inspect.unwrap(target)
-        try:
-            source = textwrap.dedent(inspect.getsource(target))
-        except (OSError, TypeError):
-            continue
-        body = ast.parse(source).body[0].body
-        body = [node for node in body if not (isinstance(node, ast.Expr) and isinstance(node.value, ast.Constant))]
-        if body and isinstance(body[0], ast.Raise):
-            exc = body[0].exc
-            name = exc.func if isinstance(exc, ast.Call) else exc
-            if isinstance(name, ast.Name) and name.id == "NotImplementedError":
-                return False
-    return True
 
 
 class Rel(VPath):
@@ -212,8 +191,10 @@ class FakeWorkspace:
         self._listeners: list = []
         self.read_only = project.read_only_flag
         self.recovery_writes = 0
+        self.recovery_finals = 0
         self.closed = False
         self.saves = 0
+        self._autosave_txns = 0
 
     # --- hilos y eventos -----------------------------------------------------------------------
 
@@ -292,6 +273,7 @@ class FakeWorkspace:
             versions[key] = (handle, version, handle.version)
         self._undo.append((UndoStep(label, dict(fmt), snapshots, merge_key=merge_key), versions))
         self._redo.clear()
+        self._autosave_txns += 1
         for snapshot in snapshots:
             self._emit(DocChanged(snapshot.rel, self._docs[_key(snapshot.rel)].version)
                        if _key(snapshot.rel) in self._docs else DocDeleted(snapshot.rel))
@@ -456,6 +438,10 @@ class FakeWorkspace:
     # --- disco ---------------------------------------------------------------------------------
 
     def revert(self, rel) -> None:
+        if self._txn is None:  # como el real: fuera de una transacción abre la suya
+            with self.transaction("undo.revert_file", rel=str(rel)):
+                self.revert(rel)
+            return
         handle = self.open(rel)
         if handle.origin is None:
             raise FileNotFoundError(str(rel))
@@ -495,10 +481,16 @@ class FakeWorkspace:
         handle = self._docs[_key(rel)]
         return diff_text(handle.rel, handle.origin.path.read_bytes(), render(handle))
 
-    def write_recovery(self) -> None:
+    def autosave_due(self, now: float | None = None) -> bool:
+        """Como el real, pero solo por número de transacciones (el temporizador lo prueba la sesión)."""
+        return self._autosave_txns >= self.AUTOSAVE_TRANSACTIONS
+
+    def write_recovery(self, *, final: bool = False) -> None:
         self._check()
+        self._autosave_txns = 0
         if self.dirty():
             self.recovery_writes += 1
+            self.recovery_finals += final
 
     def close(self) -> None:
         self._check()
@@ -530,7 +522,9 @@ class FakeProject:
         self.recovered = list(recovered)
         self.orphan_sessions = list(orphan_sessions)
         self.sessions = dict(sessions or {})
+        self.discarded_sessions: list[str] = []
         self.closed = False
+        self.closed_with_discard: bool | None = None
         self.opened_in = threading.get_ident()
 
     @property
@@ -556,7 +550,7 @@ class FakeProject:
 
     def restore_session(self, session: str) -> list[VPath]:
         documents = self.sessions.pop(session, {})
-        with self.ws.transaction("recovery.restore"):
+        with self.ws.transaction("undo.restore_session", session=session):
             for rel, data in documents.items():
                 handle = self.ws.open(rel, create=True)
                 self.ws.replace_text(handle, data)
@@ -564,7 +558,17 @@ class FakeProject:
             self.orphan_sessions.remove(session)
         return [Rel.of(rel) for rel in documents]
 
-    def close(self) -> None:
+    def discard_session(self, session: str) -> None:
+        self.discarded_sessions.append(session)
+        self.sessions.pop(session, None)
+        if session in self.orphan_sessions:
+            self.orphan_sessions.remove(session)
+
+    def close(self, *, discard: bool = False) -> None:
+        """Como el real: sin ``discard``, la recuperación final de lo que quede sin guardar."""
+        self.closed_with_discard = discard
+        if not discard and not self.read_only:
+            self.ws.write_recovery(final=True)
         self.ws.close()
         self.closed = True
 

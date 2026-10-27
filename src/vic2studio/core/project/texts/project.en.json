@@ -12,5 +12,8 @@
   "project.save_failed": "The save could not be completed and everything was left as it was: {error}",
   "project.recovery_unreadable": "There is a save journal that cannot be read; it was left untouched. Check the mod's .vic2studio/journal folder.",
   "project.recovery_completed": "An interrupted save was finished: the files already had their changes.",
-  "project.recovery_incomplete": "An interrupted save could not be fully resolved: some files were left as they were. Check the trash (.vic2studio/trash)."
+  "project.recovery_incomplete": "An interrupted save could not be fully resolved: some files were left as they were. Check the trash (.vic2studio/trash).",
+  "undo.revert_file": "Discard the changes to {rel}",
+  "undo.project_settings": "Change the project settings",
+  "undo.restore_session": "Restore the autosave {session}"
 }

@@ -15,10 +15,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from _fake_project import implemented  # noqa: E402
 from _layers import build_layers, descriptor_bytes  # noqa: E402
 from vic2studio.core import modcheck  # noqa: E402
-from vic2studio.core.clausewitz import Severity, parse, parse_file, render_checked, to_source  # noqa: E402
+from vic2studio.core.clausewitz import Severity, parse, parse_file, to_source  # noqa: E402
 from vic2studio.core.modfile import (  # noqa: E402
     DESCRIPTOR_FOLDER_RESERVED,
     DESCRIPTOR_FOLDER_TAKEN,
@@ -42,13 +41,8 @@ from vic2studio.core.modfile import (  # noqa: E402
     taken_folders,
     template_files,
 )
-from vic2studio.core.project.journal import SaveTransaction  # noqa: E402
 
 FIXTURE = Path(__file__).resolve().parent / "fixtures" / "shago_mod_min"
-RENDER_CHECKED = implemented(render_checked)
-JOURNAL = implemented(SaveTransaction.__init__, SaveTransaction.commit) and hasattr(SaveTransaction, "add_folder")
-NEEDS_RENDER = "necesita serializer.render_checked (agente A, integración de la iteración 2)"
-NEEDS_JOURNAL = "necesita core/project/journal con SaveTransaction.add_folder (agente A, integración)"
 
 
 def codes(issues) -> list[str]:
@@ -101,7 +95,6 @@ class RenderTests(unittest.TestCase):
         self.assertEqual(spec.fields().path, "mod/VSM")
         self.assertEqual(DescriptorSpec("A", "").fields().path, "", "sin carpeta no hay path a medias")
 
-    @unittest.skipUnless(RENDER_CHECKED, NEEDS_RENDER)
     def test_render_over_an_existing_descriptor_keeps_the_rest(self):
         text = '# Mod del usuario\r\nname = "Shago Mod"\r\npath = "mod/VSM"\r\npicture = "thumb.png"\r\n' \
                'archive = "mod/vsm.zip"\r\n'
@@ -115,7 +108,6 @@ class RenderTests(unittest.TestCase):
         self.assertIn('user_dir = "VSM"', out)
         self.assertEqual(to_source(existing.document), before, "el documento original no cambia")
 
-    @unittest.skipUnless(RENDER_CHECKED, NEEDS_RENDER)
     def test_render_over_utf16_writes_cp1252(self):
         with tempfile.TemporaryDirectory() as tmp:
             file = Path(tmp) / "Leon.mod"
@@ -178,6 +170,17 @@ class SanitizeTests(unittest.TestCase):
         self.assertEqual(sanitize_folder("Lpt 1"), ["L1", "Lpt_1"])
         self.assertEqual(sanitize_folder("Com Port 1"), ["CP1", "Com_Port_1"])
 
+    def test_folder_rules_are_the_ones_the_save_applies(self):
+        """El formulario y «Nuevo mod» rechazan exactamente las carpetas que el guardado rechazaría
+        (``vfs.paths.windows_name_problems``): ni una que luego no se pueda crear ni una válida."""
+        from vic2studio.core.modfile import _windows_rejects
+        from vic2studio.core.vfs.paths import windows_name_problems
+
+        for name in ("VSM", "Dark_Age_Mod", "a.b", "CON", "con.txt", "CON .x", "COM1", "com10", "LPT¹", "a:b",
+                     "x?", "nombre.", "nombre ", " lead", "", "CONIN$", "AUX", "Auxiliar", "nul  .txt"):
+            with self.subTest(name=name):
+                self.assertEqual(_windows_rejects(name), bool(windows_name_problems(name)))
+
     def test_proposals_are_valid_folders(self):
         for name in ("Dark Age Mod", "Ñandú", "a.b c", "  x  ", "CON NUL", "Mod 2", "aux"):
             for proposal in sanitize_folder(name):
@@ -227,7 +230,8 @@ class ProblemsTests(unittest.TestCase):
         found = descriptor_problems(DescriptorSpec("Nuevo", "vsm", "vsm"), self.game, creating=True)
         self.assertEqual(codes(found), [DESCRIPTOR_FOLDER_TAKEN], "sin distinguir mayúsculas, como Windows")
         self.assertEqual(descriptor_problems(DescriptorSpec("Nuevo", "DAM", "DAM"), self.game, creating=True), [])
-        for bad in ("a:b", "nombre.", "x?", "NUL.txt"):
+        # «CON .x»: Windows ignora los espacios antes de la extensión, así que también es el dispositivo CON.
+        for bad in ("a:b", "nombre.", "x?", "NUL.txt", "CON .x", "nul  .txt"):
             with self.subTest(folder=bad):
                 found = descriptor_problems(DescriptorSpec("Nuevo", bad, "u"), self.game, creating=True)
                 self.assertIn(DESCRIPTOR_FOLDER_RESERVED, codes(found))
@@ -293,7 +297,6 @@ class SkeletonTests(unittest.TestCase):
         self.assertEqual(codes(ctx.exception.issues), [DESCRIPTOR_FOLDER_TAKEN])
         self.assertEqual(self.layers.tree(self.game), before, "no se escribe nada")
 
-    @unittest.skipUnless(JOURNAL, NEEDS_JOURNAL)
     def test_new_mod_creates_folders_and_descriptor(self):
         game_before = self.layers.tree(self.game)
         descriptor = create_mod_skeleton(self.game, DescriptorSpec("Dark Age Mod", "DAM", "DAM"))
@@ -308,7 +311,6 @@ class SkeletonTests(unittest.TestCase):
         self.assertTrue(all(rel.startswith(("mod/DAM/", "mod/DAM.mod")) for rel in new), new)
         self.assertFalse([rel for rel in new if "/journal/" in rel], "el diario se cierra")
 
-    @unittest.skipUnless(JOURNAL, NEEDS_JOURNAL)
     def test_template_is_copied_inside(self):
         template = self.layers.base / "Plantilla Mod"
         (template / "common").mkdir(parents=True)

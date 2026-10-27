@@ -1,6 +1,7 @@
 """Armazón de la iteración 2 (offscreen): registro de salas, catálogos por fragmentos, insignias de capa, panel de
 cambios pendientes y la ventana con un proyecto abierto (guardar según D13, deshacer, conflictos, cerrar con
-cambios, recuperación), contra el ``Project`` falso de ``_fake_project``.
+cambios, recuperación), contra el ``Project`` falso de ``_fake_project``; ``test_ui_real_project`` repite las de
+la ventana con un proyecto abierto contra el ``Project`` real (``make_opener``).
 """
 
 import fnmatch
@@ -455,8 +456,12 @@ class ProjectWindowCase(UiTestCase):
         self.addCleanup(self.layers.cleanup)
         self.dialogs = DialogLog()   # ningún diálogo se abre de verdad: se anotan y se resuelven con handlers
 
+    def make_opener(self, **options):
+        """El ``Project`` falso; ``test_ui_real_project`` repite estas pruebas con ``Project.open``."""
+        return FakeOpener(**options)
+
     def open_window(self, **options) -> MainWindow:
-        self.opener = FakeOpener(**options)
+        self.opener = self.make_opener(**options)
         window = self.make_window(session=Session(opener=self.opener))
         window.exec_dialog = self.dialogs
         window.ask_unsaved = mock.Mock(return_value=UNSAVED_DISCARD)
@@ -676,15 +681,13 @@ class ShellProjectTests(ProjectWindowCase):
         self.assertIn("CCC", to_source(handle.model.document))
         self.assertEqual(window.status_label.text(), tr("status.recovery_restored", count=1))
         self.assertEqual(self.project.orphan_sessions, [])
-        self.assertEqual(self.project.ws.history()[0][0], "recovery.restore")
+        self.assertEqual(self.project.ws.history()[0], ("undo.restore_session", {"session": "20261026-old"}))
         self.assertTrue(window.windowTitle().startswith("* "), "lo restaurado queda sin guardar")
 
     def test_recovery_can_be_discarded(self):
         self.dialogs.handlers[RecoveryDialog] = lambda dialog: dialog.rows[0][2].click()
-        with mock.patch("vic2studio.core.project.journal.clear_recovery") as clear:
-            self.open_window(orphan_sessions=["20261026-old"], sessions={"20261026-old": {}})
-        clear.assert_called_once()
-        self.assertEqual(clear.call_args.args[2], "20261026-old")
+        self.open_window(orphan_sessions=["20261026-old"], sessions={"20261026-old": {}})
+        self.assertEqual(self.project.discarded_sessions, ["20261026-old"])
         self.assertEqual(self.project.orphan_sessions, [])
         self.assertEqual(self.window.session.dirty_count(), 0)
 

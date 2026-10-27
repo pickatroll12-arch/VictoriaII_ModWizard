@@ -26,7 +26,7 @@ from contextlib import AbstractContextManager
 from pathlib import Path
 
 from ..cancel import CancelCheck, raise_if_cancelled
-from ..modfile import ModDescriptor, find_descriptor, read_descriptor
+from ..modfile import DESCRIPTOR_SUFFIX, ModDescriptor, find_descriptor, read_descriptor
 from ..vfs.model import DocKind
 from ..vfs.paths import VPath
 from ..vfs.vfs import VirtualFS, resolve_dependencies
@@ -77,7 +77,9 @@ class Project:
             parsed = read_descriptor(descriptor_path)
         else:
             parsed = find_descriptor(mod_root)
-            descriptor_path = parsed.file if parsed is not None else None
+            # Sin .mod, el sitio donde se creará: <juego>/mod/<Carpeta>.mod, junto a la carpeta (wizard §14.1).
+            descriptor_path = (parsed.file if parsed is not None
+                               else mod_root.with_name(mod_root.name + DESCRIPTOR_SUFFIX))
         dependencies, missing = resolve_dependencies(game_root, parsed.dependencies if parsed else ())
         detached = not os.access(mod_root, os.W_OK)
         project_dir = journal.project_dir(mod_root, read_only=detached)
@@ -111,6 +113,11 @@ class Project:
         project._closed = False
         ws.subscribe(project._on_event)
         return project
+
+    @property
+    def closed(self) -> bool:
+        """True tras ``close`` (el bloqueo ya está suelto)."""
+        return self._closed
 
     @property
     def settings(self) -> ProjectSettings:

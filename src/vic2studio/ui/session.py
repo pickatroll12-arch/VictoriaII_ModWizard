@@ -121,7 +121,6 @@ class Session(QObject):
         self._pending: set[VPath] = set()
         self._depth = 0
         self._last_dirty = 0
-        self._edits = 0
         self._working_date = DEFAULT_WORKING_DATE
         self._flush_timer = QTimer(self)
         self._flush_timer.setSingleShot(True)
@@ -186,9 +185,11 @@ class Session(QObject):
         self.projectOpening.emit(game, mod)
         runner.start(task)
 
-    def close_project(self) -> None:
-        """Cancela la apertura en curso y cierra el proyecto (``Project.close`` escribe la recuperación si hay
-        cambios sin guardar y suelta el bloqueo). Emite projectClosed si había alguno."""
+    def close_project(self, *, discard: bool = False) -> None:
+        """Cancela la apertura en curso y cierra el proyecto. ``Project.close`` suelta el bloqueo y escribe la
+        recuperación de lo que quede sin guardar; con ``discard`` (el usuario eligió «Descartar») borra en cambio
+        el autoguardado de esta sesión, para que al reabrir no se ofrezca lo que acaba de tirar. Emite
+        projectClosed si había alguno."""
         had = self._request is not None or self._project is not None
         if self._request is not None:
             self._request.cancel.set()
@@ -203,7 +204,7 @@ class Session(QObject):
             self._unsubscribe = None
         if project is not None:
             try:
-                project.close()
+                project.close(discard=discard)
             except Exception:  # noqa: BLE001 - cerrar nunca debe impedir salir
                 log.exception("no se pudo cerrar el proyecto")
         if had:
@@ -230,7 +231,6 @@ class Session(QObject):
         self._unsubscribe = project.ws.subscribe(self._on_event)
         self._last_dirty = len(project.ws.dirty())
         self._working_date = getattr(project.settings, "working_date", DEFAULT_WORKING_DATE)
-        self._edits = 0
         self._autosave.start()
         self.projectOpened.emit(project)
         self.dirtyChanged.emit(self._last_dirty)
@@ -274,10 +274,8 @@ class Session(QObject):
             with project.edit(label, merge_key=merge_key, **fmt) as txn:
                 yield txn
             nested = self._depth > 1
-        if not nested:
-            self._edits += 1
-            if self._edits >= Workspace.AUTOSAVE_TRANSACTIONS:
-                self.write_recovery()
+        if not nested and project.ws.autosave_due():
+            self.write_recovery()
 
     def changeset(self, rels: Iterable[VPath] | None = None) -> ChangeSet:
         if self._project is None:
@@ -347,10 +345,11 @@ class Session(QObject):
         return self._require().ws.external_diff(rel)
 
     def write_recovery(self) -> None:
-        """Autoguardado de recuperación de los documentos sin guardar (no escribe nada si no hay)."""
+        """Autoguardado de recuperación (``Workspace.write_recovery``): los documentos sin guardar o, si ya no
+        queda ninguno (todo deshecho o descartado), borra el de esta sesión, que si no ofrecería tras un cierre
+        inesperado cambios que el usuario ya había deshecho."""
         project = self._project
-        self._edits = 0
-        if project is None or project.read_only or not project.ws.dirty():
+        if project is None or project.read_only:
             return
         try:
             project.ws.write_recovery()
@@ -364,12 +363,7 @@ class Session(QObject):
 
     def discard_recovery(self, session: str) -> None:
         """Descarta un autoguardado huérfano (el usuario no lo quiere restaurar)."""
-        from ..core.project import journal
-
-        project = self._require()
-        journal.clear_recovery(project.vfs.guard, project.project_dir / journal.RECOVERY_DIR, session)
-        if session in project.orphan_sessions:
-            project.orphan_sessions.remove(session)
+        self._require().discard_session(session)
 
     # --- «Nuevo mod» ---------------------------------------------------------------------------
 

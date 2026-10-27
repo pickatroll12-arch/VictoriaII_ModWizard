@@ -1,5 +1,7 @@
 """Sección «Descriptor .mod» (wizard §14.1) contra el ``Project`` falso: el formulario lee el descriptor, cada campo
-confirmado es una transacción que se deshace, los problemas se ven al teclear y Guardar escribe los bytes."""
+confirmado es una transacción que se deshace, los problemas se ven al teclear y Guardar escribe los bytes.
+
+``test_ui_real_project`` repite estas pruebas contra el ``Project`` real (``make_opener``)."""
 
 import sys
 import unittest
@@ -60,8 +62,12 @@ class DescriptorCase(UiTestCase):
         self.addCleanup(self.layers.cleanup)
         self.dialogs = DialogLog()
 
+    def make_opener(self, **options):
+        """El ``Project`` falso; ``test_ui_real_project`` repite estas pruebas con ``Project.open``."""
+        return FakeOpener(**options)
+
     def open_window(self, **options):
-        self.opener = FakeOpener(**options)
+        self.opener = self.make_opener(**options)
         window = self.make_window(session=Session(opener=self.opener))
         window.exec_dialog = self.dialogs
         window.ask_unsaved = mock.Mock(return_value=UNSAVED_DISCARD)

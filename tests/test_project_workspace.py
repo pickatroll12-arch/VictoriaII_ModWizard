@@ -7,7 +7,6 @@ es exacto byte a byte; deshacer hasta el punto guardado deja el documento limpio
 """
 
 import hashlib
-import os
 import shutil
 import sys
 import tempfile
@@ -17,7 +16,7 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from _corpus import corpus_roots, user_mod  # noqa: E402
+from _corpus import user_mod, vanilla_root  # noqa: E402
 from _layers import isolate_appdirs  # noqa: E402
 from _minigame import CB_MONTHS, build_minigame  # noqa: E402
 from vic2studio.core.clausewitz.serializer import SourceMismatchError  # noqa: E402
@@ -57,16 +56,6 @@ def set_months(ws, cb="conquer_land", months="24"):
     ws.touch(handle)
     handle.model.document.get(cb).set("months", months)
     return handle
-
-
-def _vanilla_root():
-    """``VIC2_GAME`` o la primera raíz de ``VIC2_CORPUS`` con ``map/default.map`` (wizard §19.1); None sin corpus."""
-    explicit = os.environ.get("VIC2_GAME")
-    if explicit and Path(explicit, "common").is_dir():
-        return Path(explicit)
-    if not os.environ.get("VIC2_CORPUS"):
-        return None
-    return next((root for root in corpus_roots() if (root / "map" / "default.map").is_file()), None)
 
 
 def snapshot(ws, rel):
@@ -470,7 +459,7 @@ class SaveTests(WorkspaceCase):
 
     def test_acceptance_criterion_3_with_the_corpus(self):
         """Con corpus: vanilla real + la copia de cb_types.txt de VSM en un mod temporal fuera del juego."""
-        game_root = _vanilla_root()
+        game_root = vanilla_root()
         vsm = user_mod()
         if game_root is None or vsm is None or not (vsm / CB).is_file():
             self.skipTest("necesita VIC2_GAME o VIC2_CORPUS con vanilla y el VSM completo")
