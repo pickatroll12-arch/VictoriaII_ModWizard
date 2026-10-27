@@ -5,7 +5,8 @@ A8R8G8B8 sin comprimir con los mismos campos que ``map/terrain/colormap.dds`` (`
 ``pitchOrLinearSize`` = ancho·alto·4, ``caps`` ``0x1000``) y, con mips, que ``colormap_water.dds`` (``flags``
 ``0xA1007``, ``caps`` ``0x401008`` y niveles hasta 1×1). El lector decodifica él mismo los DDS sin comprimir de 24
 y 32 bits a partir de sus máscaras (A8R8G8B8, X8R8G8B8, A8B8G8R8 y R8G8B8, los cuatro que hay en vanilla) y pasa
-los comprimidos a Pillow. Sin E/S: trabaja con bytes.
+los comprimidos a Pillow; Pillow 10.0 y 10.1 (dentro del mínimo del proyecto) leen X8R8G8B8 como si fuera de 24 bits
+y devuelven los colores corridos. Sin E/S: trabaja con bytes.
 """
 
 from __future__ import annotations

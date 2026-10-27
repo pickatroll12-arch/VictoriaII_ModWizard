@@ -8,6 +8,7 @@ import unittest
 from pathlib import Path
 
 import numpy as np
+import PIL
 from PIL import Image
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
@@ -32,6 +33,8 @@ from vic2studio.core.gfx.dds import (  # noqa: E402
 )
 
 RNG = np.random.default_rng(1871)
+# Pillow 10.0 y 10.1 leen X8R8G8B8 como si fuera de 24 bits; desde 10.2 sirve de referencia también para ese.
+PILLOW_READS_X8 = tuple(int(part) for part in PIL.__version__.split(".")[:2]) >= (10, 2)
 
 
 def pillow_rgba(data: bytes) -> np.ndarray:
@@ -106,7 +109,8 @@ class ReadTests(unittest.TestCase):
                 image = read_dds(data)
                 np.testing.assert_array_equal(image.rgba[..., :3], rgb)
                 np.testing.assert_array_equal(image.rgba[..., 3:], 255 if expected_alpha is None else expected_alpha)
-                np.testing.assert_array_equal(image.rgba, pillow_rgba(data))
+                if name != "X8R8G8B8" or PILLOW_READS_X8:
+                    np.testing.assert_array_equal(image.rgba, pillow_rgba(data))
 
     def test_errors(self):
         good = write_dds(np.zeros((2, 2, 4), np.uint8))
