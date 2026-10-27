@@ -8,8 +8,7 @@ preparar el entorno y qué hacer después, en orden.
 > 1. `docs/diseno/wizard.md`, el diseño del objetivo ampliado (iteraciones 2 a 10). Empieza por §0 (el diseño en
 >    una página), §20 (trabajo con 2 agentes), §22 (plan de iteraciones) y §24 (decisiones del usuario, que mandan
 >    sobre todo lo demás).
-> 2. `ARCHITECTURE.md`: la arquitectura del código. Ojo: todavía marca como «llega en la última ronda de T4» cosas
->    que ya están en el código (§5, paso 4).
+> 2. `ARCHITECTURE.md`: la arquitectura del código (al día con la iteración 2 integrada).
 > 3. `README.md`: qué funciona hoy y cómo ejecutar, probar, capturar y usar las CLI.
 > 4. `docs/requisitos/prompt_maestro_creador_de_mods_victoria_ii.md`: los requisitos originales del usuario.
 
@@ -18,7 +17,7 @@ preparar el entorno y qué hacer después, en orden.
 Un mensaje inicial que funciona:
 
 ```text
-Lee CONTINUAR_EN_CLAUDE_CODE.md entero y continúa desde §5, paso 1. Respóndeme en español.
+Lee CONTINUAR_EN_CLAUDE_CODE.md entero y continúa desde el primer paso sin hacer de §5. Respóndeme en español.
 ```
 
 Para trabajo grande el usuario usaba *ultracode* (workflows con varios agentes y verificación adversarial): da
@@ -27,28 +26,26 @@ arreglarlo, deja una prueba de regresión que falle sin el arreglo y pasa la bat
 
 ---
 
-## 0. Estado actual (26-10-2026, proyecto en pausa)
+## 0. Estado actual (27-10-2026)
 
-- **Rama.** `claude/project-thread-pfuk53`. Los PR #1, #2 y #3 están fusionados en `main`. Esta rama parte de
-  `main` (`cfb65a5`) y lleva la última ronda de T4, el arreglo de compatibilidad con Python 3.10/3.11 y este
-  traspaso, en un PR abierto contra `main`. Si ese PR ya está fusionado, crea una rama nueva desde `main`.
-- **Hecho.**
-  - T1–T4 de la iteración 1: integración revisada, pruebas independientes del corpus, verificación adversarial por
-    componente, corrección de todos los hallazgos con prueba de regresión, segunda ronda y ronda cruzada entre
-    núcleo e interfaz.
-  - Última ronda de T4, **parser**: corregida, verificada por un agente independiente, recorregida e integrada
-    (commit «Parser: posiciones finales públicas, avisos de UTF-16 y BOM repetidos»). Detalle en §3.
-  - Última ronda de T4, **interfaz**: corregida e integrada (commit «Interfaz: árbol grande liberado fuera del
-    hilo de la interfaz, etiquetas UTF-16 y repaso»), **sin su segunda revisión adversarial**: la pausa la cortó a
-    medias. Es el paso 1 de §5.
-  - Compatibilidad con Python 3.10 y 3.11 (§4, «Python 3.10 y 3.11»): tope de PySide6 y pruebas sin
-    `enterContext`.
-  - Diseño del Wizard (`docs/diseno/wizard.md`) y del taller de mapas (§18), con prototipos medidos en
-    `docs/diseno/prototipos/mapforge/` y la licencia MIT de Azgaar's Fantasy Map Generator en
-    `THIRD_PARTY_NOTICES.md`.
-  - `ARCHITECTURE.md` y `README.md` reescritos según el código y verificados (antes de integrar la última ronda).
-- **Pruebas** (en la nube: Python 3.13.17, PySide6 6.12.0, numpy 2.5.3, Pillow 12.3.0): 593 OK con el corpus
-  completo y 593 OK con 3 omitidas sin `VIC2_CORPUS`. Con Python 3.10.20 y PySide6 6.11.3: 593 OK con 3 omitidas.
+- **Rama.** `claude/keen-fermi-nw8itc`, que parte de `main` en `94bbe06` (PR #4, el de la iteración 1, ya
+  fusionado). No hay PR abierto: el usuario no lo ha pedido. Si esta rama se fusiona, empieza otra desde `main`.
+- **Hecho en esta sesión** (en orden; los mensajes de commit traen el detalle):
+  - Los 6 pasos que quedaban de la iteración 1: segunda revisión adversarial de la última ronda de la interfaz
+    (19 hallazgos confirmados y corregidos en `9040839`, más el grupo de compatibilidad en `563a709`), aviso al
+    arrancar con PySide6 ≥ 6.12 en Python 3.10/3.11 (`093f8b3`), hoja de ruta con la numeración de wizard.md §22
+    (`c18b8fd`), documentos al día (`5ba9cc0`), archivos de país sintéticos en la muestra (`7300a2f`, decisión del
+    usuario) y capturas de T5 en ES y EN (`3230442`, en `docs/capturas/`).
+  - **Iteración 2 (cimientos)**: contrato (`4f5b46d`), implementación con 2 agentes en paralelo (A: núcleo; B:
+    descriptor, `Session` y armazón de 7 salas), integración (`97f0386`, `f3ff809`, `d3ed5de`) y prueba de punta a
+    punta de la interfaz contra el `Project` real (`59e8847`), que destapó cinco fallos de integración, todos
+    corregidos con prueba de regresión y mutación (§3, «Iteración 2»).
+  - La batería entera pasa por primera vez con **PySide6 6.5.0**, el mínimo declarado (`563a709`).
+- **Pruebas** (sin corpus): 978 OK con 4 omitidas, con Python 3.13.17 + PySide6 6.12.0, con Python 3.10.20 +
+  PySide6 6.11.3 y con Python 3.10 + PySide6 6.5.0 (sin `XDG_RUNTIME_DIR`). Las 4 omitidas necesitan el corpus.
+- **En curso al escribir esto**: la revisión adversarial de la iteración 2 (criterio 11), con el guion
+  `docs/handoff/workflow_iteracion2_revision.js` sobre `59e8847`. Si la sesión se cortó antes de corregir sus
+  hallazgos, es el paso 1 de §5.
 - **Queda**, en orden: §5.
 
 ---
@@ -61,15 +58,16 @@ arreglarlo, deja una prueba de regresión que falle sin el arreglo y pasa la bat
   inglés del README. Prefiere respuestas ricas y detalladas.
 - **Iteración 1** (sección «Instrucciones de Ejecución y Entrega» de los requisitos): propuesta de arquitectura y
   stack (`ARCHITECTURE.md`), estructura de directorios, motor de parseo Clausewitz `.txt` ⇄ JSON y CSV ⇄ JSON y
-  ventana principal con estética Victoria II, selector ES/EN y navegación entre 5 módulos. Solo le falta cerrar
-  §5, pasos 1 a 6.
+  ventana principal con estética Victoria II, selector ES/EN y navegación entre 5 módulos. Cerrada el 27-10-2026
+  (§0); la navegación ya es la de 7 salas de la iteración 2.
 - **Objetivo ampliado.** El Wizard debe cubrir 15 capacidades (wizard.md §14): generar el `.mod`; ver, crear y
   editar países, provincias, unidades terrestres, decisiones, eventos, guerras de inicio, casus belli, bookmarks,
   gobiernos nuevos, unidades navales, culturas y regiones; una suite de modificación de interfaces; y un taller
   de mapas nuevos que genera o importa un mapa con todos sus archivos dependientes. El plan las reparte en las
   iteraciones 2 a 10 (la 9 dividida en 9a y 9b).
-- **Avance** (lo que se le dijo al usuario el 26-10-2026): alrededor de un 15 % del programa completo por
-  esfuerzo; diseño completo, cimientos casi terminados y 0 de las 15 capacidades de edición todavía.
+- **Avance.** El 26-10-2026 se le dijo al usuario «alrededor de un 15 % del programa completo por esfuerzo». Con la
+  iteración 2 integrada están los cimientos (VFS, proyecto transaccional, diario, deshacer, 7 salas) y la primera
+  de las 15 capacidades (el `.mod`); faltan las iteraciones 3 a 10.
 
 ## 2. Decisiones tomadas (no las reabras sin motivo)
 
@@ -87,9 +85,9 @@ arreglarlo, deja una prueba de regresión que falle sin el arreglo y pasa la bat
   aplicación. El juego base es de solo lectura: todo se escribe en la carpeta del mod.
 - **Estética 100 % procedural** (QPainter y numpy): ninguna textura, fuente ni imagen del juego.
 - **Los datos de Paradox nunca se suben al repositorio.** El corpus vive fuera. En los documentos tampoco se copian
-  líneas de archivos del juego. Ojo con dos cosas pendientes (§5, paso 5): los archivos de país de
-  `tests/fixtures/shago_mod_min` vienen del mod del usuario, pero este los copió de vanilla en parte (bloques de
-  partidos y listas `unit_names`), y dos capturas de `docs/capturas/` muestran archivos de vanilla.
+  líneas de archivos del juego. Los archivos de país de `tests/fixtures/shago_mod_min` son sintéticos desde
+  `7300a2f` (el usuario lo decidió: los originales compartían bloques con vanilla), y las capturas de
+  `docs/capturas/` solo muestran la muestra (`3230442`).
 - **Solo se usa Heart of Darkness 3.04** como versión de referencia (decisión 11 del usuario).
 - **Convenciones.** Identificadores en inglés; docstrings y comentarios en español, concisos. Todo texto visible
   pasa por `tr()` con paridad ES/EN. Pruebas con `unittest`. Código compatible con Python 3.10 (sintaxis y
@@ -105,6 +103,24 @@ arreglarlo, deja una prueba de regresión que falle sin el arreglo y pasa la bat
 wizard.md §1 resuelve en 19 decisiones (D1–D19) las contradicciones entre las tres propuestas de diseño: 7 salas
 por flujos, sin capa `services/`, deshacer por instantáneas, copia desde vanilla al guardar, `.bak` más diario,
 CST vivo solo en el hilo de la interfaz, rango de ids de eventos, etc.
+
+### De la iteración 2, vigentes
+
+- **Solo `core/fileio.py` escribe en crudo** (`tests/test_arch_writes.py`, regla AST, sin excepciones), y todo lo
+  que se guarda en el mod pasa por `Session` → `Project` → diario (`core/project/journal.py`) y `WriteGuard`. El
+  descriptor `.mod` vive fuera de la carpeta del mod: se nombra `DESCRIPTOR_REL` (`"@descriptor.mod"`); sin `.mod`,
+  el sitio donde se creará es `<juego>/mod/<Carpeta>.mod`.
+- **`Session` (`ui/session.py`) es el único puente con Qt.** Abre en segundo plano y cede el `Workspace` al hilo
+  de la interfaz (`bind_to_current_thread`); «Descartar» cierra con `discard=True` (sin autoguardado); el
+  autoguardado lo decide el núcleo (`autosave_due`, y `write_recovery` borra el de la sesión si ya no hay sucios).
+- **Las pruebas de la ventana corren dos veces**: contra el `Project` falso (`tests/_fake_project.py`, rápido y
+  con fallos a la carta, que imita la API del real) y contra el real (`tests/test_ui_real_project.py`). Si cambias
+  la API del núcleo, cambia el falso a la vez.
+- **Textos**: la interfaz, en `i18n/<idioma>.json` más fragmentos `i18n/<idioma>/<área>.json`; el núcleo, en
+  `core/**/texts/*.<idioma>.json` (mensajes de guardado y etiquetas `undo.*` de los pasos que crea). `load_catalog`
+  rechaza claves repetidas entre todos.
+- **PySide6 6.5 o 6.6 piden numpy < 2** (ruedas de shiboken6 compiladas con NumPy 1.x): está en el README y en
+  `requirements.txt`; no se sube el mínimo de PySide6 sin preguntar al usuario.
 
 ### Respuestas del usuario (wizard.md §24, 26-10-2026)
 
@@ -129,10 +145,13 @@ Mandan sobre cualquier otra parte del diseño. En resumen:
 
 ## 3. Qué hay implementado
 
-La aplicación tiene 5 módulos en la barra de navegación (Ctrl+1 a Ctrl+5) y todavía no modifica archivos del juego
-ni del mod desde la interfaz: la escritura existe en el núcleo y en la CLI `fromjson`, y la edición desde la
-interfaz empieza en la iteración 2. Los mensajes de los commits resumen cada ronda: `fadf29e` (núcleo), `899ecca`
-(parser), `606811e` (interfaz) y los dos de la última ronda de T4.
+La ventana tiene 7 salas (Ctrl+1 a Ctrl+7): Proyecto, Mapa, Naciones, Guerra, Eventos, Interfaz y Textos. En
+Proyecto funcionan Inicio, Descriptor .mod, Archivos y Cambios pendientes; el resto de secciones son tarjetas que
+dicen qué harán y en qué iteración llegan. Desde la iteración 2 la interfaz **sí escribe en el mod**, siempre a
+través de `Session` y del diario: el descriptor `.mod` (crear y editar), «Nuevo mod» y, en general, cualquier
+documento abierto en el `Workspace`. Lo de la iteración 1 sigue igual salvo lo que dice «Iteración 2» más abajo.
+Los mensajes de los commits resumen cada ronda: `fadf29e` (núcleo), `899ecca` (parser), `606811e` (interfaz), los
+dos de la última ronda de T4 y los de §0.
 
 ### Núcleo (`src/vic2studio/core`, sin Qt)
 
@@ -202,8 +221,9 @@ interfaz empieza en la iteración 2. Los mensajes de los commits resumen cada ro
 
 ### Interfaz (`src/vic2studio/ui`) y resto
 
-- **`i18n/`**: `Translator` con cambio de idioma en vivo; 339 claves en paridad ES/EN, que las pruebas recorren
-  también con una pseudo-localización para encontrar textos sin traducir.
+- **`i18n/`**: `Translator` con cambio de idioma en vivo; 670 claves de la interfaz (catálogo y fragmentos) más
+  17 del núcleo, en paridad ES/EN, que las pruebas recorren también con una pseudo-localización para encontrar
+  textos sin traducir.
 - **`settings.py`**: preferencias en INI; `VIC2STUDIO_SETTINGS_DIR` las desvía.
 - **`ui/tasks.py`**: tareas en segundo plano con `TaskRunner(parent, *, pool=...)`.
   - Grupos de hilos: `POOL_PREVIEW` (2 hilos), `POOL_IMAGES` (1), `POOL_VALIDATION` (1) y, desde la última ronda,
@@ -237,15 +257,56 @@ interfaz empieza en la iteración 2. Los mensajes de los commits resumen cada ro
   - Proyecto y Archivos: rutas del juego y del mod, explorador con filtro, ficha del archivo (con nombre de las
     codificaciones UTF-16 y salto de línea en los valores), vista previa y «Validar mod».
   - Localización: el CSV se lee en segundo plano y se puede cancelar.
-  - Mapa, Países y Eventos: tarjetas de módulo en desarrollo, con la numeración vieja de iteraciones (§5, paso 3).
+  - Las secciones planificadas de las 7 salas son tarjetas «en desarrollo» con la iteración de wizard.md §22
+    (`ui/pages/planned.py`), y la hoja de ruta de Inicio tiene los 10 hitos (`c18b8fd`).
 - **`ui/widgets/navigation.py`**: los nombres de módulo se parten en dos líneas si no caben (antes se recortaban
   a 1100×700 en español).
 - **`tools/screenshot.py`**: capturas sin pantalla, con `--open-file`, `--line`, `--search`, `--tab`, `--validate`,
-  `--left-tab` y `--report` (opciones en el README). Las de `docs/capturas/` son anteriores a T4.
+  `--left-tab` y `--report` (opciones en el README); desde la iteración 2 también `--hall`, `--section`,
+  `--dialog`, `--demo-game`, `--demo-changes` y `--fake-project`. Las de `docs/capturas/` son las de T5
+  (`3230442`), sobre la muestra.
+
+### Iteración 2 (cimientos)
+
+- **`core/vfs/`**: `paths` (`VPath`, claves sin mayúsculas, `windows_name_problems`, `long_path_problem`,
+  `DESCRIPTOR_REL`), `rules` (cómo carga el juego cada carpeta), `guard` (`WriteGuard`: solo el mod y su `.mod`,
+  por `realpath`) y `vfs` (`VirtualFS`: capas juego, dependencias y mod, `replace_path`, `resolve`, `stack`,
+  `list`, `mod_target`).
+- **`core/project/`**: `model` (documentos, eventos, `ChangeSet`, `SaveReport`, `ProjectSettings`), `codecs`,
+  `documents`, `undo` (instantáneas), `workspace` (transacciones con nombre, deshacer y rehacer, cambios
+  externos, `changeset`, `save`, autoguardado), `journal` (guardado multiarchivo todo o nada, `.bak`,
+  `originals/`, papelera, recuperación), `recovery`, `lock` (segunda instancia en solo lectura), `settings`
+  (`.vic2studio/project.json`, que se deshace y se guarda como un documento más) y `project` (`Project.open`,
+  `close(discard=)`, `restore_session`, `discard_session`).
+- **`core/appdirs.py`** (carpetas de datos y caché fuera del mod; `VIC2STUDIO_DATA_DIR` y `VIC2STUDIO_CACHE_DIR`
+  las desvían) y **`core/texts.py`** (textos del núcleo por idioma).
+- **`core/modfile.py`**: `DescriptorSpec`, `render_descriptor` (oro: `tests/fixtures/shago_mod_min/VSM.mod`),
+  `descriptor_problems`, `create_mod_skeleton` (todo o nada con el diario), `sanitize_folder` y `taken_folders`.
+- **Interfaz**: `ui/session.py`; `ui/shell/` (salas, barra de secciones, panel de cambios pendientes, historial);
+  `ui/halls/` (registro por descubrimiento de las 7 salas); `ui/halls/project/` (Inicio, Descriptor .mod,
+  Cambios pendientes); `ui/dialogs/` (revisión antes de guardar —D13: solo si se copia del juego, se manda algo a
+  la papelera o hay problemas—, conflicto con «Conservar mis cambios», «Recargar del disco» y «Comparar»,
+  recuperación y «Nuevo mod»); `ui/widgets/layer_badge.py` (capa de cada archivo en el explorador). Guardar con
+  contador (Ctrl+S), deshacer y rehacer (Ctrl+Z, Ctrl+Y, Ctrl+Mayús+Z), título con `*`, pregunta al cerrar o al
+  cambiar de mod con cambios.
+- **Fallos que destapó la prueba de punta a punta** (`59e8847`), ya corregidos: «Descartar» dejaba autoguardado y
+  se ofrecía al reabrir; deshacerlo todo no borraba el autoguardado anterior; las etiquetas `undo.*` del núcleo
+  no tenían texto; sin `.mod` no se podía crear el descriptor (`FileNotFoundError` al guardar); el formulario
+  aceptaba carpetas como «CON .x» que el guardado rechaza.
+- **Fallos de Qt 6.5** (`563a709`), ya corregidos: etiquetas que se mostraban un instante como ventana suelta
+  (`setVisible` antes de tener padre; prueba `StrayWindowTests`), botón «Resolver» que `QDialogButtonBox` volvía a
+  mostrar, flecha de orden que recortaba los títulos de la tabla de diagnósticos.
 
 ### Pruebas
 
-593 pruebas en 22 archivos `tests/test_*.py` (parser `test_clausewitz_*`, CSV `test_csvloc_*`, `test_encoding`,
+978 pruebas en 55 archivos `tests/test_*.py` (las de la iteración 1 más `test_vfs_*`, `test_project_*`,
+`test_journal_*`, `test_undo_*`, `test_workspace_*`, `test_recovery_autosave`, `test_lock`, `test_arch_writes`,
+`test_texts`, `test_appdirs`, `test_modfile_write`, `test_ui_shell`, `test_ui_session`, `test_ui_descriptor`,
+`test_ui_new_mod`, `test_ui_roadmap`, `test_ui_real_project`…). Sin corpus se omiten 4: valores pegados al token
+siguiente, el `.csv.bak`, la carpeta vanilla y el criterio 3 de la iteración 2 sobre vanilla + VSM.
+`tests/_qt.py` aísla preferencias, datos y caché en carpetas temporales y crea un `XDG_RUNTIME_DIR` si falta.
+
+Antes de la iteración 2 eran 593 pruebas en 22 archivos `tests/test_*.py` (parser `test_clausewitz_*`, CSV `test_csvloc_*`, `test_encoding`,
 `test_modcheck`, `test_i18n`, `test_tasks` y la interfaz `test_ui_*`). Sin corpus se omiten 3: la de valores
 pegados al token siguiente, la del `.csv.bak` y la que necesita la carpeta vanilla. Sin corpus, las pruebas usan
 la muestra `tests/fixtures/shago_mod_min` y una plantilla sintética (`tests/_corpus.py`). Los tearDown de interfaz
@@ -320,7 +381,8 @@ El mínimo declarado es Python 3.10. Se encontró y acotó un fallo de PySide6, 
 
 - **Arreglo hecho**: `pyproject.toml` y `requirements.txt` piden `PySide6>=6.5,<6.12` en Python < 3.12, y
   `tests/test_ui_smoke.py` ya no usa `TestCase.enterContext` (3.11+), sino `UiTestCase.enter_context`.
-- **Pendiente** (§5, paso 2): un aviso al arrancar si alguien ya tiene esa combinación instalada.
+- **Aviso al arrancar** (`093f8b3`, `src/vic2studio/compat.py`, sin Qt): la aplicación y `tests/_qt.py` paran con un mensaje claro
+  si encuentran esa combinación; `VIC2STUDIO_ALLOW_BROKEN_PYSIDE=1` lo salta.
 
 Para probar con 3.10 (en la nube hay uno en `/root/.local/bin/python3.10`):
 
@@ -334,117 +396,55 @@ QT_QPA_PLATFORM=offscreen VIC2STUDIO_SETTINGS_DIR="$(mktemp -d)" PYTHONDONTWRITE
 El usuario usa Python 3.14 en local; nadie ha pasado la batería con 3.14 todavía (su recolector incremental puede
 cambiar las pausas que miden las pruebas de latido).
 
-## 5. Próximas tareas, en orden
+### PySide6 6.5, el mínimo declarado
 
-### 1. Segunda revisión adversarial de la última ronda de la interfaz
-
-La pausa la cortó. Lo que hay que intentar tumbar (diff: el commit «Interfaz: árbol grande liberado…»):
-
-| Id | Qué se arregló |
-|---|---|
-| NF-TREE-RELEASE | El análisis viejo se desmonta en segundo plano por trozos (`release_in_background`, `dismantle_load`); nada de Qt sale de su hilo (`load.document = None` antes de entregar). |
-| TASKS-HANDOFF-RACE | `_Job` ya no retiene lo entregado: era la causa de una prueba intermitente del recolector. |
-| NF-7 y NF-UNREADABLE-BADGE | Nombres de las 4 codificaciones UTF-16 en el visor y en la ficha; insignia roja «Ilegible para el juego». |
-| REVIEW-DIAG-TAB-UNREADABLE | La pestaña Diagnósticos ya no dice «Sin diagnósticos» en verde para un archivo UTF-16. |
-| NF-R3-HEADER-BLINK, NF-IMAGE-BLINK y NF-IMAGE-CANCEL | Reintentar un fallo de lectura ya no parpadea (visor de scripts e imágenes) y cancelar no deja «cargando…». |
-| REVIEW-HEADER-ELIDE, REVIEW-FACTS-WRAP y REVIEW-NAV-NAMES | Cabecera, ficha y navegación sin textos cortados a 1100×700. |
-| NF-FACTS-PARTIAL | La ficha ya no llama cp1252 a un UTF-8 de más de 2 MiB según dónde caiga el corte de lectura. |
-| NF-SINGULAR-LINE | «1 línea» en singular. |
-
-Para cada uno: reprodúcelo contra `cfb65a5` y contra el código actual, comprueba que su prueba falla sin el
-arreglo (mutación) y busca regresiones (API de Qt posterior a 6.5, Python 3.10, hilos o temporizadores vivos,
-textos sin traducir). Sin arreglar a propósito: NF-DOC-DELETE y dos más (§6).
-
-Un choque que apareció al integrar las dos rondas, ya resuelto en la prueba: la interfaz se escribió cuando un
-UTF-16 solo ASCII no daba ningún diagnóstico, y ahora `parse_file` da `unreadable_encoding`. Así que la pestaña
-Diagnósticos de un UTF-16 muestra esa fila en la tabla, y el estado vacío «Ilegible para el juego»
-(`viewer.unreadable_text`) ya no se ve nunca. Decide si se quita ese estado y sus claves o si se deja como red de
-seguridad.
-
-### 2. Aviso al arrancar con PySide6 6.12 en Python 3.10/3.11
-
-`app.main` y `tests/_qt.py` deberían detectar la combinación rota (Python < 3.12 y PySide6 ≥ 6.12) y parar con un
-mensaje claro (en la aplicación, un `QMessageBox` traducido con claves nuevas en `i18n/{es,en}.json`; en las
-pruebas, un error al importar `_qt`) en vez de abortar al rato. Con prueba.
-
-### 3. Hoja de ruta de las páginas con la numeración nueva
-
-Las tarjetas de Mapa, Países y Eventos y su hoja de ruta (`roadmap.*`), y los avisos de solo lectura de
-Localización (`localisation.roadmap` y `loc.read_only`), siguen el plan viejo (mapa en la 3, países en la 4,
-eventos en la 5, edición de textos en la 2). wizard.md §22 manda: editor de mapa en la 5, países en la 6, eventos
-y decisiones en la 7 y localización editable en la 3. El usuario ya lo vio en una captura y se le dijo que se
-corregiría.
-
-### 4. Documentos al día con la última ronda
-
-- `ARCHITECTURE.md` y `README.md` marcan con «Llega en la última ronda de T4» cosas que ya están: quita las marcas,
-  describe la API real (§3 de este documento) y actualiza la tabla «Riesgos del código actual» (§6.3 de
-  `ARCHITECTURE.md`) y el número de pruebas.
-- La sección de requisitos del README ya explica el tope de PySide6 en Python 3.10/3.11 (§4); `ARCHITECTURE.md`
-  §1.4 y §7 aún no lo mencionan.
-- wizard.md tiene puntos viejos: §21 da por pendientes `detect_newline` → `"\r"`, el escritor de `modfile` e
-  `insert_before` (ya hechos, con otra firma); §23 dice que el arreglo de CR está «en curso» (hecho, con
-  `LineBreakTests.test_cr_only_files` y `test_encoding.test_cr_only_newlines`); §14.1 trata `dependencies` como
-  clave desconocida del descriptor, pero `modfile.ModDescriptor.dependencies` ya la lee y escribe.
-
-### 5. Datos de Paradox en el repositorio: decisión del usuario
-
-- Los archivos de `tests/fixtures/shago_mod_min/VSM/common/countries/` son del mod del usuario, pero comparten con
-  vanilla buena parte de los bloques de partidos (63 de 77 líneas) y las listas `unit_names` enteras. Pregúntale si
-  los sustituimos por versiones sintéticas (las pruebas que los usan son las de la muestra).
-- `docs/capturas/03_estructura_provincia.png` y `04_localizacion_text_csv.png` muestran archivos de vanilla: se
-  sustituyen en el paso 6 por capturas de su mod.
-
-### 6. T5: informe final al usuario
-
-En español: qué se entregó en la iteración 1 (T1–T4), el resultado real de las pruebas, los límites conocidos
-(§6), los problemas de su mod (§7) y el plan (wizard.md §22, empezando por la iteración 2). Acompáñalo de capturas
-en ES y EN a 1100×700 y 1920×1080, revisadas a mano (textos cortados, claves crudas, columnas estrechas), y
-sustituye con ellas las de `docs/capturas/` (solo archivos del mod del usuario o de la muestra). Por ejemplo:
+Pasar la batería con PySide6 6.5.0 encontró tres fallos de verdad (§3, «Iteración 2»). Para repetirlo:
 
 ```bash
-python3 tools/screenshot.py --out capturas --lang all --size 1100x700 --page project \
-    --mod tests/fixtures/shago_mod_min/VSM --validate --left-tab validation
-python3 tools/screenshot.py --out capturas --lang all --size 1920x1080 --page project \
-    --mod tests/fixtures/shago_mod_min/VSM --open-file decisions/zulu_expancionshago.txt --tab diagnostics
+uv venv -p python3.10 /tmp/v650 && uv pip install -p /tmp/v650/bin/python \
+    "PySide6-Essentials==6.5.0" "numpy==1.24.0" "Pillow==10.0.0"
+cd tests && env -u XDG_RUNTIME_DIR QT_QPA_PLATFORM=offscreen PYTHONPATH=../src \
+    /tmp/v650/bin/python -m unittest discover -s .
 ```
 
-El 26-10-2026 se le enviaron capturas de vista previa (antes de la última ronda de la interfaz): Proyecto con la
-Estructura, Código con el error de `somaliland_shago.txt`, Validar mod (3 953 archivos en unos 4 s, 3 errores,
-405 avisos y 3 152 notas), Localización, Editor de Mapa planificado, la interfaz en inglés y la ventana a
-1100×700 con los nombres de módulo cortados.
+Con PySide6 6.5 o 6.6 y numpy 2, cada import de PySide6 escribe una traza falsa en stderr y falla
+`test_tasks.ShutdownTests`: es la combinación de dependencias, no el código.
 
-### 7. Iteración 2 (wizard.md §22): cimientos
+## 5. Próximas tareas, en orden
 
-**Objetivo.** Abrir o crear un mod sobre vanilla y recorrer las 7 salas con tres garantías probadas: nada se
-escribe fuera del mod, todo cambio se deshace y un guardado de varios archivos es todo o nada. Entrega la
-capacidad 1 (el `.mod`).
+### 1. Cerrar la revisión adversarial de la iteración 2 (criterio 11)
 
-**Entregables.** Commit de contrato; `core/vfs/` (rutas, reglas de carga, `WriteGuard` y `VirtualFS`);
-`core/project/` (documentos, transacciones con nombre, deshacer por instantáneas, guardado con diario,
-recuperación, bloqueo, cambios externos y autoguardado); generador del `.mod` (`DescriptorSpec`,
-`render_descriptor`, `create_mod_skeleton`); `ui/session.py`, el armazón de 7 salas (las que no existen, como
-tarjeta con su iteración) con Ctrl+1..7 y Ctrl+S/Z/Y; Inicio, Descriptor .mod y Archivos; i18n por fragmentos. El
-reparto entre los 2 agentes está en §22: A hace el núcleo y B el descriptor y la interfaz. Lee también §21, los
-cambios en el código existente (con las salvedades del paso 4). Parte ya está hecha: el arreglo de CR (el
-criterio 2 ya se cumple), `Block.insert_before` y la API de `ui/tasks.py`.
+Guion: `docs/handoff/workflow_iteracion2_revision.js` (5 componentes: VFS y arquitectura, diario, `Workspace` y
+deshacer, descriptor y `Session`, interfaz con capturas; cada uno con un verificador que intenta refutar). Las
+rutas del guion son de la sesión del 27-10-2026: cámbialas por tu carpeta temporal. Para cada hallazgo
+confirmado: reprodúcelo, prueba de regresión que falle sin el arreglo, arreglo, mutación, batería completa (al
+menos con 3.13 y con PySide6 6.5.0). Después, una segunda ronda sobre los arreglos.
 
-**Criterios de aceptación** (resumen de los 11):
-1. La batería pasa sin corpus, con la muestra y con el corpus completo, y se mantiene la ida y vuelta byte a byte.
-2. `parse("a = 1 # c\rb = 2\r")` da 2 entradas en las líneas 1 y 2, y `detect_newline` devuelve `"\r"`.
-3. Cambiar un CB en el minijuego con mod vacío crea solo `<mod>/common/cb_types.txt`; sobre VSM modifica su copia
-   con un diff de 1 línea; el juego base no cambia.
-4. Abrir y guardar sin cambios no escribe nada ni crea `.vic2studio/`.
-5. `WriteGuard` rechaza rutas del juego, `..` y enlaces que salen del mod, y admite `<juego>/mod/VSM/**` y
-   `<juego>/mod/VSM.mod`.
-6. Un fallo inyectado en cada paso de un guardado de 3 archivos deja, tras `recover()`, todo como antes o todo
-   como después, y recuperar dos veces da lo mismo.
-7. Deshacer y rehacer son exactos byte a byte.
-8. `render_descriptor(DescriptorSpec("Shago Mod", "VSM", "VSM"))` es igual a `tests/fixtures/shago_mod_min/VSM.mod`.
-9. `test_arch_writes`: ninguna escritura cruda fuera de `core/fileio.py`, y dentro del mod solo escribe el diario.
-10. Capturas ES/EN a 1100×700 y 1920×1080 sin textos cortados ni claves crudas.
-11. Verificación adversarial con hallazgos reproducidos y pruebas de regresión. «El mod nuevo aparece en el
-    lanzador y carga» va a la lista de comprobación en el juego, que se entrega al final (decisión 6).
+### 2. Capturas e informe de la iteración 2 (criterio 10)
+
+Capturas ES/EN a 1100×700 y 1920×1080 de Inicio, Descriptor .mod, Archivos, Cambios pendientes y el diálogo de
+revisión, revisadas a mano (textos cortados, claves crudas, columnas estrechas):
+
+```bash
+python3 tools/screenshot.py --out DIR --lang all --size 1100x700 --mod tests/fixtures/shago_mod_min/VSM \
+    --demo-game --demo-changes --no-game-art \
+    --page project:home,project:descriptor,project,project:pending --dialog save_review
+```
+
+El 27-10-2026 se generaron y revisaron las 20 (sin defectos); se suben a `docs/capturas/` con las correcciones de
+la revisión. Informe al usuario en español: qué entrega la iteración 2, resultado de las pruebas y qué queda.
+
+### 3. Criterios con corpus (cuando el usuario suba los zips)
+
+El usuario dijo que subirá los zips del corpus más adelante (§4, «Corpus»). Con ellos: criterio 1 (la batería
+con `VIC2_CORPUS` completo y la ida y vuelta byte a byte) y criterio 3 sobre vanilla + VSM
+(`test_project_workspace.test_acceptance_criterion_3_with_the_corpus`, que usa `_corpus.vanilla_root()`).
+
+### 4. Iteración 3 (wizard.md §22)
+
+Índice de símbolos, validación con reglas y localización editable sincronizada. Mismo ritmo: contrato, 2 agentes
+con archivos disjuntos, integración, prueba de punta a punta contra el núcleo real (no solo contra falsos),
+verificación adversarial, capturas e informe.
 
 ### Método de trabajo (wizard.md §20)
 
@@ -455,8 +455,13 @@ criterio 2 ya se cumple), `Block.insert_before` y la API de `ui/tasks.py`.
   descubrimiento, y los textos van en fragmentos JSON. El agente B trabaja contra el contrato y el minijuego hasta
   la integración.
 - **Una copia del repositorio por agente.** En T4, dos agentes editando el mismo árbol rompieron baterías ajenas;
-  las rondas siguientes trabajaron en copias aisladas (`cp -a` del repositorio fuera de él, sin remoto) y el
-  orquestador integró con `git diff HEAD` y `git apply --3way`.
+  las rondas siguientes trabajaron en copias aisladas (`cp -a` del repositorio fuera de él, sin remoto, o
+  worktrees en `.claude/worktrees/`, ignorada por git) y el orquestador integró con `git diff HEAD` y
+  `git apply --3way`. Para pasar la batería mientras se sigue editando, cópiala a una carpeta temporal
+  (`git ls-files` más lo modificado) y ejecútala allí.
+- **Integrar contra el núcleo real.** Los falsos dejan avanzar en paralelo, pero esconden diferencias: en la
+  iteración 2 la prueba de punta a punta contra el `Project` real encontró cinco fallos que las pruebas contra el
+  falso no veían.
 - **Ritmo.** Contrato, implementación en paralelo, integración, verificación adversarial (cada verificador
   reproduce cada hallazgo antes de reportarlo), correcciones con una prueba de regresión que falla antes del
   arreglo, mutaciones para comprobar que las pruebas detectan el fallo, segunda ronda, capturas e informe al

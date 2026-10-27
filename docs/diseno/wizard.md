@@ -384,9 +384,21 @@ class Workspace:                                   # Python puro; un solo hilo (
     def save(self, rels: Iterable[VPath] | None = None) -> "SaveReport"
     def revert(self, rel) -> None                  # vuelve al disco; también se deshace
     def check_external_changes(self) -> list["ExternalChange"]   # al recuperar el foco y antes de guardar
-    def write_recovery(self) -> None               # autoguardado (cada 60 s y cada 20 transacciones)
+    def accept_external(self, rel) -> None         # «Conservar mis cambios»: el próximo guardado sobrescribe
+    def reload(self, rel) -> None                  # «Recargar del disco»
+    def external_diff(self, rel) -> str            # «Comparar»
+    def autosave_due(self, now: float | None = None) -> bool    # cada AUTOSAVE_SECONDS (60) o AUTOSAVE_TRANSACTIONS (20)
+    def write_recovery(self, *, final: bool = False) -> None    # autoguardado; sin sucios, borra el de la sesión
+    def clear_recovery(self) -> None               # cerrar descartando
+    def bind_to_current_thread(self) -> None       # el hilo que abre (segundo plano) cede el Workspace a la interfaz
+    def history(self) -> list[tuple[str, dict]]    # (clave, formato) de cada paso, el más reciente primero
     def subscribe(self, fn: Callable[["WorkspaceEvent"], None]) -> Callable[[], None]
 ```
+
+Las etiquetas de los pasos que crea el propio núcleo (`undo.revert_file`, `undo.project_settings`,
+`undo.restore_session`) viven en los textos del núcleo (`core/project/texts`); las demás, en el catálogo de quien
+abre la transacción. `test_texts` recorre `core/project` y exige texto, con los mismos huecos, para cada
+`transaction(LABEL_...)`.
 
 - Los documentos limpios que no referencia la pila de deshacer se pueden expulsar (LRU). Los sucios y los referenciados quedan fijados.
 - Varias vistas (mapa, ficha de provincia, pestaña «Código») comparten el mismo `DocHandle` y escuchan `DocChanged(rel, version)` y `DocReplaced(rel)`.
@@ -447,8 +459,16 @@ class Project:                                      # core/project/project.py
     index: "SymbolIndex"; loc: "LocSync"; entities: "Entities"; validator: "Validator"
     def edit(self, label: str, *, merge_key: str | None = None, **fmt) -> ContextManager["Txn"]
     def save(self, rels=None) -> SaveReport
-    def close(self) -> None
+    def set_settings(self, settings: ProjectSettings) -> None   # una transacción más (project.json se guarda con el resto)
+    read_only: bool; lock: ProjectLock; recovered: list[RecoveryResult]; orphan_sessions: list[str]
+    def restore_session(self, session: str) -> list[VPath]      # autoguardado huérfano → documentos sucios (un paso)
+    def discard_session(self, session: str) -> None              # «Descartar» en el diálogo de recuperación
+    def close(self, *, discard: bool = False) -> None            # recuperación final de los sucios, salvo discard
+    closed: bool
 ```
+
+Sin `.mod`, `Project.open` apunta la VFS (y su `WriteGuard`) a `<juego>/mod/<Carpeta>.mod`, junto a la carpeta
+del mod (§14.1): «Descriptor .mod» puede crearlo y el guardado lo escribe con el diario.
 
 ```python
 class Session(QObject):                             # ui/session.py: único puente con Qt
@@ -459,11 +479,19 @@ class Session(QObject):                             # ui/session.py: único puen
     problemsChanged = Signal()
     workingDateChanged = Signal(object)             # ClausewitzDate
     def open_project(self, game: Path, mod: Path) -> None   # en segundo plano: escaneo, índice, línea base
+    def close_project(self, *, discard: bool = False) -> None    # discard: el usuario eligió «Descartar»
     def edit(self, label: str, **fmt) -> ContextManager     # Project.edit + señales al cerrar
     def save(self) -> None; def undo(self) -> None; def redo(self) -> None
+    def write_recovery(self) -> None                         # temporizador y Workspace.autosave_due tras cada edición
+    def restore_session(self, session: str) -> list[VPath]; def discard_recovery(self, session: str) -> None
     project: Project | None
     working_date: ClausewitzDate
 ```
+
+«Descartar» al cerrar la ventana o al cambiar de mod cierra con `discard=True`: no queda autoguardado y al
+reabrir no se ofrece recuperar lo que se tiró. Cerrar sin preguntar (sin cambios, o por código) conserva la
+recuperación final. Las pruebas de la ventana corren contra un `Project` falso (`tests/_fake_project.py`, que
+sigue esta API) y, otra vez, contra el real (`tests/test_ui_real_project.py`).
 
 ### 6.5 Guardado multiarchivo con diario (`journal.py`, `recovery.py`)
 
@@ -498,7 +526,7 @@ Secuencia:
 **Otras salvaguardas.**
 - **Conflictos externos.** Antes de confirmar, la huella actual del destino debe ser igual a `expected`. Si no, el diálogo ofrece «Conservar mis cambios», «Recargar del disco» o «Comparar».
 - **Bloqueo.** Una segunda instancia abre el proyecto en solo lectura; un bloqueo cuyo pid ya no existe se considera caducado.
-- **Autoguardado de recuperación.** Escribe los `snapshot()` de los documentos sucios en `recovery/<sesión>/` con `journal.py` y a través del guard. Al arrancar, si hay una sesión huérfana, ofrece restaurarla como documentos sucios. El historial de deshacer no se persiste, y así se documenta.
+- **Autoguardado de recuperación.** Escribe los `snapshot()` de los documentos sucios en `recovery/<sesión>/` con `journal.py` y a través del guard; si ya no queda ninguno (todo deshecho o guardado), borra el de la sesión, para no ofrecer tras un cierre inesperado cambios que ya no existen. Al arrancar, si hay una sesión huérfana (su proceso murió, es de otro equipo o se cerró con cambios sin guardar), ofrece restaurarla como documentos sucios o descartarla. El historial de deshacer no se persiste, y así se documenta.
 
 ---
 
