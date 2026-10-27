@@ -44,7 +44,9 @@
   "checks.show_inherited": "Show inherited from the base game ({count})",
   "checks.show_inherited_tooltip": "Problems the base game already has are hidden: the mod did not cause them",
   "checks.shown": "({shown} shown)",
+  "checks.status_done": "Validation finished in {seconds} s — errors: {errors} · warnings: {warnings} · notes: {infos}",
   "checks.status_explain_failed": "The problem could not be explained: {error}",
+  "checks.status_failed": "The mod could not be validated: {error}",
   "checks.status_fix_applied": "Fix applied: {fix}. Ctrl+Z undoes it; it is saved with everything else.",
   "checks.status_fix_cancelled": "Fix cancelled: nothing changed.",
   "checks.status_fix_failed": "Could not fix ({fix}): {error}",
@@ -64,7 +66,5 @@
   "fixplan.nothing": "This fix would change nothing right now.",
   "fixplan.trash_note": "{file} will go to the project trash (.vic2studio/trash) when you save: nothing is really deleted.",
   "fixplan.unsafe": "This fix deletes or replaces content: review the plan before applying it.",
-  "fixplan.window_title": "Fix plan",
-  "checks.status_done": "Validation finished in {seconds} s — errors: {errors} · warnings: {warnings} · notes: {infos}",
-  "checks.status_failed": "The mod could not be validated: {error}"
+  "fixplan.window_title": "Fix plan"
 }

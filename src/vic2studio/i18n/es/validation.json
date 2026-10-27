@@ -44,7 +44,9 @@
   "checks.show_inherited": "Mostrar heredados del juego base ({count})",
   "checks.show_inherited_tooltip": "Los problemas que ya tiene el juego base se ocultan: no los ha causado el mod",
   "checks.shown": "(se muestran {shown})",
+  "checks.status_done": "Validación terminada en {seconds} s — errores: {errors} · avisos: {warnings} · notas: {infos}",
   "checks.status_explain_failed": "No se pudo explicar el problema: {error}",
+  "checks.status_failed": "No se pudo validar el mod: {error}",
   "checks.status_fix_applied": "Arreglo aplicado: {fix}. Ctrl+Z lo deshace; se guarda con el resto.",
   "checks.status_fix_cancelled": "Arreglo cancelado: no se cambió nada.",
   "checks.status_fix_failed": "No se pudo arreglar ({fix}): {error}",
@@ -64,7 +66,5 @@
   "fixplan.nothing": "Este arreglo no cambiaría nada ahora mismo.",
   "fixplan.trash_note": "{file} irá a la papelera del proyecto (.vic2studio/trash) al guardar: nada se borra de verdad.",
   "fixplan.unsafe": "Este arreglo borra o sustituye contenido: revisa el plan antes de aplicarlo.",
-  "fixplan.window_title": "Plan del arreglo",
-  "checks.status_done": "Validación terminada en {seconds} s — errores: {errors} · avisos: {warnings} · notas: {infos}",
-  "checks.status_failed": "No se pudo validar el mod: {error}"
+  "fixplan.window_title": "Plan del arreglo"
 }
