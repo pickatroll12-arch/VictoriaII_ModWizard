@@ -1,0 +1,5 @@
+{
+  "issue.definition_bad_row": "Province {id} in definition.csv does not have three numeric colours: “{row}”.",
+  "issue.definition_duplicate_id": "Province {id} is repeated in definition.csv (it was already on line {first}).",
+  "issue.definition_duplicate_color": "Colour {color} of province {id} is already used by another province in definition.csv (line {first}): the game could not tell them apart on the map."
+}
