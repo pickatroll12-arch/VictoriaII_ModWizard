@@ -20,6 +20,7 @@ from unittest import mock
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 import _qt  # noqa: E402  (antes de PySide6.QtWidgets: plataforma offscreen y avisos)
+import numpy as np  # noqa: E402
 from PIL import Image  # noqa: E402
 from PySide6.QtCore import QModelIndex, QRect, QSize, Qt  # noqa: E402
 from PySide6.QtGui import QTextDocument  # noqa: E402
@@ -956,6 +957,42 @@ class ImageViewerTests(unittest.TestCase):
         self.assertEqual(preview_kind(path), "image")
         self.load(path)
         self.assertEqual((self.viewer.current_load().width, self.viewer.current_load().height), (20, 10))
+
+    def test_uncompressed_dds_is_decoded_by_the_studio(self):
+        """X8R8G8B8 (32 bits sin alfa): Pillow 10.0 y 10.1 lo leen como si fuera de 24 bits y corren los colores."""
+        from vic2studio.core.gfx.dds import write_dds
+
+        colors = [[(200, 10, 30), (5, 150, 250), (90, 60, 0)], [(1, 2, 3), (250, 250, 0), (0, 0, 0)]]
+        rgba = np.zeros((2, 3, 4), np.uint8)
+        rgba[..., :3] = colors
+        rgba[..., 3] = 77
+        data = bytearray(write_dds(rgba))
+        data[80:84] = (0x40).to_bytes(4, "little")      # DDPF_RGB sin DDPF_ALPHAPIXELS
+        data[104:108] = bytes(4)                         # sin máscara de alfa: X8R8G8B8
+        path = self.folder / "x8.dds"
+        path.write_bytes(bytes(data))
+        with mock.patch.object(image_viewer_module.Image, "open", side_effect=AssertionError("Pillow")):
+            load = image_viewer_module.load_image(path)
+        self.assertEqual((load.width, load.height, load.mode, load.format), (3, 2, "RGB", "DDS"))
+        for y, row in enumerate(colors):
+            for x, color in enumerate(row):
+                pixel = load.image.pixelColor(x, y)
+                self.assertEqual((pixel.red(), pixel.green(), pixel.blue(), pixel.alpha()), (*color, 255))
+        path.write_bytes(bytes(data[:-5]))               # truncado: falla (Pillow 10.0 lo mostraría corrido)
+        with self.assertRaises(image_viewer_module.ImageLoadError) as caught:
+            image_viewer_module.load_image(path)
+        self.assertIn("dds_truncated", str(caught.exception))
+        odd = bytearray(data)
+        odd[92:96] = (0x7C00).to_bytes(4, "little")      # máscara de 5 bits: no es del Studio, va a Pillow
+        path.write_bytes(bytes(odd))
+        with mock.patch.object(image_viewer_module.Image, "open", side_effect=OSError("de Pillow")):
+            with self.assertRaises(image_viewer_module.ImageLoadError) as caught:
+                image_viewer_module.load_image(path)
+        self.assertIn("de Pillow", str(caught.exception))
+        alpha = self.folder / "a8.dds"
+        alpha.write_bytes(write_dds(rgba))
+        with mock.patch.object(image_viewer_module.Image, "open", side_effect=AssertionError("Pillow")):
+            self.assertEqual(image_viewer_module.load_image(alpha).mode, "RGBA")
 
     def test_rich_text_keeps_line_breaks(self):
         state = EmptyState("info")

@@ -80,9 +80,9 @@ arreglarlo, deja una prueba de regresión que falle sin el arreglo y pasa la bat
   El detalle (corpus y mutaciones) está en el estado de `docs/handoff/PARA_GEMINI.md`. Todas pasan en Python 3.13
   y 3.10 con Pillow 12.3, en 3.10 con Pillow 10.0 y PySide6 6.5, y en 3.10 con Pillow 10.3, con y sin corpus
   (`VIC2_GAME`).
-  - **Pendiente para la integración.** `ui/viewers/image_viewer.py` decodifica los DDS con Pillow. Con Pillow
-    10.0–10.1, un DDS X8R8G8B8 se vería con los colores corridos. Conviene pasar los DDS sin comprimir por
-    `core/gfx/dds.read_dds`.
+  - **Hecho en la integración.** El visor de imágenes (`ui/viewers/image_viewer.py`) ya decodifica con
+    `core/gfx/dds.read_dds` los DDS sin comprimir de 24 y 32 bits. Con Pillow 10.0–10.1, X8R8G8B8 se veía con
+    los colores corridos. Lo que ese lector no admite sigue yendo a Pillow.
 
 ---
 
