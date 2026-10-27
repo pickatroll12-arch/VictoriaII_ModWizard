@@ -19,6 +19,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
+from ..fileio import BACKUP_SUFFIX
 from ..modcheck import GAME_EXECUTABLES
 from ..modfile import ModDescriptor, find_descriptor
 
@@ -61,18 +62,40 @@ class WriteGuard:
     (el descriptor ``<juego>/mod/<carpeta>.mod``) y lo que esté bajo ``extra_roots``
     (la carpeta de proyecto fuera del mod cuando este es de solo lectura). Todo lo
     demás, incluido un enlace que sale de esas raíces, lanza ``WriteOutsideModError``.
+
+    Junto a cada archivo de ``extra_files`` admite también sus compañeros del
+    guardado: su ``.bak`` y sus temporales ``.<nombre>.<token>.tmp`` (en la misma
+    carpeta). Las rutas se comparan con ``os.path.normcase(os.path.realpath(...))``:
+    en Windows sin distinguir mayúsculas; en Linux una carpeta que solo difiere en
+    mayúsculas es otra carpeta y se rechaza.
     """
 
     def __init__(self, mod_root: Path, *, extra_files: Sequence[Path] = (),
                  extra_roots: Sequence[Path] = ()) -> None:
-        raise NotImplementedError
+        self._mod_root = Path(mod_root)
+        self._roots = tuple(_real(root) for root in (self._mod_root, *extra_roots))
+        self._files = tuple(_real(file) for file in extra_files)
+        self._extra_files = tuple(Path(file) for file in extra_files)
+        self._extra_roots = tuple(Path(root) for root in extra_roots)
 
     @property
     def mod_root(self) -> Path:
-        raise NotImplementedError
+        return self._mod_root
+
+    @property
+    def extra_files(self) -> tuple[Path, ...]:
+        return self._extra_files
+
+    @property
+    def extra_roots(self) -> tuple[Path, ...]:
+        return self._extra_roots
 
     def allows(self, target: str | os.PathLike) -> bool:
-        raise NotImplementedError
+        try:
+            self.check(target)
+        except WriteOutsideModError:
+            return False
+        return True
 
     def check(self, target: str | os.PathLike) -> Path:
         """``realpath(target)`` si se admite; si no, lanza ``WriteOutsideModError``.
@@ -80,7 +103,37 @@ class WriteGuard:
         ``target`` puede no existir todavía: se comprueba la carpeta existente más
         cercana y que el resto de la ruta no contenga ``..``.
         """
-        raise NotImplementedError
+        raw = os.fspath(target)
+        if not isinstance(raw, str) or not raw or "\0" in raw:
+            raise WriteOutsideModError(raw, self._mod_root)
+        # Un «..» se rechaza siempre: tras un enlace simbólico no lleva a donde aparenta.
+        if ".." in Path(raw).parts or ".." in raw.replace("\\", "/").split("/"):
+            raise WriteOutsideModError(raw, self._mod_root)
+        real = os.path.realpath(raw)
+        key = os.path.normcase(real)
+        if any(_inside(key, root) for root in self._roots) or self._is_extra_file(key):
+            return Path(real)
+        raise WriteOutsideModError(raw, self._mod_root)
+
+    def _is_extra_file(self, key: str) -> bool:
+        folder, name = os.path.split(key)
+        for file in self._files:
+            file_folder, file_name = os.path.split(file)
+            if folder != file_folder:
+                continue
+            if name == file_name or name == file_name + os.path.normcase(BACKUP_SUFFIX):
+                return True
+            if name.startswith("." + file_name + ".") and name.endswith(os.path.normcase(".tmp")):
+                return True
+        return False
+
+
+def _real(path: str | os.PathLike) -> str:
+    return os.path.normcase(os.path.realpath(path))
+
+
+def _inside(key: str, root: str) -> bool:
+    return key == root or key.startswith(root.rstrip(os.sep) + os.sep)
 
 
 # --- inspección de carpetas (sin Qt; antes en ui/pages/project_page.py) -------------------

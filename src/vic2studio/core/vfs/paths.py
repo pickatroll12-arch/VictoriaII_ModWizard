@@ -9,6 +9,7 @@ que Windows rechaza (``CON.tga``, ``<>:"|?*``, punto o espacio final).
 from __future__ import annotations
 
 import os
+import re
 from pathlib import Path
 
 # Código de InvalidPathError.
@@ -63,33 +64,71 @@ class VPath(str):
     def of(cls, raw: str | os.PathLike) -> VPath:
         """``\\`` → ``/``, colapsa ``//`` y ``./``; lanza ``InvalidPathError`` con ``..``, unidad, ruta absoluta o
         un primer componente que empiece por ``@`` (reservado: ``DESCRIPTOR_REL``)."""
-        raise NotImplementedError
+        if isinstance(raw, VPath) and str.__eq__(raw, DESCRIPTOR_REL):
+            return DESCRIPTOR_REL
+        text = os.fspath(raw)
+        if not isinstance(text, str):
+            raise TypeError(f"VPath.of() espera str o PathLike de str, no {type(text).__name__}")
+        if "\0" in text:
+            raise InvalidPathError(text, "nul")
+        slashed = text.replace("\\", "/")
+        if slashed.startswith("/"):
+            raise InvalidPathError(text, "absolute")
+        if _DRIVE_RE.match(slashed):
+            raise InvalidPathError(text, "drive")
+        parts = [part for part in slashed.split("/") if part and part != "."]
+        if not parts:
+            raise InvalidPathError(text, "empty")
+        if ".." in parts:
+            raise InvalidPathError(text, "parent")
+        if parts[0].startswith("@"):
+            raise InvalidPathError(text, "reserved")
+        return str.__new__(cls, "/".join(parts))
 
     @property
     def key(self) -> str:
         """Clave de comparación sin mayúsculas (``upper()``)."""
-        raise NotImplementedError
+        return self.upper()
 
     @property
     def name(self) -> str:
-        raise NotImplementedError
+        return self.rpartition("/")[2]
 
     @property
     def parent(self) -> VPath:
         """Carpeta que la contiene (``VPath("")`` para un archivo de la raíz)."""
-        raise NotImplementedError
+        return str.__new__(VPath, self.rpartition("/")[0])
 
     @property
     def suffix(self) -> str:
         """Extensión en minúsculas, con el punto (``.txt``)."""
-        raise NotImplementedError
+        name = self.name
+        dot = name.rfind(".")
+        return name[dot:].lower() if dot > 0 else ""
+
+    @property
+    def parts(self) -> tuple[str, ...]:
+        return tuple(self.split("/")) if self else ()
 
     def join(self, *parts: str) -> VPath:
-        raise NotImplementedError
+        return VPath.of("/".join(p for p in (str(self), *map(os.fspath, parts)) if p))
 
     def is_under(self, folder: str) -> bool:
         """True si está dentro de ``folder`` (sin distinguir mayúsculas; ``folder`` relativa)."""
-        raise NotImplementedError
+        prefix = folder_key(folder)
+        return not prefix or self.key.startswith(prefix + "/")
+
+    def __repr__(self) -> str:
+        return f"VPath({str.__repr__(self)})"
+
+
+_DRIVE_RE = re.compile(r"^[A-Za-z]:")
+
+
+def folder_key(folder: str | os.PathLike) -> str:
+    """Clave de una carpeta relativa: ``/``, sin barras sobrantes ni ``.``, en mayúsculas (``""`` = la raíz)."""
+    text = os.fspath(folder).replace("\\", "/")
+    return "/".join(p for p in text.split("/") if p and p != ".").upper()
 
 
 # Ruta reservada del descriptor ``<juego>/mod/<carpeta>.mod``, que vive fuera de la carpeta del mod: la VFS y el
@@ -104,9 +143,18 @@ def windows_name_problems(name: str) -> list[str]:
     Dispositivos también con extensión (``CON.tga``, ``nul.txt``), caracteres de
     ``WINDOWS_FORBIDDEN`` y punto o espacio final. Lista vacía si es válido.
     """
-    raise NotImplementedError
+    if not name:
+        return [NAME_EMPTY]
+    problems = []
+    if name.split(".", 1)[0].rstrip(" ").upper() in WINDOWS_DEVICES:
+        problems.append(NAME_DEVICE)
+    if any(char in WINDOWS_FORBIDDEN for char in name):
+        problems.append(NAME_FORBIDDEN)
+    if name[-1] in ". ":
+        problems.append(NAME_TRAILING)
+    return problems
 
 
 def long_path_problem(path: str | os.PathLike | Path) -> str | None:
     """``PATH_TOO_LONG`` si la ruta absoluta pasa de ``MAX_PATH_WARNING`` caracteres; si no, None."""
-    raise NotImplementedError
+    return PATH_TOO_LONG if len(os.path.abspath(path)) > MAX_PATH_WARNING else None

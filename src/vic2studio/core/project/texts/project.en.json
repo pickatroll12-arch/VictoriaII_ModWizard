@@ -1,0 +1,16 @@
+{
+  "project.save_outside_mod": "Not saving {rel}: its destination ({path}) is outside the mod. The base game and other mods are read-only.",
+  "project.save_windows_name": "Not saving {rel}: “{name}” is not a valid name on Windows (a reserved name such as CON or NUL, one of the characters <>:\"|?*, or a trailing dot or space).",
+  "project.save_path_too_long": "The path of {rel} is {length} characters long: on Windows it may exceed the 260-character limit and the game would not read it. Shorten the name or move the mod to a shorter folder.",
+  "project.save_conflict": "{rel} has changed outside the Studio since it was opened. Choose whether to keep your changes, reload the file from disk, or compare both versions.",
+  "project.save_unencodable": "{rel}, line {line}, column {column}: “{char}” cannot be saved in {encoding}, the encoding the game reads ({count} character(s) in total).",
+  "project.save_source_mismatch": "Not saving {rel}: the generated text does not read back the same near “{entry}” (line {line}). This is usually caused by syntax errors in the file: fix them in the Code tab.",
+  "project.save_no_space": "There is not enough disk space to save: {needed} bytes are needed and {free} are left.",
+  "project.save_read_only": "The project is open read-only because another Studio window has it open. Close that window to be able to save.",
+  "project.save_case_collision": "Not saving {rel}: it clashes with “{other}”, which only differs in letter case. Windows would treat them as the same file.",
+  "project.save_not_writable": "{rel} cannot be saved from the Studio ({reason}).",
+  "project.save_failed": "The save could not be completed and everything was left as it was: {error}",
+  "project.recovery_unreadable": "There is a save journal that cannot be read; it was left untouched. Check the mod's .vic2studio/journal folder.",
+  "project.recovery_completed": "An interrupted save was finished: the files already had their changes.",
+  "project.recovery_incomplete": "An interrupted save could not be fully resolved: some files were left as they were. Check the trash (.vic2studio/trash)."
+}
