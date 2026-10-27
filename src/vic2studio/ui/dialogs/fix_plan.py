@@ -29,7 +29,7 @@ from PySide6.QtWidgets import (
 from ...core.validate.model import ACTION_COPY_FROM_GAME, ACTION_CREATE, ACTION_MODIFY, ACTION_TRASH
 from ...i18n import N_, tr
 from .. import theme
-from ..shell.pending_changes import DiffHighlighter, changed_lines
+from ..shell.pending_changes import DiffHighlighter, lines_text, shown_diff
 from ..viewers.common import core_language
 from ..widgets import StatusBadge, make_icon, mark_data
 
@@ -139,7 +139,7 @@ class FixPlanDialog(QDialog):
         elif change.action == ACTION_TRASH:
             self.diff.setPlainText(tr("fixplan.trash_note", file=str(change.rel)))
         else:
-            self.diff.setPlainText(change.diff)
+            self.diff.setPlainText(shown_diff(change.diff))   # el recorte del núcleo, en el idioma de la interfaz
 
     def retranslate(self) -> None:
         lang = core_language()
@@ -161,8 +161,8 @@ class FixPlanDialog(QDialog):
             change = item.data(0, Qt.ItemDataRole.UserRole)
             item.setText(0, str(change.rel))
             item.setText(1, tr(ACTION_KEYS.get(change.action, "pending.action.modify")))
-            added, removed = changed_lines(change.diff)
-            item.setText(2, "" if change.action == ACTION_TRASH else tr("pending.lines", added=added, removed=removed))
+            # Las del cambio entero (PlannedChange.lines): el diff viene recortado a 400 líneas.
+            item.setText(2, "" if change.action == ACTION_TRASH else lines_text(change.diff, change.lines))
         self.apply_button.setText(tr("fixplan.apply"))
         self.cancel_button.setText(tr("fixplan.cancel"))
         self._update_buttons()

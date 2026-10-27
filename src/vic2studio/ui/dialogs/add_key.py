@@ -4,8 +4,11 @@ Pide la clave, el área (``countries``, ``events``… o ``overrides``) y los tex
 inglés y español (y en francés y alemán si se quiere). Dice en qué archivo irá
 (``LocSync.target_file``) y no deja aceptar mientras la clave no valga: vacía, con
 espacios, con «;», que empiece por «#» o que ya exista (en ese caso dice dónde). Los
-textos tampoco pueden llevar «;» ni saltos de línea. Solo consulta ``LocSync``: crear
-la clave lo hace quien abre el diálogo, dentro de una transacción.
+textos tampoco pueden llevar «;» ni saltos de línea, y ni la clave ni los textos un
+carácter que no quepa en Windows-1252 («Łódź»: el juego lee los CSV en cp1252 y
+``LocSync.ensure`` lo rechazaría después de cerrar el diálogo, perdiendo lo tecleado).
+El motivo sale en el idioma de la interfaz. Solo consulta ``LocSync``: crear la clave lo
+hace quien abre el diálogo, dentro de una transacción.
 """
 
 from __future__ import annotations
@@ -24,6 +27,7 @@ from PySide6.QtWidgets import (
 
 from ...core.csvloc import InvalidFieldError
 from ...core.csvloc.model import check_key, check_text
+from ...core.encoding import GAME_ENCODING, UnencodableTextError, encode_text
 from ...core.locsync import AREAS
 from ...i18n import N_, tr
 from .. import theme
@@ -37,6 +41,15 @@ DEFAULT_AREA = "misc"
 _AREA_LABELS = (N_("texts.area.countries"), N_("texts.area.events"), N_("texts.area.decisions"),
                 N_("texts.area.cb"), N_("texts.area.governments"), N_("texts.area.units"),
                 N_("texts.area.cultures"), N_("texts.area.map"), N_("texts.area.misc"), N_("texts.area.overrides"))
+
+
+def unencodable_char(text: str) -> str | None:
+    """El primer carácter de ``text`` que no cabe en la codificación del juego (cp1252), o None."""
+    try:
+        encode_text(text, GAME_ENCODING)
+    except UnencodableTextError as exc:
+        return exc.problems[0][3]
+    return None
 
 
 class AddKeyDialog(QDialog):
@@ -127,6 +140,9 @@ class AddKeyDialog(QDialog):
             check_key(key)
         except InvalidFieldError as exc:
             return N_("texts.add.invalid"), {"error": exc.message(core_language())}
+        char = unencodable_char(key)
+        if char is not None:
+            return N_("texts.add.unencodable_key"), {"char": char, "code": f"U+{ord(char):04X}"}
         where = self.locsync.where(key)
         if where is not None:
             return N_("texts.add.exists"), {"key": key, "file": str(where[0]), "line": where[1] or "?"}
@@ -136,6 +152,10 @@ class AddKeyDialog(QDialog):
             except InvalidFieldError as exc:
                 return N_("texts.add.invalid_text"), {"language": dict(LANGUAGES)[code],
                                                      "error": exc.message(core_language())}
+            char = unencodable_char(edit.text())
+            if char is not None:
+                return N_("texts.add.unencodable"), {"language": dict(LANGUAGES)[code], "char": char,
+                                                    "code": f"U+{ord(char):04X}"}
         if not any(edit.text() for edit in self.text_edits.values()):
             return N_("texts.add.need_text"), {}
         return None

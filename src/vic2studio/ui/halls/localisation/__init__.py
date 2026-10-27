@@ -18,12 +18,15 @@ def _pending(session):
 
 
 def _pending_badge(session) -> int | None:
-    """Claves del mod sin traducir a algún idioma del proyecto (cuando los textos ya están leídos)."""
+    """Claves del mod sin traducir a algún idioma del proyecto (cuando los textos ya están leídos); el recuento se
+    guarda mientras ``LocSync.entries()`` no cambie (``texts.pending_count``)."""
     locsync = session.locsync
     if locsync is None or not session.texts_ready():
         return None
+    from .texts import pending_count
+
     try:
-        count = sum(1 for entry in locsync.entries() if entry.layer.value == "mod" and locsync.untranslated(entry))
+        count = pending_count(locsync)
     except Exception:  # noqa: BLE001 - el contador nunca rompe el índice lateral
         return None
     return count or None
