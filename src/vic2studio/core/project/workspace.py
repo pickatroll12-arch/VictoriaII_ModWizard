@@ -254,7 +254,9 @@ class Workspace:
 
         Sin archivo y sin ``create``: ``FileNotFoundError``. Con ``create`` y sin
         archivo devuelve un documento nuevo vacío y limpio (no se guarda hasta que
-        se toque). Con errores de sintaxis se abre con ``read_only_reason="parse_errors"`` (D17).
+        se toque). Un documento borrado (lápida) también da ``FileNotFoundError``; con
+        ``create`` revive vacío, lo que es una mutación: va dentro de una transacción.
+        Con errores de sintaxis se abre con ``read_only_reason="parse_errors"`` (D17).
         """
         self._check()
         rel = VPath.of(rel)

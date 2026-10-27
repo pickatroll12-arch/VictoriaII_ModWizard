@@ -246,5 +246,71 @@ class JournalCommitTests(unittest.TestCase):
         self.assertFalse(self.journal_dir.exists())
 
 
+class NewModTests(unittest.TestCase):
+    """«Nuevo mod» (create_mod_skeleton, agente B): carpeta, esqueleto y .mod en una sola transacción."""
+
+    def setUp(self):
+        self.layers = build_layers(game=GAME, mod={}, mod_name="Existing")
+        self.addCleanup(self.layers.cleanup)
+        self.mods = self.layers.game_root / "mod"
+        self.root = self.mods / "NewMod"
+        self.descriptor = self.mods / "NewMod.mod"
+        self.guard = WriteGuard(self.root, extra_files=[self.descriptor])
+        self.before = sorted(p.name for p in self.mods.iterdir())
+
+    def transaction(self, **kwargs):
+        transaction = journal.SaveTransaction(self.guard, self.root / ".vic2studio" / "journal", label="new_mod",
+                                              **kwargs)
+        transaction.add(PlannedWrite(DESCRIPTOR_REL, self.descriptor, WriteAction.CREATE,
+                                     b'name = "New"\r\npath = "mod/NewMod"\r\n', None))
+        transaction.add(PlannedWrite(VPath.of("localisation/00_NEW.csv"), self.root / "localisation" / "00_NEW.csv",
+                                     WriteAction.CREATE, b"k;v;;;;;;;;;;;;x\r\n", None))
+        for folder in ("common", "history", "localisation"):
+            transaction.add_folder(self.root / folder)
+        return transaction
+
+    def test_create(self):
+        transaction = self.transaction(trash_creates=False)
+        self.assertEqual(transaction.prepare(), [])
+        transaction.commit()
+        self.assertEqual(sorted(p.name for p in self.root.iterdir()), ["common", "history", "localisation"])
+        self.assertTrue(self.descriptor.is_file())
+        self.assertEqual(sorted(p.name for p in self.mods.iterdir()), sorted(self.before + ["NewMod", "NewMod.mod"]))
+
+    def test_failure_leaves_no_trace(self):
+        real = os.replace
+        csv = os.fspath(self.root / "localisation" / "00_NEW.csv")
+
+        def locked(src, dst):
+            if os.fspath(dst) == csv:
+                raise PermissionError(errno.EACCES, "en uso")
+            return real(src, dst)
+
+        with mock.patch.object(fileio.os, "replace", locked), mock.patch.object(fileio.time, "sleep"):
+            with self.assertRaises(PermissionError):
+                self.transaction(trash_creates=False).commit()
+        self.assertEqual(sorted(p.name for p in self.mods.iterdir()), self.before, "ni carpeta, ni .mod, ni temporales")
+
+    def test_crash_then_recover(self):
+        from test_journal_crash import PowerCut, SimulatedFault
+        from vic2studio.core.project.recovery import recover_all
+        from contextlib import ExitStack
+
+        for point, created in ((("journal_prepared", 0), False), (("replace", 0), True)):
+            with self.subTest(point=point):
+                cut = PowerCut(point)
+                with ExitStack() as stack:
+                    cut.patches(stack)
+                    with self.assertRaises(SimulatedFault):
+                        self.transaction(trash_creates=False).commit()
+                recover_all(self.root / ".vic2studio" / "journal", self.guard)
+                if created:
+                    self.assertTrue(self.descriptor.is_file())
+                    self.assertTrue((self.root / "localisation" / "00_NEW.csv").is_file())
+                    self.assertFalse((self.root / ".vic2studio").exists())
+                else:
+                    self.assertEqual(sorted(p.name for p in self.mods.iterdir()), self.before)
+
+
 if __name__ == "__main__":
     unittest.main()

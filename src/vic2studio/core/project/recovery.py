@@ -141,7 +141,8 @@ def recover(journal_dir: Path, guard: WriteGuard, txid: str, *, prefer: str = "a
     for file, status in zip(order, statuses if forward else list(reversed(statuses))):
         if not (status[1] if forward else status[2]):
             continue   # sin estado al que llevarlo: se deja como está y se avisa
-        done = journal.restore_from_journal(guard, file, forward=forward)
+        done = journal.restore_from_journal(guard, file, forward=forward,
+                                            trash_creates=record.get("trash_creates", True))
         rel = rel_from_text(file["rel"])
         if done == "trashed":
             trashed.append(rel)

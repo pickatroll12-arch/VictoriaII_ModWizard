@@ -186,11 +186,15 @@ def _missing_dirs(folder: Path) -> list[Path]:
 
 class SaveTransaction:
     def __init__(self, guard: WriteGuard, journal_dir: Path, *, label: str, backup_bak: bool = True,
-                 originals_dir: Path | None = None, trash_dir: Path | None = None) -> None:
+                 originals_dir: Path | None = None, trash_dir: Path | None = None,
+                 trash_creates: bool = True) -> None:
+        """``trash_creates=False``: si se revierte, los archivos creados se borran en vez de ir a la papelera
+        (los genera el Studio, p. ej. el esqueleto de un mod nuevo, que así no deja rastro)."""
         self._guard = guard
         self._journal_dir = Path(journal_dir)
         self._label = label
         self._backup_bak = backup_bak
+        self._trash_creates = trash_creates
         self._originals_dir = Path(originals_dir) if originals_dir is not None else self._journal_dir.parent / ORIGINALS_DIR
         self._trash_dir = Path(trash_dir) if trash_dir is not None else self._journal_dir.parent / TRASH_DIR
         self._txid = new_txid()
@@ -347,8 +351,8 @@ class SaveTransaction:
             "created": _now(), "files": files,
             "folders": [{"path": str(f), "created": [str(d) for d in _missing_dirs(f)]} for f in self._folders],
             "trash_dir": str(self._trash_dir), "private_backups": not self._backup_bak,
+            "trash_creates": self._trash_creates,
         }
-        journal = self.journal_path
         progress = _Progress()
         try:
             self._write_journal(record)
@@ -456,14 +460,12 @@ class SaveTransaction:
                 file = files[index]
                 _guarded_move(guard, Path(file["trash"]), Path(file["target"]))
             for index in reversed(progress.replaced):
-                _undo_replace(guard, files[index])
+                _undo_replace(guard, files[index], trash_creates=record["trash_creates"])
             for file in files:
                 if file["temp"]:
                     _guarded_remove(guard, Path(file["temp"]))
-            for folder in record.get("folders", ()):
-                for created in folder["created"]:
-                    _guarded_rmdirs(guard, Path(created), _stop_at(guard, Path(created)))
             _finish(guard, Path(self.journal_path), record, files)
+            _remove_created_dirs(guard, record)
         except BaseException:
             return
 
@@ -478,16 +480,32 @@ class _Progress:
         self.trashed: list[int] = []
 
 
-def _undo_replace(guard: WriteGuard, file: dict) -> None:
-    """Deja ``target`` como antes de reemplazarlo: su copia de reversión o, si era nuevo, a la papelera."""
+def _undo_replace(guard: WriteGuard, file: dict, *, trash_creates: bool = True) -> None:
+    """Deja ``target`` como antes de reemplazarlo: su copia de reversión o, si era nuevo, a la papelera
+    (o fuera, con ``trash_creates=False``)."""
     target = Path(file["target"])
     if file["before_sha256"] is None:
         if target.exists():
-            _guarded_move(guard, target, Path(file["trash"]))
-        for created in file.get("created_dirs", ()):
-            _guarded_rmdirs(guard, Path(created), _stop_at(guard, Path(created)))
+            if trash_creates:
+                _guarded_move(guard, target, Path(file["trash"]))
+            else:
+                _guarded_remove(guard, target)
     else:
         _guarded_copy(guard, Path(file["bak"]), target)
+
+
+def _remove_created_dirs(guard: WriteGuard, record: dict) -> None:
+    """Quita, si quedaron vacías, las carpetas que creó el guardado (la más profunda primero).
+
+    Una de ellas puede ser la propia raíz del guard (el mod que se estaba creando).
+    """
+    created = {Path(d) for file in record.get("files", ()) for d in file.get("created_dirs", ())}
+    created |= {Path(d) for folder in record.get("folders", ()) for d in folder.get("created", ())}
+    for folder in sorted(created, key=lambda p: len(p.parts), reverse=True):
+        stop = _stop_at(guard, folder)
+        if os.path.normcase(os.path.abspath(stop)) == os.path.normcase(os.path.abspath(folder)):
+            stop = folder.parent
+        _guarded_rmdirs(guard, folder, stop)
 
 
 def _finish(guard: WriteGuard, journal: Path, record: dict, files: list[dict]) -> None:
@@ -558,7 +576,7 @@ def clear_recovery(guard: WriteGuard, recovery_root: Path, session: str) -> None
 
 # --- utilidades para recovery.py (mismo guard) ---------------------------------------------
 
-def restore_from_journal(guard: WriteGuard, file: dict, *, forward: bool) -> str:
+def restore_from_journal(guard: WriteGuard, file: dict, *, forward: bool, trash_creates: bool = True) -> str:
     """Lleva un archivo del diario a su estado posterior (``forward``) o anterior; devuelve qué hizo.
 
     ``"kept"``, ``"replaced"``, ``"restored"``, ``"trashed"`` o ``"moved_back"``.
@@ -591,9 +609,10 @@ def restore_from_journal(guard: WriteGuard, file: dict, *, forward: bool) -> str
     if before is None:
         _keep_unknown(guard, target, current, (after,), trash)
         if target.exists():
-            _guarded_move(guard, target, trash)
-        for created in file.get("created_dirs", ()):
-            _guarded_rmdirs(guard, Path(created), _stop_at(guard, Path(created)))
+            if trash_creates or current != after:
+                _guarded_move(guard, target, trash)
+            else:
+                _guarded_remove(guard, target)
         return "trashed"
     _keep_unknown(guard, target, current, (after,), trash)
     _guarded_copy(guard, Path(file["bak"]), target)
@@ -615,16 +634,13 @@ def finish_journal(guard: WriteGuard, journal: Path, record: dict) -> None:
 
 
 def discard_prepared(guard: WriteGuard, journal: Path, record: dict) -> None:
-    """Diario sin confirmar (``staging``/``prepared``): borra los temporales y las carpetas que creó."""
+    """Diario sin confirmar (``staging``/``prepared``) o revertido: borra los temporales, el diario y, al final,
+    las carpetas que creó el guardado si quedaron vacías."""
     for file in record.get("files", ()):
         if file.get("temp"):
             _guarded_remove(guard, Path(file["temp"]))
-        for created in file.get("created_dirs", ()):
-            _guarded_rmdirs(guard, Path(created), _stop_at(guard, Path(created)))
-    for folder in record.get("folders", ()):
-        for created in folder.get("created", ()):
-            _guarded_rmdirs(guard, Path(created), _stop_at(guard, Path(created)))
     _finish(guard, journal, record, list(record.get("files", ())))
+    _remove_created_dirs(guard, record)
 
 
 def sha_of(path: Path) -> str | None:
