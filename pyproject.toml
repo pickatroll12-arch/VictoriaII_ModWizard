@@ -50,6 +50,9 @@ namespaces = false
 [tool.setuptools.package-data]
 vic2studio = [
     "i18n/*.json",
+    # Fragmentos por área (i18n/<idioma>/<área>.json) y textos del núcleo (core/**/texts/*.json), wizard §4.1.
+    "i18n/*/*.json",
+    "core/**/texts/*.json",
     "ui/*.qss",
     "assets/**/*",
 ]

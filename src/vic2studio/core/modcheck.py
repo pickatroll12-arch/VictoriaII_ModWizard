@@ -79,6 +79,26 @@ MESSAGES = {
         DESCRIPTOR_BAD_REPLACE_PATH: (
             "«replace_path» debe ser una carpeta relativa a la del juego, sin «..» ni unidad: \"{replace_path}\"."
         ),
+        # Códigos nuevos de modfile.descriptor_problems (wizard §14.1).
+        "descriptor_name_duplicate": (
+            "Otro descriptor de la carpeta mod ({file}) ya se llama «{name}»: en el lanzador no sabrás cuál es cuál."
+        ),
+        "descriptor_user_dir_empty": (
+            "Sin «user_dir», las partidas y la caché del mod se guardan junto a las del juego base."
+        ),
+        "windows_reserved_name": (
+            "Windows no admite «{folder}» como nombre de carpeta (CON, NUL, COM1…, los caracteres <>:\"|?* o un "
+            "punto o un espacio al final)."
+        ),
+        "descriptor_folder_taken": "Ya hay una carpeta o un descriptor «{folder}» en la carpeta mod del juego.",
+        "replace_path_empty": (
+            "«replace_path» oculta la carpeta «{replace_path}» del juego base, pero el mod no tiene ningún archivo "
+            "en ella: el juego se quedará sin esos archivos."
+        ),
+        "replace_path_hides_referenced": (
+            "«replace_path» oculta «{replace_path}», pero otros archivos siguen nombrando archivos de esa carpeta "
+            "del juego base."
+        ),
     },
     "en": {
         READ_ERROR: "The file could not be read: {error}",
@@ -101,6 +121,26 @@ MESSAGES = {
         ),
         DESCRIPTOR_BAD_REPLACE_PATH: (
             "“replace_path” must be a folder relative to the game folder, without “..” or a drive: \"{replace_path}\"."
+        ),
+        # New codes from modfile.descriptor_problems (wizard §14.1).
+        "descriptor_name_duplicate": (
+            "Another descriptor in the mod folder ({file}) is already called “{name}”: in the launcher you will "
+            "not tell them apart."
+        ),
+        "descriptor_user_dir_empty": (
+            "Without “user_dir”, the mod's saved games and cache are stored with those of the base game."
+        ),
+        "windows_reserved_name": (
+            "Windows does not accept “{folder}” as a folder name (CON, NUL, COM1…, the characters <>:\"|?* or a "
+            "trailing dot or space)."
+        ),
+        "descriptor_folder_taken": "There is already a folder or a descriptor “{folder}” in the game's mod folder.",
+        "replace_path_empty": (
+            "“replace_path” hides the base game's “{replace_path}” folder, but the mod has no files in it: the "
+            "game will be left without those files."
+        ),
+        "replace_path_hides_referenced": (
+            "“replace_path” hides “{replace_path}”, but other files still name files of that base game folder."
         ),
     },
 }

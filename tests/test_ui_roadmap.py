@@ -1,4 +1,4 @@
-"""Hoja de ruta de los módulos planificados: numeración de wizard.md §22 y reparto en filas (offscreen)."""
+"""Hoja de ruta (Proyecto › Inicio) y secciones planificadas: numeración de wizard.md §22 y reparto en filas."""
 
 import sys
 import unittest
@@ -12,13 +12,24 @@ from PySide6.QtWidgets import QScrollArea  # noqa: E402
 APP = _qt.application()
 
 from vic2studio.i18n import set_language, tr  # noqa: E402
+from vic2studio.ui.halls import discover_halls  # noqa: E402
 from vic2studio.ui.main_window import MainWindow  # noqa: E402
-from vic2studio.ui.pages import PAGE_KEYS  # noqa: E402
-from vic2studio.ui.pages.planned import ROADMAP_KEYS  # noqa: E402
+from vic2studio.ui.pages import PlannedSectionPage  # noqa: E402
+from vic2studio.ui.pages.planned import CURRENT_ITERATION, ROADMAP_KEYS  # noqa: E402
 from vic2studio.ui.widgets import RoadmapStrip  # noqa: E402
 
-# Iteración en la que llega cada módulo según docs/diseno/wizard.md §22.
-PLAN = {"map": 5, "countries": 6, "events": 7}
+# Iteración en que llega cada sección planificada según docs/diseno/wizard.md §22 (iteración 2 en curso).
+PLAN = {
+    "map:world": 5, "map:regions": 5, "map:climates": 5, "map:straits": 5, "map:forge": 9,
+    "nations:countries": 6, "nations:cultures": 4, "nations:governments": 4,
+    "war:bookmarks": 4, "war:wars": 6, "war:diplomacy": 6, "war:cb": 4, "war:land": 4, "war:naval": 4,
+    "events:events": 7, "events:decisions": 7, "events:modifiers": 7,
+    "interface:windows": 8, "interface:sprites": 8, "interface:images": 8,
+    "localisation:all": 3, "localisation:pending": 3,
+    "project:validation": 3,
+}
+# Lo que ya existe en la iteración 2.
+READY = {"project:home", "project:descriptor", "project:files", "project:pending", "localisation:csv"}
 
 
 class ColumnsTests(unittest.TestCase):
@@ -37,6 +48,21 @@ class ColumnsTests(unittest.TestCase):
         self.assertEqual(RoadmapStrip.columns_for(0, 500), 1)
 
 
+class PlanTests(unittest.TestCase):
+    def test_plan_has_ten_milestones_and_iteration_2_is_current(self):
+        self.assertEqual(len(ROADMAP_KEYS), 10)
+        self.assertEqual(CURRENT_ITERATION, 2)
+
+    def test_every_section_is_ready_or_planned_with_its_iteration(self):
+        found = {}
+        for hall, sections in discover_halls():
+            for section in sections:
+                found[f"{hall.key}:{section.key}"] = None if section.factory is not None else section.iteration
+        self.assertEqual({key for key, n in found.items() if n is None}, READY)
+        self.assertEqual({key: n for key, n in found.items() if n is not None}, PLAN)
+        self.assertTrue(all(n > CURRENT_ITERATION for n in PLAN.values()), "nada planificado para lo ya hecho")
+
+
 class RoadmapPageTests(unittest.TestCase):
     def setUp(self):
         _qt.reset_settings()
@@ -48,34 +74,46 @@ class RoadmapPageTests(unittest.TestCase):
         set_language("es")
         self.assertEqual(_qt.take_qt_messages(), [])
 
-    def show(self, key: str, width: int, height: int):
+    def show_home(self, width: int, height: int):
         self.window.resize(width, height)
         self.window.show()
-        self.window.set_current_page(PAGE_KEYS.index(key))
-        _qt.process_events()
-        page = self.window.page(key)
+        page = self.window.show_page("home")
+        # Tras cambiar de idioma, el alto de los títulos que ahora ocupan más líneas llega en varias pasadas.
+        _qt.process_events(50)
         scroll = page.findChild(QScrollArea)
         scroll.verticalScrollBar().setValue(scroll.verticalScrollBar().maximum())
         _qt.process_events()
         return page
 
-    def test_plan_has_ten_milestones(self):
-        self.assertEqual(len(ROADMAP_KEYS), 10)
-
-    def test_pages_announce_the_iteration_of_the_plan(self):
-        for language, module in (("es", "este módulo"), ("en", "this module")):
+    def test_planned_sections_announce_the_iteration_of_the_plan(self):
+        for language in ("es", "en"):
             set_language(language)
             for key, iteration in PLAN.items():
-                with self.subTest(language=language, page=key):
+                with self.subTest(language=language, section=key):
                     page = self.window.page(key)
+                    self.assertIsInstance(page, PlannedSectionPage)
                     self.assertEqual(page.iteration, iteration)
                     self.assertIn(str(iteration), page.ribbon.text())
                     self.assertIn(str(iteration), page.arrival.text())
-                    titles = [label.text() for label in page.roadmap.titles]
-                    self.assertEqual(len(titles), 10)
-                    self.assertTrue(all(titles), titles)
-                    self.assertFalse([t for t in titles if t.startswith("roadmap.")], titles)
-                    self.assertIn(module, page.roadmap.states[iteration - 1].text())
+                    self.assertIn(page.hall_spec.key, key)
+                    self.assertIn(tr(page.hall_spec.title_key), page.header.subtitle.text())
+
+    def test_home_roadmap_marks_done_current_and_planned(self):
+        roadmap = self.window.page("home").roadmap
+        for language, done, current in (("es", "hecha", "en curso"), ("en", "done", "in progress")):
+            set_language(language)
+            with self.subTest(language=language):
+                titles = [label.text() for label in roadmap.strip.titles]
+                self.assertEqual(len(titles), 10)
+                self.assertTrue(all(titles), titles)
+                self.assertFalse([t for t in titles if t.startswith("roadmap.")], titles)
+                states = [label.text() for label in roadmap.strip.states]
+                self.assertIn(done, states[0])
+                self.assertIn(current, states[CURRENT_ITERATION - 1])
+                for n, state in enumerate(states[CURRENT_ITERATION:], start=CURRENT_ITERATION + 1):
+                    self.assertIn(str(n), state)
+                    self.assertNotIn(done, state)
+                    self.assertNotIn(current, state)
 
     def test_localisation_promises_editing_in_iteration_3(self):
         for language in ("es", "en"):
@@ -88,7 +126,7 @@ class RoadmapPageTests(unittest.TestCase):
             for language in ("es", "en"):
                 set_language(language)
                 with self.subTest(size=(width, height), language=language):
-                    strip = self.show("map", width, height).roadmap
+                    strip = self.show_home(width, height).roadmap.strip
                     self.assertEqual(strip.per_row, per_row)
                     rows = strip.rows()
                     self.assertEqual([len(row) for row in rows], [per_row] * (10 // per_row))

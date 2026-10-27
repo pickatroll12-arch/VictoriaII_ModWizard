@@ -9,6 +9,8 @@ centrales, así que cada agente toca solo su sala. Una sección sin ``factory`` 
 
 from __future__ import annotations
 
+import importlib
+import pkgutil
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
@@ -46,7 +48,46 @@ class SectionSpec:
     iteration: int | None = None # si aún no existe: la iteración en que llega (tarjeta «en desarrollo»)
     planned_keys: tuple[str, ...] = ()   # textos de la tarjeta «en desarrollo» (lo que hará)
 
+    @property
+    def planned(self) -> bool:
+        """True si la sección aún no existe: se ve como la tarjeta «en desarrollo» (``iteration``)."""
+        return self.factory is None and self.schema_kind is None
+
 
 def discover_halls() -> list[tuple[HallSpec, list[SectionSpec]]]:
-    """Salas de ``ui/halls/*`` ordenadas por ``order``, cada una con sus secciones ordenadas."""
-    raise NotImplementedError
+    """Salas de ``ui/halls/*`` ordenadas por ``order``, cada una con sus secciones ordenadas.
+
+    Lanza ``ValueError`` si una sala no es de ``HALL_KEYS``, se repite una clave o un orden, una sección dice
+    ser de otra sala o una sección planificada no indica su iteración.
+    """
+    package = importlib.import_module(__package__)
+    halls: list[tuple[HallSpec, list[SectionSpec]]] = []
+    for info in pkgutil.iter_modules(package.__path__):
+        if not info.ispkg:
+            continue
+        module = importlib.import_module(f"{package.__name__}.{info.name}")
+        hall = getattr(module, "HALL", None)
+        if hall is None:
+            continue
+        sections = sorted(getattr(module, "SECTIONS", ()), key=lambda s: s.order)
+        _check_hall(hall, sections)
+        halls.append((hall, sections))
+    halls.sort(key=lambda item: item[0].order)
+    for kind, values in (("clave", [h.key for h, _ in halls]), ("orden", [h.order for h, _ in halls])):
+        if len(set(values)) != len(values):
+            raise ValueError(f"salas con la misma {kind}: {values}")
+    return halls
+
+
+def _check_hall(hall: HallSpec, sections: list[SectionSpec]) -> None:
+    if hall.key not in HALL_KEYS:
+        raise ValueError(f"sala desconocida: {hall.key!r} (se esperaba una de {HALL_KEYS})")
+    keys = [s.key for s in sections]
+    orders = [s.order for s in sections]
+    if len(set(keys)) != len(keys) or len(set(orders)) != len(orders):
+        raise ValueError(f"sala {hall.key!r}: secciones con la misma clave u orden ({keys}, {orders})")
+    for section in sections:
+        if section.hall != hall.key:
+            raise ValueError(f"la sección {section.key!r} dice ser de {section.hall!r}, pero está en {hall.key!r}")
+        if section.planned and section.iteration is None:
+            raise ValueError(f"la sección planificada {hall.key}.{section.key} no dice en qué iteración llega")
