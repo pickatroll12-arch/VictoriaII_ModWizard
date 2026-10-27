@@ -126,7 +126,7 @@ class ExplainerPanel(ParchmentCard):
         self.steps_scroll.setObjectName("explainerSteps")
         self.step_rows: list[tuple[QLabel, ElidedLabel, QLabel, QLabel, object]] = []
         self._fill_steps(())
-        body.addWidget(self.steps_scroll, 1)
+        body.addWidget(self.steps_scroll, 100)   # casi todo el alto que sobre, hasta lo que ocupan sus capas
         self.outcome = mark_data(QLabel())
         self.outcome.setObjectName("explainerOutcome")
         self.outcome.setWordWrap(True)
@@ -138,6 +138,7 @@ class ExplainerPanel(ParchmentCard):
         self.fixes_row.setContentsMargins(0, 0, 0, 0)
         self.fixes_row.setSpacing(4)
         body.addWidget(self.fixes_box)
+        body.addStretch(1)   # con pocas capas, la frase y los arreglos siguen a la última y el hueco queda debajo
         self.scroll.setWidget(self.content)
         layout.addWidget(self.scroll, 1)
         self.fix_buttons: list[QPushButton] = []
@@ -148,6 +149,8 @@ class ExplainerPanel(ParchmentCard):
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
         self._place_close()
+        if self.step_rows and event.size().width() != event.oldSize().width():
+            self._update_steps_height()   # con otro ancho, los extractos ocupan otras líneas
 
     def eventFilter(self, watched, event) -> bool:
         if event.type() in (QEvent.Type.Show, QEvent.Type.Hide, QEvent.Type.Resize):
@@ -212,10 +215,11 @@ class ExplainerPanel(ParchmentCard):
                 found.append(f"capa o veredicto recortados: {step.layer} {step.verdict}")
             if excerpt.height() < excerpt.heightForWidth(excerpt.width()):
                 found.append(f"extracto cortado: {step.rel}:{step.line}")
-        if self.step_rows:
-            wanted = min(MIN_STEPS_HEIGHT, self.steps_box.sizeHint().height())
-            if self.steps_scroll.height() < wanted:
-                found.append(f"capas en {self.steps_scroll.height()} px (mínimo {wanted})")
+            if excerpt.geometry().top() - layer.geometry().bottom() > 8:
+                found.append(f"extracto separado de su capa: {step.rel}:{step.line}")
+        if self.step_rows and self.steps_scroll.verticalScrollBar().maximum() > 0 \
+                and self.steps_scroll.height() < MIN_STEPS_HEIGHT:   # no caben todas y no se ve ni el mínimo
+            found.append(f"capas en {self.steps_scroll.height()} px (mínimo {MIN_STEPS_HEIGHT})")
         for label in (self.title, self.outcome):
             if label.text() and label.height() < label.heightForWidth(label.width()):
                 found.append(f"{label.objectName()} cortado: {label.height()} de {label.heightForWidth(label.width())} px")
@@ -280,14 +284,26 @@ class ExplainerPanel(ParchmentCard):
             self.steps_grid.addWidget(excerpt, row + 1, 0, 1, 3)
             self.steps_grid.setRowMinimumHeight(row + 2, 5)
             self.step_rows.append((layer, where, verdict, excerpt, step))
+        # Lo que sobre de alto va al final: con una o dos capas, sus filas no se estiran ni se separan.
+        self.steps_grid.setRowStretch(3 * len(self.step_rows), 1)
         self.steps_scroll.setWidget(box)
         self._update_steps_height()
 
     def _update_steps_height(self) -> None:
-        """Las capas nunca bajan de ``MIN_STEPS_HEIGHT`` (unas tres) ni, si son menos, de lo que ocupan."""
-        natural = self.steps_box.sizeHint().height() if self.step_rows else 0
+        """Las capas nunca bajan de ``MIN_STEPS_HEIGHT`` (unas tres) ni, si son menos, de lo que ocupan; y no crecen más
+        que lo que ocupan con el ancho que tienen (los extractos se parten en líneas)."""
+        if not self.step_rows:
+            self.steps_scroll.setMinimumHeight(0)
+            self.steps_scroll.setVisible(False)
+            return
+        width = self.steps_scroll.viewport().width()
+        layout = self.steps_grid
+        natural = layout.heightForWidth(width) if layout.hasHeightForWidth() and width > 0 else -1
+        if natural <= 0:
+            natural = self.steps_box.sizeHint().height()
         self.steps_scroll.setMinimumHeight(min(MIN_STEPS_HEIGHT, natural))
-        self.steps_scroll.setVisible(bool(self.step_rows))
+        self.steps_scroll.setMaximumHeight(natural + 2)
+        self.steps_scroll.setVisible(True)
 
     def _fill_fixes(self) -> None:
         while self.fixes_row.count():
