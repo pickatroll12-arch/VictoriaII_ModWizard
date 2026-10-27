@@ -1,8 +1,12 @@
-"""Página de módulo planificado: tarjetas de pergamino con las funcionalidades y la hoja de ruta."""
+"""Secciones que aún no existen: tarjeta «en desarrollo» con lo que harán y su iteración; y la hoja de ruta.
+
+``PlannedSectionPage`` se construye a partir de una ``SectionSpec`` sin ``factory``
+(wizard §13.1): su ``planned_keys`` da la entrada (la primera clave) y las
+funcionalidades. La hoja de ruta (``RoadmapCard``, los 10 hitos de wizard §22)
+vive en Inicio.
+"""
 
 from __future__ import annotations
-
-from dataclasses import dataclass
 
 from PySide6.QtCore import QPointF, Qt
 from PySide6.QtGui import QPainter, QPolygonF
@@ -19,22 +23,17 @@ from PySide6.QtWidgets import (
 
 from ...i18n import N_, tr
 from .. import theme
-from ..widgets import Medallion, NumeralBadge, ParchmentCard, RibbonBadge, RoadmapStrip, rich
+from ..widgets import Medallion, ParchmentCard, RibbonBadge, RoadmapStrip, rich
 from .base import BasePage
 
-CURRENT_ITERATION = 1
+CURRENT_ITERATION = 2
 # Plan de docs/diseno/wizard.md §22; el hito 9 reúne las iteraciones 9a y 9b del taller de mapas.
 ROADMAP_KEYS = (
     N_("roadmap.it1"), N_("roadmap.it2"), N_("roadmap.it3"), N_("roadmap.it4"), N_("roadmap.it5"),
     N_("roadmap.it6"), N_("roadmap.it7"), N_("roadmap.it8"), N_("roadmap.it9"), N_("roadmap.it10"),
 )
-
-
-@dataclass(frozen=True)
-class FeatureGroup:
-    title_key: str
-    items: tuple[str, ...]
-    icon_name: str = "gear"
+# A partir de cuántas funcionalidades la lista va en dos columnas.
+TWO_COLUMNS_FROM = 5
 
 
 class _Bullet(QWidget):
@@ -51,52 +50,18 @@ class _Bullet(QWidget):
         p.drawPolygon(QPolygonF([QPointF(cx, cy - d), QPointF(cx + d, cy), QPointF(cx, cy + d), QPointF(cx - d, cy)]))
 
 
-class FeatureCard(ParchmentCard):
-    def __init__(self, group: FeatureGroup, number: int | None = None, parent: QWidget | None = None):
-        super().__init__(padding=18, parent=parent)
-        self.group = group
-        layout = QVBoxLayout(self)
-        layout.setSpacing(8)
-        head = QHBoxLayout()
-        head.setSpacing(10)
-        if number is not None:
-            head.addWidget(NumeralBadge(number, 36))
-        else:
-            head.addWidget(Medallion(group.icon_name, 32, "bronze"))
-        self.title = QLabel()
-        self.title.setProperty("role", "heading")
-        self.title.setFont(theme.font("heading", 12.5))
-        self.title.setWordWrap(True)
-        head.addWidget(self.title, 1)
-        layout.addLayout(head)
-        self.items: list[QLabel] = []
-        for _ in group.items:
-            row = QHBoxLayout()
-            row.setSpacing(6)
-            row.addWidget(_Bullet(), 0, Qt.AlignmentFlag.AlignTop)
-            label = QLabel()
-            label.setWordWrap(True)
-            label.setTextFormat(Qt.TextFormat.RichText)
-            label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
-            row.addWidget(label, 1)
-            layout.addLayout(row)
-            self.items.append(label)
-        layout.addStretch(1)
+class PlannedSectionPage(BasePage):
+    """Sección planificada: explica qué hará y en qué iteración llegará (wizard §22)."""
 
-    def retranslate(self) -> None:
-        self.title.setText(tr(self.group.title_key))
-        for label, key in zip(self.items, self.group.items):
-            label.setText(rich(tr(key)))
-
-
-class PlannedModulePage(BasePage):
-    """Módulo aún no implementado: explica qué hará y en qué iteración llegará."""
-
-    iteration = CURRENT_ITERATION
-    intro_key = ""
-    groups: tuple[FeatureGroup, ...] = ()
-    numbered = False
-    columns = 2
+    def __init__(self, hall, spec, parent: QWidget | None = None):
+        self.hall_spec = hall
+        self.spec = spec
+        self.key = f"{hall.key}.{spec.key}"
+        self.title_key = spec.title_key
+        self.subtitle_key = hall.title_key
+        self.icon_name = spec.icon
+        self.iteration = spec.iteration
+        super().__init__(parent)
 
     def build(self) -> None:
         scroll = QScrollArea()
@@ -118,6 +83,7 @@ class PlannedModulePage(BasePage):
         self.ribbon = RibbonBadge()
         hero_text.addWidget(self.ribbon, 0, Qt.AlignmentFlag.AlignLeft)
         self.intro = QLabel()
+        self.intro.setObjectName("plannedIntro")
         self.intro.setWordWrap(True)
         self.intro.setTextFormat(Qt.TextFormat.RichText)
         self.intro.setFont(theme.font("body", 11))
@@ -131,53 +97,76 @@ class PlannedModulePage(BasePage):
         hero_row.addWidget(Medallion(self.icon_name, 86), 0, Qt.AlignmentFlag.AlignVCenter)
         column.addWidget(hero)
 
+        features = ParchmentCard(padding=18)
+        features_layout = QVBoxLayout(features)
+        features_layout.setSpacing(10)
         self.features_heading = QLabel()
         self.features_heading.setProperty("role", "heading")
-        self.features_heading.setFont(theme.font("heading", 13))
-        column.addWidget(self.features_heading)
-
+        self.features_heading.setFont(theme.font("heading", 12.5))
+        features_layout.addWidget(self.features_heading)
         grid = QGridLayout()
-        grid.setHorizontalSpacing(14)
-        grid.setVerticalSpacing(14)
-        self.cards: list[FeatureCard] = []
-        for index, group in enumerate(self.groups):
-            card = FeatureCard(group, index + 1 if self.numbered else None)
-            grid.addWidget(card, index // self.columns, index % self.columns)
-            self.cards.append(card)
-        for c in range(self.columns):
+        grid.setHorizontalSpacing(18)
+        grid.setVerticalSpacing(6)
+        items = self.spec.planned_keys[1:]
+        columns = 2 if len(items) >= TWO_COLUMNS_FROM else 1
+        rows = -(-len(items) // columns)
+        self.items: list[QLabel] = []
+        for index, _ in enumerate(items):
+            row = QHBoxLayout()
+            row.setSpacing(6)
+            row.addWidget(_Bullet(), 0, Qt.AlignmentFlag.AlignTop)
+            label = QLabel()
+            label.setWordWrap(True)
+            label.setTextFormat(Qt.TextFormat.RichText)
+            label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+            row.addWidget(label, 1)
+            grid.addLayout(row, index % rows, index // rows)
+            self.items.append(label)
+        for c in range(columns):
             grid.setColumnStretch(c, 1)
-        column.addLayout(grid)
-
-        roadmap_card = ParchmentCard(padding=18, tone="dark")
-        roadmap_layout = QVBoxLayout(roadmap_card)
-        roadmap_layout.setSpacing(10)
-        self.roadmap_heading = QLabel()
-        self.roadmap_heading.setProperty("role", "heading")
-        self.roadmap_heading.setFont(theme.font("heading", 12.5))
-        roadmap_layout.addWidget(self.roadmap_heading)
-        self.roadmap = RoadmapStrip(len(ROADMAP_KEYS), CURRENT_ITERATION, self.iteration)
-        roadmap_layout.addWidget(self.roadmap)
-        column.addWidget(roadmap_card)
+        features_layout.addLayout(grid)
+        column.addWidget(features)
+        if not items:
+            features.hide()
         column.addStretch(1)
 
         scroll.setWidget(content)
         self.body.addWidget(scroll)
 
     def retranslate(self) -> None:
-        super().retranslate()
+        self.header.set_texts(tr(self.title_key), tr("planned.subtitle", hall=tr(self.hall_spec.title_key)))
         self.ribbon.setText(tr("planned.ribbon", n=self.iteration))
         self.ribbon.updateGeometry()
-        self.intro.setText(rich(tr(self.intro_key), 10))
+        keys = self.spec.planned_keys
+        self.intro.setText(rich(tr(keys[0]), 10) if keys else "")
         self.arrival.setText(tr("planned.arrives", n=self.iteration))
-        self.features_heading.setText(tr("planned.steps" if self.numbered else "planned.features"))
-        for card in self.cards:
-            card.retranslate()
-        self.roadmap_heading.setText(tr("roadmap.title"))
-        for n, (title, state) in enumerate(zip(self.roadmap.titles, self.roadmap.states), start=1):
+        self.features_heading.setText(tr("planned.features"))
+        for label, key in zip(self.items, keys[1:]):
+            label.setText(rich(tr(key)))
+
+
+class RoadmapCard(ParchmentCard):
+    """Hoja de ruta de wizard §22: un hito por iteración, con la que está en curso resaltada."""
+
+    def __init__(self, current: int = CURRENT_ITERATION, parent: QWidget | None = None):
+        super().__init__(padding=18, tone="dark", parent=parent)
+        self.current = current
+        layout = QVBoxLayout(self)
+        layout.setSpacing(10)
+        self.heading = QLabel()
+        self.heading.setProperty("role", "heading")
+        self.heading.setFont(theme.font("heading", 12.5))
+        layout.addWidget(self.heading)
+        self.strip = RoadmapStrip(len(ROADMAP_KEYS), current, current)
+        layout.addWidget(self.strip)
+
+    def retranslate(self) -> None:
+        self.heading.setText(tr("roadmap.title"))
+        for n, (title, state) in enumerate(zip(self.strip.titles, self.strip.states), start=1):
             title.setText(tr(ROADMAP_KEYS[n - 1]))
-            if n == self.iteration:
-                state.setText(tr("roadmap.state_module", n=n))
-            elif n == CURRENT_ITERATION:
+            if n < self.current:
+                state.setText(tr("roadmap.state_done", n=n))
+            elif n == self.current:
                 state.setText(tr("roadmap.state_current", n=n))
             else:
                 state.setText(tr("roadmap.state", n=n))

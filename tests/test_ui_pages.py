@@ -105,8 +105,9 @@ class PageCase(unittest.TestCase):
         self.window = MainWindow()
         self.window.resize(1440, 900)
         self.window.show()
+        # Con 7 salas la ventana abre en Proyecto › Inicio: estas pruebas trabajan en «Archivos».
+        self.project = self.window.show_page("project")
         _qt.process_events(30)
-        self.project = self.window.page("project")
 
     def tearDown(self):
         self.window.close()

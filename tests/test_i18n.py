@@ -106,7 +106,10 @@ class CatalogTests(unittest.TestCase):
     def test_every_catalog_key_is_used(self):
         used = used_keys()
         self.assertGreater(len(used), 100)
-        unused = sorted(k for k in self.catalogs["es"] if k not in used)
+        # Los textos del núcleo (core/**/texts) se buscan por código de mensaje o de esquema, no con tr()/N_()
+        # literales: se comprueban en las pruebas del núcleo, no aquí.
+        core = set(i18n.core_catalog("es"))
+        unused = sorted(k for k in self.catalogs["es"] if k not in used and k not in core)
         self.assertEqual(unused, [], "claves del catálogo que ningún tr()/N_() usa")
 
 
