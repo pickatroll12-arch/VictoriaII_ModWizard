@@ -481,15 +481,21 @@ configuración del usuario. Opciones:
 |---|---|
 | `--out DIR` | Carpeta de salida (obligatoria). |
 | `--lang es\|en\|all` | Idioma; por defecto, los dos. |
-| `--page all\|project\|map\|countries\|events\|localisation` | Página; por defecto, todas. |
+| `--page PÁGINA` | `all`, `project`, `localisation`, una sala o `sala:sección` (`project:validation`, `localisation:all`…); repetible o con comas. |
+| `--hall SALAS`, `--section CLAVE` | Salas (separadas por comas) y una sección de la sala de `--hall`. |
+| `--dialog NOMBRE` | Captura además un diálogo: `save_review`, `new_mod`, `conflict` o `recovery`. |
 | `--size ANCHOxALTO` | Tamaño de la ventana; por defecto `1440x900`. |
 | `--mod RUTA`, `--game RUTA` | Carpetas del mod y del juego base. |
+| `--demo-game`, `--demo-changes`, `--no-game-art` | Un juego sintético temporal con una copia de `--mod`, dos cambios sin guardar y solo la estética procedural (siempre en `docs/capturas`). |
+| `--check`, `--explain N` | Valida con el validador del núcleo (F7) antes de capturar y abre el explicador del problema N. |
+| `--palette TEXTO` | Abre Ctrl+K con `TEXTO` en cada captura. |
+| `--texts-search TEXTO`, `--texts-filter FILTRO` | Buscador y filtro de Textos › Todos los textos (`all`, `studio`, `untranslated`, `overrides`, `degraded`). |
 | `--open-file RUTA` | Abre un archivo (relativo al mod) en su visor, o un CSV en Localización. |
 | `--line N`, `--search TEXTO` | Línea a mostrar y texto del buscador del archivo abierto. |
 | `--tab structure\|source\|diagnostics\|json` | Pestaña del visor Clausewitz (solo con un script). |
 | `--validate` | Ejecuta «Validar mod» y espera a que termine. |
 | `--left-tab files\|validation` | Pestaña del panel izquierdo de «Proyecto y Archivos». |
-| `--report ESTADO.json` | Guarda en JSON lo que muestran las capturas. |
+| `--report ESTADO.json` | Guarda en JSON lo que muestran las capturas; con el explicador abierto, también lo que se vería mal (`checks.explainer_shots`, que además avisa en stderr). |
 
 Sale con 1 si no puede abrir el archivo o la línea pedidos o si no puede
 validar (sin un `--mod` válido, o si la validación no termina a tiempo), y con
@@ -510,6 +516,9 @@ idioma y el tamaño. Son de dos tandas:
 - **11 a 20** (iteración 2, 27-10-2026): Inicio, Descriptor .mod, Archivos,
   Cambios pendientes y la revisión antes de guardar, en español a 1100x700 y
   en inglés a 1920x1080.
+- **21 a 26** (iteración 3, 27-10-2026): Proyecto › Validación con el
+  explicador abierto, Textos › Todos los textos y Ctrl+K, en español a
+  1100x700 y en inglés a 1920x1080.
 
 Las de la iteración 2 salen con un juego sintético y dos cambios sin guardar:
 
@@ -517,6 +526,18 @@ Las de la iteración 2 salen con un juego sintético y dos cambios sin guardar:
 python3 tools/screenshot.py --out capturas --lang all --size 1100x700 \
     --mod tests/fixtures/shago_mod_min/VSM --demo-game --demo-changes --no-game-art \
     --page project:home,project:descriptor,project,project:pending --dialog save_review
+```
+
+Las de la iteración 3, con el validador y el índice del núcleo sobre ese juego
+sintético:
+
+```bash
+python3 tools/screenshot.py --out capturas --lang all --size 1100x700 \
+    --mod tests/fixtures/shago_mod_min/VSM --demo-game --no-game-art \
+    --check --explain 2 --page project:validation --page localisation:all
+python3 tools/screenshot.py --out capturas/paleta --lang all --size 1100x700 \
+    --mod tests/fixtures/shago_mod_min/VSM --demo-game --no-game-art \
+    --palette SOM --page project:home
 ```
 
 ## Empaquetado

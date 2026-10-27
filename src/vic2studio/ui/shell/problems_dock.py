@@ -1,8 +1,8 @@
 """Panel acoplable «Problemas» (wizard §13.2, §13.9) y las piezas que comparte con Proyecto › Validación.
 
 - ``ProblemsModel``: la tabla de ``Problem`` del último informe de la sesión, con
-  gravedad, mensaje, entidad, archivo y línea; los heredados del juego base (I11) se
-  ocultan salvo que se pidan y, si se muestran, van en cursiva.
+  gravedad, mensaje, entidad, archivo y línea; los heredados del juego base o de las
+  dependencias (I11) se ocultan salvo que se pidan y, si se muestran, van en cursiva.
 - ``FixFlow``: [Arreglar] (el SimpleFix, o el arreglo elegido en el desplegable): pide
   el plan a la sesión, lo enseña en ``FixPlanDialog`` (confirmación explícita si el
   arreglo borra o sustituye) y, si se acepta, lo aplica con ``Session.apply_fix`` (una

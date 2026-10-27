@@ -2184,6 +2184,97 @@ Durante la batería con carga apareció además un fallo de segmentación
 intermitente al pintar. No era de la revisión: venía de la iteración 1
 (`9040839`). Lo causaba `gc.get_objects` en un hilo de tarea (§2.5).
 
+**Iteración 3 (índice, validación, textos y Ctrl+K).** Integrada y revisada.
+
+- **Contrato** (`914e5ed`).
+- **Implementación.** Agente A, núcleo: índice, reglas, validación, arreglos y
+  explicador (`7f8e814`). Agente B: `LocSync`, `Session`, Textos, Validación,
+  Problemas y Ctrl+K (`c577135`).
+- **Integración contra el núcleo real** (`61589b1`, `9e38e45`, `e7cc27f`), con la
+  prueba de punta a punta de la ventana (`tests/test_e2e_it3.py`). Destapó cinco
+  fallos de integración:
+  - los documentos borrados sin guardar no llegaban al índice ni al validador;
+  - un borrado hacía que el archivo del juego pareciera ausente;
+  - F7 justo después de Ctrl+Z validaba con el índice viejo;
+  - la barra de estado seguía en «Validando…»;
+  - los partidos salían en Ctrl+K con la ruta del archivo.
+- **Revisión adversarial y sus correcciones.** La revisión fue en tres partes:
+  escritura, núcleo e interfaz (ver abajo). Las correcciones son `4eb166d`,
+  `f148061`, `4c1df81`, `c3b1410` y `6d568c7`.
+
+Estado de los criterios de wizard §22:
+
+| Criterio | Estado | Pruebas |
+|---|---|---|
+| 1. Recuentos del índice con el corpus | **Sí**, todos: 271 TAG (50 dinámicos), 2 703 provincias de tierra (3246 incluida) y 545 de mar, 549 regiones, 6 continentes, 34 grupos y 226 culturas, 8 gobiernos, 31 CB, 21 tipos de unidad (11 + 10), 150 tecnologías, 387 invenciones, 1 064 eventos, 151 decisiones y 2 bookmarks | `test_index_corpus.test_criterion_1_counts` |
+| 2. Índice de vanilla en frío < 6 s y desde la caché < 1 s; cambiar un archivo reprocesa solo ese; subir un extractor invalida solo su caché | **Sí**: unos 2,3 s en frío y 0,3 s desde la caché, en segundo plano | `test_index_corpus.test_criterion_2_*`, `test_index_cache` |
+| 3. Validar VSM: errores propios exactos; los avisos nombrados | **Sí**, exactamente los 7 errores. Los avisos nombrados salen todos, `loc_copy_degraded` con 3 427 claves y 3 438 filas (wizard §22 explica por qué no son 3 429). El único aviso propio que el criterio no nombra son 6 `semicolon_in_quotes`, errores reales del usuario. CSR, que solo tiene banderas, sale como información | `test_validate_corpus`, `test_e2e_it3.VsmEndToEndTests` |
+| 4. Los problemas de vanilla, heredados y ocultos | **Sí**: 13 partidos, 50 `civilized`, 27 colores, 1396/1397, `HAI_oob.txt`, el evento 11108 y `annex` | `test_validate_corpus.test_criterion_4_*` |
+| 5. «Registrar SIL» (1 línea antes de `dynamic_tags`), revalidar, Ctrl+Z; explicadores de `tag_not_registered` y `loc_copy_degraded` | **Sí**, desde la ventana sobre una copia de VSM y con el núcleo | `test_validate_corpus.RegisterSilTests`, `test_criterion_5_explainers`, `test_e2e_it3` |
+| 6. Clave del juego en un mod vacío → `00_<P>_overrides.csv`; en VSM, la fila de su `text.csv` con 1 línea de diff | **Sí**, en el minijuego y en vanilla y VSM reales | `test_locsync`, `test_e2e_it3.test_criterion_6_*` |
+| 7. Ctrl+K encuentra «549», «Berlín», «PRU» y «north_german» y abre su línea | **Sí**: la ficha enseña esa línea, marcada | `test_index_corpus.test_criterion_7_search_targets`, `test_ui_palette.CorpusCriterion7Tests` |
+| 8. Capturas ES/EN de Textos, Validación y la paleta; verificación adversarial | **Sí**: capturas 21 a 26 de `docs/capturas/` y la revisión de abajo | revisión visual, `test_*_review_it3` |
+
+**Revisión adversarial de la iteración 3.** Cada revisor reprodujo sus hallazgos
+con un guion sobre una copia de VSM. Cada corrección tiene su prueba de
+regresión, comprobada con mutantes. Antes de mutar se pasa un control sin
+mutar.
+
+- **Escritura** (`4eb166d`, `f148061`). 1 bloqueante, 3 altos, 2 medios y 7
+  bajos.
+  - El bloqueante: tras guardar la papelera y deshacer, ningún guardado volvía
+    a funcionar, porque las imágenes volvían como documentos sin códec de
+    escritura.
+  - Una lápida contaba dos veces en la pila de deshacer.
+  - La papelera se llevaba copias que tapan una dependencia o que un
+    `replace_path` nuevo hace imprescindibles.
+  - «Registrar TAG» escribía detrás de un bloque sin cerrar.
+  - Rendimiento con VSM: guardar la papelera bajó de 35 s a 4,7 s y aplicarla,
+    de 5,3 s a 3,1 s. El diff de «Recuperar las filas» ya cuenta las 3 438
+    líneas reales.
+  - 28 mutantes, detectados.
+- **Núcleo** (`6f3c606`, fusionado en `4c1df81`). 16 hallazgos.
+  - El índice ya admite varias dependencias.
+  - La línea base cubre el juego y las dependencias a la fecha de trabajo.
+  - `loc_copy_degraded` es lineal: la regla bajó de 1,89 s a 0,25 s y validar
+    VSM, de 5,15 s a 3,14 s.
+  - El explicador es rápido: `loc_copy_degraded`, de 1,84 s a 15 ms.
+  - Las culturas cuentan como uso de un TAG.
+  - 36 mutantes, detectados.
+- **Interfaz** (`a6818f8`…`6ba1599`, fusionados en `6d568c7`). 21 hallazgos
+  (del 3 al 23; el 1 y el 2 estaban en el núcleo y van con la escritura).
+  - Explicador legible y en segundo plano.
+  - Cancelar de verdad, e informe desfasado con su aviso.
+  - Cuentas de líneas reales.
+  - Documentos que solo están en memoria.
+  - Ctrl+K en su línea, con Mayús+Intro y Esc.
+  - Textos sin pasadas de más y «Añadir clave» con Windows-1252.
+  - Los fallos de las tres tareas de fondo se gestionan, y los resultados
+    vivos se sueltan al cerrar.
+  - 55 de 56 mutantes detectados; el que sobrevive es equivalente.
+- **Al integrar** (`4c1df81`, `c3b1410`, `6d568c7`):
+  - Las banderas solas de un TAG son `flag_tag_not_registered` (información).
+    Antes sumaban un octavo error en VSM y rompían el criterio 3.
+  - «Registrar el TAG» se niega sin archivo de país (`no_country_file`), en
+    vez de escribir uno que no existe.
+  - Una sola comparación de filas degradadas para el aviso y para Textos.
+  - La etiqueta de «Recuperar las filas» dice las filas que cambia.
+  - `Session` usa la línea base nueva, por fecha, y los idiomas del proyecto.
+  - 48 códigos que explicaban con una frase genérica ya dicen lo que verá el
+    jugador.
+  - 19 mutantes, detectados.
+
+Queda sin código, con su motivo:
+
+- Deshacer, tras guardar, una copia hecha desde el juego deja en el mod una
+  copia idéntica. Es inofensivo, y la validación la señala
+  (`mod_shadow_identical`).
+- Abrir para editar el `text.csv` de VSM lo analiza en el hilo de la interfaz:
+  unos 0,1 s, por debajo del límite de 0,5 s de §7.4.
+- `LocSync.entries()` recalcula 0,15–0,3 s por edición en VSM.
+- Planear, aplicar y guardar siguen siendo síncronos, porque tocan el
+  `Workspace` (I12). Muestran el cursor de espera y dicen lo que hacen.
+
 Lo pendiente y su orden están en `CONTINUAR_EN_CLAUDE_CODE.md` §5.
 
 **Iteraciones 2 a 10.** Resumen de wizard §22, que tiene el objetivo, las
@@ -2642,13 +2733,13 @@ ya existe; la ventana recuerda la sala y la sección (§8.5).
 
 | Sala (atajo) | Secciones |
 |---|---|
-| Proyecto (Ctrl+1) | Inicio · Descriptor .mod · Archivos · Validación *(iteración 3)* · Cambios pendientes (con el número de archivos sin guardar en el índice) |
+| Proyecto (Ctrl+1) | Inicio · Descriptor .mod · Archivos · Validación (con el número de errores del mod en el índice) · Cambios pendientes (con el número de archivos sin guardar) |
 | Mapa (Ctrl+2) | Mundo (provincias), Regiones, Continentes y climas, Estrechos y canales *(iteración 5)* · Taller de mapas *(9)* |
 | Naciones (Ctrl+3) | Países *(6)* · Culturas, Gobiernos *(4)* |
 | Guerra (Ctrl+4) | Fechas de inicio *(4)* · Guerras de inicio, Diplomacia inicial *(6)* · Casus belli, Unidades terrestres, Unidades navales *(4)* |
 | Eventos (Ctrl+5) | Eventos, Decisiones, Modificadores *(7)* |
 | Interfaz (Ctrl+6) | Ventanas (.gui), Sprites (.gfx), Imágenes y banderas *(8)* |
-| Textos (Ctrl+7) | Todos los textos, Pendientes de traducir *(3)* · Archivos CSV |
+| Textos (Ctrl+7) | Todos los textos · Pendientes de traducir (con su número) · Archivos CSV |
 
 Las secciones que ya existen:
 
@@ -2661,8 +2752,8 @@ Las secciones que ya existen:
   sección y dicen en qué iteración llegan las que aún no existen (traducir en la
   3; unidad, gobierno y cultura en la 4; provincias en la 5; país y guerra en la
   6; evento y decisión en la 7; ventana en la 8; mapa nuevo en la 9); y la hoja
-  de ruta (`RoadmapCard`: los 10 hitos de wizard §22 con la iteración 2 como
-  actual; el hito 9 reúne la 9a y la 9b; si los hitos no caben a `MIN_COLUMN`
+  de ruta (`RoadmapCard`: los 10 hitos de wizard §22 con la iteración 3 como
+  actual, `CURRENT_ITERATION`; el hito 9 reúne la 9a y la 9b; si los hitos no caben a `MIN_COLUMN`
   (150 px) cada uno, se reparten en filas equilibradas, 5 + 5 a 1100 × 700 y una
   sola fila a 1920 × 1080). La página no guarda rutas: emite
   `game_path_selected`, `mod_selected` y `new_mod_requested`.
@@ -2707,8 +2798,59 @@ Las secciones que ya existen:
   solo lectura (§8.2): CSV del mod en una tabla (`LocalisationEditor`) con filtro
   de texto, conmutadores de comentarios y de todas las columnas y la lista de
   lint traducida con su filtro de gravedad; `open_file(path, line=None)` salta a
-  una fila. Anuncia la edición para la iteración 3 (`localisation.roadmap` y
+  una fila. Para editar remite a «Todos los textos» (`localisation.roadmap` y
   `loc.read_only`).
+- **Validación** (`ui/halls/project/validation.py`, wizard §11, §11.1 y §13.9).
+  - **Tabla.** El último informe de `Session.validate`, con gravedad, mensaje,
+    entidad, archivo y línea. Los heredados del juego base o de las dependencias
+    se ocultan, y «Mostrar heredados (n)» los enseña en cursiva.
+  - **Validar.** F7 y «Validar mod» validan en segundo plano y se pueden cancelar.
+    Si los documentos cambian después, el informe sale como desfasado, y
+    deshacer un arreglo revalida sola. Si la línea base falló, el resumen dice
+    por qué y ofrece «Reintentar la línea base».
+  - **[Arreglar ▾].** El arreglo simple y los demás en el desplegable
+    (`problems_dock.FixFlow`). Abre `FixPlanDialog` con el plan (archivo,
+    acción y diff con sus cuentas reales), que pide confirmación explícita si el
+    arreglo borra o sustituye, y aplica con `Session.apply_fix`. No se puede
+    pulsar en solo lectura ni mientras se revalida.
+  - **[¿Por qué?].** El `ExplainerPanel`. Cada capa ocupa una fila con su
+    veredicto y su ruta, y debajo va el extracto, que ajusta la línea. Termina
+    en la frase de lo que verá el jugador y en sus arreglos. Se explica en
+    segundo plano (`Session.request_explanation`), y mientras tanto el panel
+    dice «Explicando…». `layout_problems()` dice lo que se vería mal, y
+    `tools/screenshot.py` lo comprueba en cada captura.
+  - **Doble clic.** Abre el archivo en esa línea. Un documento que solo está en
+    memoria lo dice en la barra de estado.
+- **Todos los textos** y **Pendientes de traducir** (`ui/halls/localisation/texts.py`,
+  wizard §8): la vista efectiva de `LocSync.entries()` (§2.7).
+  - Cada fila es una clave, con inglés, español, francés y alemán, su archivo
+    ganador y su origen.
+  - Editar una celda es `Session.edit` más `LocSync.set_text`, una transacción
+    que se deshace con Ctrl+Z. Un carácter que no cabe en cp1252 se dice con
+    `texts.status_unencodable`.
+  - Filtros «creadas por el Studio», «sin traducir», «sustituyen a vanilla» y
+    «degradadas», más un buscador sin mayúsculas ni acentos.
+  - «Añadir clave» (`dialogs/add_key.py`) no deja aceptar una clave o un texto
+    que no valgan, y dice el motivo en el idioma de la interfaz.
+  - «Pendientes de traducir» es la misma página con el filtro puesto.
+  - Con VSM (21 661 claves) cada pasada cuesta décimas, así que una página
+    oculta no se refresca hasta verse y los recuentos se guardan mientras no
+    cambian las claves.
+
+Del armazón (`ui/shell`) son también:
+
+- **Problemas** (`problems_dock.py`): el panel acoplable con lo mismo en
+  compacto (recuentos, «heredados (n)», la lista, [Arreglar] y [¿Por qué?], que
+  lleva a Validación con el explicador abierto).
+- **Ctrl+K** (`command_palette.py`, wizard §13.4): un panel superpuesto a la
+  ventana que busca con `Session.search` (`SymbolIndex.search` con la
+  localización efectiva, en el idioma de la interfaz) y entre las salas y
+  secciones.
+  - Cada resultado lleva tipo, nombre para mostrar, id, archivo, línea y origen.
+  - Intro abre el archivo en su línea: la ficha de Archivos enseña las líneas de
+    alrededor, numeradas y con esa marcada. Una clave de texto se abre en Textos.
+  - Mayús+Intro abre el código, y Esc cierra y devuelve el foco.
+  - Encuentra «549», «Berlín», «PRU» y «north_german» (criterio 7).
 
 Las secciones heredan casi todas de `BasePage` (`key`, `title_key`,
 `subtitle_key`, `icon_name`, `build()`, `retranslate()`, `is_busy()`,

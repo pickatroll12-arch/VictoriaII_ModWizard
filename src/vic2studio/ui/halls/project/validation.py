@@ -1,8 +1,8 @@
 """Proyecto › Validación: el informe del validador con línea base, arreglos y explicador (wizard §11, §11.1, §13.9).
 
 - **Tabla**: gravedad, mensaje, entidad, archivo y línea de cada ``Problem`` del último
-  informe de la sesión. Los heredados del juego base (I11) se ocultan; el conmutador
-  «Mostrar heredados del juego base (n)» los enseña, en cursiva.
+  informe de la sesión. Los heredados del juego base o de las dependencias (I11) se
+  ocultan; el conmutador «Mostrar heredados (n)» los enseña, en cursiva.
 - **[Arreglar ▾]**: el SimpleFix del problema seleccionado (con su plan de cambios y
   confirmación; los que borran o sustituyen, con confirmación explícita); los demás
   arreglos, en el desplegable (``problems_dock.FixFlow``).
