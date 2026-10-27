@@ -6,13 +6,18 @@ línea; el juego no cambia) y 7 (deshacer y rehacer una transacción de 3 archiv
 es exacto byte a byte; deshacer hasta el punto guardado deja el documento limpio).
 """
 
+import hashlib
+import os
+import shutil
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
+from _corpus import corpus_roots, user_mod  # noqa: E402
 from _layers import isolate_appdirs  # noqa: E402
 from _minigame import CB_MONTHS, build_minigame  # noqa: E402
 from vic2studio.core.clausewitz.serializer import SourceMismatchError  # noqa: E402
@@ -52,6 +57,16 @@ def set_months(ws, cb="conquer_land", months="24"):
     ws.touch(handle)
     handle.model.document.get(cb).set("months", months)
     return handle
+
+
+def _vanilla_root():
+    """``VIC2_GAME`` o la primera raíz de ``VIC2_CORPUS`` con ``map/default.map`` (wizard §19.1); None sin corpus."""
+    explicit = os.environ.get("VIC2_GAME")
+    if explicit and Path(explicit, "common").is_dir():
+        return Path(explicit)
+    if not os.environ.get("VIC2_CORPUS"):
+        return None
+    return next((root for root in corpus_roots() if (root / "map" / "default.map").is_file()), None)
 
 
 def snapshot(ws, rel):
@@ -452,6 +467,36 @@ class SaveTests(WorkspaceCase):
         changed = {rel for rel in game.tree() if game.tree()[rel][2] != before.get(rel, (0, 0, None))[2]}
         self.assertEqual(changed, {CB, CB + ".bak", ".vic2studio/originals/" + CB})
         self.assertEqual(game.game_tree(), game_tree)
+
+    def test_acceptance_criterion_3_with_the_corpus(self):
+        """Con corpus: vanilla real + la copia de cb_types.txt de VSM en un mod temporal fuera del juego."""
+        game_root = _vanilla_root()
+        vsm = user_mod()
+        if game_root is None or vsm is None or not (vsm / CB).is_file():
+            self.skipTest("necesita VIC2_GAME o VIC2_CORPUS con vanilla y el VSM completo")
+        with tempfile.TemporaryDirectory() as tmp:
+            mod_root = Path(tmp) / "VSM"
+            (mod_root / "common").mkdir(parents=True)
+            shutil.copy2(vsm / CB, mod_root / CB)
+            original = (mod_root / CB).read_bytes()
+            game_common = {p.name: hashlib.sha256(p.read_bytes()).hexdigest()
+                           for p in (game_root / "common").iterdir() if p.is_file()}
+            project = Project.open(game_root, mod_root)
+            try:
+                handle = project.ws.open(CB)
+                self.assertIs(handle.origin.layer.kind, LayerKind.MOD)
+                block = next(e.value for e in handle.model.document.entries
+                             if e.key is not None and e.key.text != "peace_order" and hasattr(e.value, "get")
+                             and e.value.get("months") is not None)
+                with project.edit("undo.edit_cb"):
+                    project.ws.touch(handle)
+                    block.set("months", str(int(block.get("months").text) + 1))
+                self.assertTrue(project.save().ok)
+            finally:
+                project.close()
+            self.assertEqual(changed_lines(original, (mod_root / CB).read_bytes()), (1, 1))
+            self.assertEqual({p.name: hashlib.sha256(p.read_bytes()).hexdigest()
+                              for p in (game_root / "common").iterdir() if p.is_file()}, game_common)
 
     def test_saving_twice_and_edits_back_to_the_original(self):
         game = self.minigame(mod=False)
