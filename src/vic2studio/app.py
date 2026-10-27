@@ -2,11 +2,30 @@
 
 from __future__ import annotations
 
+import os
 import sys
 
 from PySide6.QtWidgets import QApplication
 
 from . import APP_NAME, ORG_NAME, __version__
+
+# Con VIC2STUDIO_SMOKE_TEST=1 la aplicación abre la ventana, comprueba sus textos y se cierra (código 0 si todo está,
+# 3 si falta algo): lo usa el empaquetado para probar el ejecutable congelado (packaging/, .github/workflows).
+SMOKE_ENV = "VIC2STUDIO_SMOKE_TEST"
+# Una clave de cada catálogo de textos, de la interfaz y del núcleo. El .spec de PyInstaller copia los datos con
+# patrones propios: si se le escapa un archivo, el programa enseña sus claves crudas. tests/test_packaging.py exige
+# una clave por archivo de textos del repositorio.
+SMOKE_KEYS = (
+    "app.emblem_tooltip",              # i18n/<idioma>.json
+    "conflict.cancel",                 # i18n/<idioma>/project.json
+    "hall.events.plate",               # i18n/<idioma>/shell.json
+    "checks.cancel",                   # i18n/<idioma>/validation.json
+    "texts.add.area",                  # i18n/<idioma>/localisation.json
+    "kind.bookmark",                   # i18n/<idioma>/palette.json
+    "project.save_outside_mod",        # core/project/texts
+    "issue.unclosed_block",            # core/validate/texts
+    "issue.definition_bad_row",        # core/map/texts
+)
 
 
 def create_application(argv: list[str] | None = None) -> QApplication:
@@ -43,6 +62,27 @@ def refuse_broken_binding(python: str, pyside: str) -> int:
     return 1
 
 
+def smoke_problems() -> list[str]:
+    """Lo que falta para la comprobación de humo: ``idioma:clave`` de cada clave de ``SMOKE_KEYS`` sin texto (vacía
+    si el programa tiene todos sus textos)."""
+    from .i18n import LANGUAGES, load_catalog
+
+    missing = []
+    for code, _ in LANGUAGES:
+        catalog = load_catalog(code)
+        missing.extend(f"{code}:{key}" for key in SMOKE_KEYS if key not in catalog)
+    return missing
+
+
+def _smoke_test(app: QApplication, window) -> None:
+    """Dice por la salida estándar si la ventana se construyó con todos sus textos y cierra la aplicación."""
+    missing = smoke_problems()
+    print(f"{APP_NAME} {__version__}: " + ("textos completos" if not missing else "faltan " + ", ".join(missing)),
+          flush=True)
+    window.close()
+    app.exit(0 if not missing else 3)
+
+
 def main(argv: list[str] | None = None) -> int:
     """Arranca la interfaz; ``argv`` son los argumentos sin el nombre del programa."""
     from .compat import broken_qt_binding
@@ -58,6 +98,10 @@ def main(argv: list[str] | None = None) -> int:
 
     window = MainWindow()
     window.show()
+    if os.environ.get(SMOKE_ENV):
+        from PySide6.QtCore import QTimer
+
+        QTimer.singleShot(0, lambda: _smoke_test(app, window))
     code = app.exec()
     # Ningún hilo debe seguir ejecutando Python mientras se cierra el intérprete; canceladas, las tareas paran pronto.
     cancel_all()

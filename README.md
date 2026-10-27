@@ -562,6 +562,18 @@ Por defecto crean un entorno virtual (`build/venv-linux` o
 conexión); `--system` usa el Python actual. PyInstaller no compila en cruzado:
 cada ejecutable se genera en su sistema.
 
+Por eso los construye GitHub Actions (`.github/workflows/build.yml`), en una
+máquina Linux (Ubuntu 22.04) y otra Windows, con Python 3.12. Cada ejecutable
+congelado pasa una prueba de humo: con `VIC2STUDIO_SMOKE_TEST=1` abre la
+ventana, comprueba que tiene todos sus textos en los dos idiomas
+(`app.SMOKE_KEYS`) y sale con 0 (o con 3 si falta alguno). Un empuje a la rama
+de trabajo deja los paquetes como artefactos de la ejecución. Una etiqueta
+`v*` además los publica en una versión previa de GitHub, con las notas de
+`packaging/release_notes_alpha.md`. `tests/test_packaging.py` comprueba que el
+`.spec` copia los mismos datos que declara `pyproject.toml`.
+
+La primera versión alfa es la `v0.1.0-alpha.1`: lo hecho hasta la iteración 3.
+
 ## Estructura
 
 ```text
