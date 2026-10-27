@@ -164,6 +164,8 @@ class Issue:
     column: int | None
     diagnostic: object | None = field(default=None, compare=False)
     args: dict = field(default_factory=dict)
+    entity: tuple[str, str] | None = None     # símbolo afectado (kind, name), como ``validate.Problem`` (wizard §11)
+    fixes: tuple[str, ...] = ()               # claves de ``validate.fixes.FIXES``; la primera es el SimpleFix
 
     def __hash__(self) -> int:
         return hash((self.path, self.relative, self.kind, self.code, self.severity, self.line, self.column,

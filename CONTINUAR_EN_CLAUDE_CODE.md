@@ -62,6 +62,14 @@ arreglarlo, deja una prueba de regresión que falle sin el arreglo y pasa la bat
   `core/vfs`. El parche anterior de Grok se descartó.
 - **Queda**: la iteración 3 (§5.3). La iteración 2 está cerrada: revisión en dos rondas, el fallo de segmentación
   al pintar, capturas, README e informe (§5.0 a §5.2).
+- **Iteración 3, en curso.** El commit de contrato está hecho:
+  - `core/index`, `core/rules`, `core/lua_defines.py`, `core/validate` y `core/locsync.py`, con firmas y
+    `NotImplementedError`;
+  - `LocalisationDB.from_entries`, y `modcheck.Issue` con `entity` y `fixes`.
+
+  Los encargos de los dos agentes son `docs/handoff/iteracion3_agente_A.md` (núcleo) y `…_agente_B.md`
+  (`LocSync` e interfaz). Si la sesión se corta, mira qué ramas de agente quedaron en `.claude/worktrees/` antes
+  de relanzarlos.
 
 ---
 
