@@ -148,7 +148,9 @@ class CatalogFragmentTests(unittest.TestCase):
     def test_fragments_are_flat_utf8_json_without_bom(self):
         for code in ("es", "en"):
             paths = i18n.fragment_paths(code)
-            self.assertEqual([p.name for p in paths], ["project.json", "shell.json"], code)
+            self.assertEqual([p.name for p in paths],
+                             ["localisation.json", "palette.json", "project.json", "shell.json", "validation.json"],
+                             code)
             for path in paths:
                 raw = path.read_bytes()
                 self.assertFalse(raw.startswith(b"\xef\xbb\xbf"), path)
@@ -280,11 +282,30 @@ class StrayWindowTests(UiTestCase):
             SaveReviewDialog(ChangeSet(), (), window),
             ConflictDialog("common/a.txt", lambda: "", parent=window),
             NewModDialog(window.session, None, window),
+            *self.iteration3_dialogs(window),
         ]
         _qt.process_events()
         self.assertEqual(spy.shown, [])
         for dialog in dialogs:
             dialog.deleteLater()
+
+    @staticmethod
+    def iteration3_dialogs(window) -> list:
+        """«Añadir clave» y el plan de un arreglo (seguro y no seguro), sin proyecto: no deben mostrar nada."""
+        from _fake_index import FakeValidationEngine, problem
+
+        from vic2studio.core.validate.model import ChangePlan, PlannedChange
+        from vic2studio.ui.dialogs.add_key import AddKeyDialog
+        from vic2studio.ui.dialogs.fix_plan import FixPlanDialog
+
+        locsync = SimpleNamespace(where=lambda key: None,
+                                  target_file=lambda area: VPath.of(f"localisation/00_X_{area}.csv"))
+        fixes = FakeValidationEngine().fixes
+        sil = problem("tag_not_registered", "history/countries/SIL - Silesia.txt", 1, tag="SIL")
+        copy = problem("mod_shadow_identical", "common/a.txt")
+        plan = ChangePlan("x", (PlannedChange(VPath.of("common/a.txt"), "trash"),))
+        return [AddKeyDialog(locsync, window), FixPlanDialog(fixes["register_tag"], sil, plan, window),
+                FixPlanDialog(fixes["trash_identical_copies"], copy, plan, window)]
 
 
 # --- insignias de capa ---------------------------------------------------------------------------------------

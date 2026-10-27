@@ -52,7 +52,7 @@ C = theme.color
 FLOWS = (
     (N_("home.flow.descriptor"), "file_mod", None, "project:descriptor"),
     (N_("home.flow.files"), "folder_open", None, "project:files"),
-    (N_("home.flow.translate"), "localisation", 3, "localisation:pending"),
+    (N_("home.flow.translate"), "localisation", None, "localisation:pending"),
     (N_("home.flow.unit"), "helmet", 4, "war:land"),
     (N_("home.flow.government"), "crown", 4, "nations:governments"),
     (N_("home.flow.culture"), "culture", 4, "nations:cultures"),

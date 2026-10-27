@@ -279,12 +279,28 @@ class LocRow:
             return self.key
         return self.fields[index - 1] if index <= len(self.fields) else ""
 
-    def set(self, lang: Lang, text: str) -> None:
-        """Cambia una columna de idioma y normaliza la fila (ver ``normalized_fields``)."""
+    def set(self, lang: Lang, text: str, *, keep_layout: bool = False) -> None:
+        """Cambia una columna de idioma y normaliza la fila (ver ``normalized_fields``).
+
+        Con ``keep_layout`` solo cambia esa columna (rellenando con vacíos si la fila es más corta) y conserva la
+        convención de la fila: sin «x» si no la llevaba, como las de VSM. Solo normaliza si la «x» está
+        desplazada a la izquierda y la columna caería sobre ella o detrás.
+        """
         if self.kind is not RowKind.DATA:
             raise InvalidFieldError(NOT_A_DATA_ROW)
         index = language_column(lang)
         check_text(text)
+        if keep_layout:
+            marker = marker_index(self.fields)
+            if marker is None or marker >= LANGUAGE_COUNT or index - 1 < marker:
+                fields = list(self.fields)
+                if index > len(fields):
+                    fields += [""] * (index - len(fields))
+                fields[index - 1] = text
+                if fields != self.fields:
+                    self.fields = fields
+                    self.modified = True
+                return
         fields = normalized_fields(self.fields)
         fields[index - 1] = text
         if fields != self.fields:
@@ -305,9 +321,9 @@ class LocRow:
         return f"LocRow({self.kind.value}, line={self.line}, raw={self.raw!r})"
 
 
-def _new_data_row(key: str, texts: Mapping[Lang, str] | None) -> LocRow:
+def _new_data_row(key: str, texts: Mapping[Lang, str] | None, end_marker: bool = True) -> LocRow:
     check_key(key)
-    fields = [""] * LANGUAGE_COUNT + [END_MARKER]
+    fields = [""] * LANGUAGE_COUNT + ([END_MARKER] if end_marker else [])
     for lang, text in (texts or {}).items():
         check_text(text)
         fields[language_column(lang) - 1] = text
@@ -414,18 +430,20 @@ class LocalisationFile:
         self._structure_changed = True
 
     def add_row(self, key: str, texts: Mapping[Lang, str] | None = None, *,
-                index: int | None = None, allow_duplicate: bool = False) -> LocRow:
-        """Crea ``key;<13 idiomas>;x``. ``texts`` admite códigos, nombres o columnas.
+                index: int | None = None, allow_duplicate: bool = False, end_marker: bool = True) -> LocRow:
+        """Crea ``key;<13 idiomas>;x`` (sin la «x» con ``end_marker=False``, como los CSV de VSM). ``texts``
+        admite códigos, nombres o columnas.
 
         Lanza ``DuplicateKeyError`` (un ``KeyError``) si la clave ya existe, salvo
         con ``allow_duplicate``.
         """
-        return self.add_rows([(key, texts)], index=index, allow_duplicate=allow_duplicate)[0]
+        return self.add_rows([(key, texts)], index=index, allow_duplicate=allow_duplicate,
+                             end_marker=end_marker)[0]
 
     def add_rows(self, items: Iterable[tuple[str, Mapping[Lang, str] | None]], *,
-                 index: int | None = None, allow_duplicate: bool = False) -> list[LocRow]:
+                 index: int | None = None, allow_duplicate: bool = False, end_marker: bool = True) -> list[LocRow]:
         """Como ``add_row`` para varias claves de una vez: se validan todas antes de añadir ninguna."""
-        rows = [_new_data_row(key, texts) for key, texts in items]
+        rows = [_new_data_row(key, texts, end_marker) for key, texts in items]
         if not allow_duplicate:
             keys, seen = self._key_index(), set()
             for row in rows:

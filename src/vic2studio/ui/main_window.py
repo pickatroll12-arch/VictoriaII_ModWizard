@@ -3,8 +3,15 @@
 Las salas se descubren en ``ui/halls`` (``discover_halls``) y cada placa de la
 barra de navegación lleva a una (Ctrl+1..7). Acciones globales: Guardar (Ctrl+S,
 con el número de archivos sin guardar), Deshacer (Ctrl+Z), Rehacer (Ctrl+Y y
-Ctrl+Mayús+Z), Historial y Validar el mod (F7). El título lleva «*» si hay
-cambios sin guardar y cerrar pregunta antes de perderlos.
+Ctrl+Mayús+Z), Historial, Problemas, el buscador universal (Ctrl+K,
+``CommandPalette``) y Validar el mod (F7, el validador del núcleo en Proyecto ›
+Validación; el botón «Validar mod» de Archivos hace lo mismo). El título lleva «*»
+si hay cambios sin guardar y cerrar pregunta antes de perderlos.
+
+Abrir un problema o un resultado de Ctrl+K lleva a Archivos con el archivo en su
+línea (``open_location``); una clave de localización, a Textos › Todos los textos.
+Los diálogos de las secciones de la iteración 3 (plan de un arreglo, «Añadir
+clave») pasan por ``exec_dialog``, que las pruebas sustituyen.
 
 El mod abierto lo deciden las rutas de «Archivos» (``ProjectPage``, que las guarda
 en las preferencias): al cambiar, la ventana abre el proyecto con ``Session`` (que
@@ -53,7 +60,9 @@ from .halls import discover_halls
 from .pages import PAGE_KEYS, BasePage
 from .session import Session
 from .shell import HallPage, HistoryDock
+from .shell.command_palette import CommandPalette
 from .shell.pending_changes import write_label
+from .shell.problems_dock import ProblemsDock
 from .tasks import cancel_all
 from .widgets import HeaderBanner, NavBar, TexturedPanel, emblem_pixmap, icons_extra, make_icon, mark_data
 
@@ -153,6 +162,11 @@ class MainWindow(QMainWindow):
         self.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, self.history_dock)
         self.history_dock.hide()
         self.history_dock.visibilityChanged.connect(self.history_button.setChecked)
+        self.problems_dock = ProblemsDock(self.session, self)
+        self.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, self.problems_dock)
+        self.problems_dock.hide()
+        self.problems_dock.visibilityChanged.connect(self.problems_button.setChecked)
+        self.palette = CommandPalette(self.session, self._palette_sections, central)
 
         self._open_timer = QTimer(self)
         self._open_timer.setSingleShot(True)
@@ -207,12 +221,24 @@ class MainWindow(QMainWindow):
         self.history_button.setIcon(make_icon("history", "gold_light"))
         self.history_button.setIconSize(QSize(20, 20))
         self.history_button.toggled.connect(self._on_history_toggled)
+        self.problems_button = QToolButton()
+        self.problems_button.setObjectName("problemsButton")
+        self.problems_button.setCheckable(True)
+        self.problems_button.setIcon(make_icon("warning", "gold_light"))
+        self.problems_button.setIconSize(QSize(20, 20))
+        self.problems_button.toggled.connect(self._on_problems_toggled)
+        self.search_button = QPushButton()
+        self.search_button.setObjectName("searchButton")
+        self.search_button.setIcon(make_icon("search", "gold_pale"))
+        self.search_button.clicked.connect(lambda: self.open_palette())
         self.save_button = QPushButton()
         self.save_button.setObjectName("saveButton")
         self.save_button.setProperty("accent", True)
         self.save_button.setIcon(make_icon("save", "gold_pale"))
         self.save_button.clicked.connect(self.save_project)
-        for widget in (self.undo_button, self.redo_button, self.history_button):
+        row.addWidget(self.search_button)
+        row.addSpacing(8)
+        for widget in (self.undo_button, self.redo_button, self.history_button, self.problems_button):
             row.addWidget(widget)
         row.addSpacing(4)
         row.addWidget(self.save_button)
@@ -235,6 +261,7 @@ class MainWindow(QMainWindow):
         self.undo_action = action("undoAction", ["Ctrl+Z"], self.undo)
         self.redo_action = action("redoAction", ["Ctrl+Y", "Ctrl+Shift+Z"], self.redo)
         self.validate_action = action("validateAction", ["F7"], self.validate_mod)
+        self.palette_action = action("paletteAction", ["Ctrl+K"], self.open_palette)
 
     def _wire_sections(self) -> None:
         project, localisation, home = self.page("project"), self.page("localisation"), self.page("home")
@@ -250,6 +277,22 @@ class MainWindow(QMainWindow):
         home.mod_selected.connect(self.select_mod)
         home.new_mod_requested.connect(self.open_new_mod_dialog)
         self.descriptor_page.new_mod_requested.connect(self.open_new_mod_dialog)
+        # «Validar mod» de Archivos usa ya el validador del núcleo (Proyecto › Validación), como F7.
+        project.validate_button.clicked.disconnect()
+        project.validate_button.clicked.connect(self.validate_mod)
+        self.validation_page = self.page("project:validation")
+        self.validation_page.open_requested.connect(self.open_problem)
+        self.problems_dock.open_requested.connect(self.open_problem)
+        self.problems_dock.explain_requested.connect(self.explain_problem)
+        self.problems_dock.validate_requested.connect(self.validate_mod)
+        self.problems_dock.status_requested = self.show_status
+        self.palette.symbol_activated.connect(self.open_symbol)
+        self.palette.code_requested.connect(self.open_symbol)
+        self.palette.section_activated.connect(self.navigate)
+        # Los diálogos de las secciones nuevas pasan por exec_dialog (las pruebas lo sustituyen).
+        for widget in (self.validation_page, self.page("localisation:all"), self.page("localisation:pending"),
+                       self.problems_dock):
+            widget.exec_dialog = lambda dialog: self.exec_dialog(dialog)
 
     def _wire_session(self) -> None:
         # Solo métodos: la sesión puede venir de fuera y vivir más que la ventana.
@@ -263,6 +306,8 @@ class MainWindow(QMainWindow):
         session.saved.connect(self._on_saved)
         session.externalChanges.connect(self._on_external_changes)
         session.modCreated.connect(self._on_mod_created)
+        session.problemsChanged.connect(self._on_problems_changed)
+        session.textsChanged.connect(self._refresh_badges)
 
     # --- navegación ------------------------------------------------------------------------------
 
@@ -369,8 +414,9 @@ class MainWindow(QMainWindow):
         self._render_status()
 
     def is_busy(self) -> bool:
-        """True mientras alguna sección o la sesión trabajan en segundo plano (las capturas esperan)."""
-        return self.session.is_busy() or any(hall.is_busy() for hall in self.halls)
+        """True mientras alguna sección o la sesión trabajan en segundo plano (las capturas esperan): también el
+        índice, la lectura de los textos y la validación."""
+        return self.session.is_busy() or self.session.is_working() or any(hall.is_busy() for hall in self.halls)
 
     # --- proyecto --------------------------------------------------------------------------------
 
@@ -506,9 +552,55 @@ class MainWindow(QMainWindow):
         if step is not None:
             self.show_status("status.redone", step=lambda s=step: tr(s.label, **dict(s.fmt)))
 
-    def validate_mod(self) -> None:
-        project = self.show_page("project")
-        project.validate_mod()
+    def validate_mod(self) -> bool:
+        """F7 y «Validar mod»: Proyecto › Validación con el validador del núcleo, en segundo plano."""
+        page = self.show_page("project:validation")
+        return page.validate()
+
+    # --- buscador, problemas y navegación a un archivo ------------------------------------------
+
+    def _palette_sections(self) -> list[tuple[str, str]]:
+        return [(f"{hall.spec.key}:{section.key}", tr("shell.location", hall=tr(hall.spec.plate_key),
+                                                      section=tr(section.title_key)))
+                for hall in self.halls for section in hall.sections]
+
+    def open_palette(self, text: str = "") -> None:
+        """Ctrl+K: el buscador universal sobre la ventana."""
+        self.palette.open(text)
+
+    def open_location(self, rel, line: int | None = None, column: int | None = None, layer=None) -> bool:
+        """Abre ``rel`` en Archivos en ``line`` (un CSV de localisation/, en «Archivos CSV»); False si no está en
+        disco (un documento nuevo sin guardar) o no existe."""
+        path = self.session.location_path(rel, layer)
+        if path is None:
+            self.show_status("status.location_in_memory", name=str(rel))
+            return False
+        self.show_page("project")
+        if not self.page("project").open_file(path, line=line, column=column):
+            self.show_status("status.file_missing", name=str(rel))
+            return False
+        return True
+
+    def open_problem(self, problem) -> bool:
+        """Doble clic en un problema: su archivo en su línea."""
+        if problem is None or problem.rel is None:
+            return False
+        return self.open_location(problem.rel, problem.line, problem.column)
+
+    def explain_problem(self, problem) -> bool:
+        """[¿Por qué?] del panel de problemas: Proyecto › Validación con el explicador abierto."""
+        page = self.show_page("project:validation")
+        return page.show_explanation(problem)
+
+    def open_symbol(self, symbol) -> bool:
+        """Un resultado de Ctrl+K: una clave de localización, en Textos; lo demás, su archivo en su línea."""
+        from ..core.index.model import KIND_LOC_KEY
+
+        if symbol.kind == KIND_LOC_KEY:
+            page = self.show_page("localisation:all")
+            if page.select_key(symbol.name):
+                return True
+        return self.open_location(symbol.rel, symbol.line, layer=symbol.layer)
 
     def open_new_mod_dialog(self) -> int:
         game = self.page("project").game_path()
@@ -615,6 +707,24 @@ class MainWindow(QMainWindow):
     def _on_dirty_changed(self, count: int) -> None:
         self._update_project_actions()
 
+    def _on_problems_changed(self) -> None:
+        self._refresh_badges()
+        self._retranslate_problems_button()
+
+    def _refresh_badges(self) -> None:
+        for hall in self.halls:
+            hall.refresh_badges()
+
+    def _retranslate_problems_button(self) -> None:
+        from ..core.clausewitz import Severity
+
+        report = self.session.report
+        errors = 0 if report is None else report.count(Severity.ERROR)
+        warnings = 0 if report is None else report.count(Severity.WARNING)
+        self.problems_button.setText(tr("shell.problems"))
+        self.problems_button.setToolTip(tr("shell.problems_tooltip", errors=errors, warnings=warnings)
+                                        if report is not None else tr("shell.problems_tooltip_none"))
+
     def _update_project_actions(self) -> None:
         session = self.session
         has_project = session.project is not None
@@ -645,6 +755,10 @@ class MainWindow(QMainWindow):
             self.undo_button.setToolTip(tr("shell.undo_tooltip", shortcut=self._shortcut_text("Ctrl+Z")))
         self.redo_button.setToolTip(tr("shell.redo_tooltip", shortcut=self._shortcut_text("Ctrl+Y")))
         self.history_button.setToolTip(tr("shell.history_tooltip"))
+        self.search_button.setText(tr("shell.search", shortcut=self._shortcut_text("Ctrl+K")))
+        self.search_button.setToolTip(tr("shell.search_tooltip"))
+        self.palette_action.setText(tr("palette.title"))
+        self._retranslate_problems_button()
         self.save_action.setText(tr("shell.save"))
         self.undo_action.setText(tr("shell.undo"))
         self.redo_action.setText(tr("shell.redo"))
@@ -702,6 +816,9 @@ class MainWindow(QMainWindow):
 
     def _on_history_toggled(self, checked: bool) -> None:
         self.history_dock.setVisible(checked)
+
+    def _on_problems_toggled(self, checked: bool) -> None:
+        self.problems_dock.setVisible(checked)
 
     def _on_language_selected(self, index: int) -> None:
         code = self.language_combo.itemData(index)
@@ -767,6 +884,9 @@ class MainWindow(QMainWindow):
 
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
+        palette = getattr(self, "palette", None)
+        if palette is not None and palette.isVisible():
+            palette.place()
         compact = self.width() < COMPACT_RAIL_WIDTH
         self._body.setContentsMargins(*(COMPACT_BODY_MARGINS if compact else BODY_MARGINS))
         for hall in self.halls:

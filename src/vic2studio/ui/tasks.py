@@ -90,10 +90,12 @@ GC_FREEZE_MIN_OBJECTS = 100_000
 # muestra y aún tiene que maquetarlo y pintarlo, y con otro hilo ocupado cada llamada a Python esperaría el GIL.
 RELEASE_DELAY = 0.1
 
-# Grupos de hilos: vistas previas y editores (scripts, JSON, CSV), imágenes, validación del mod y
-# liberación de resultados grandes que ya no se usan (``release_in_background``).
+# Grupos de hilos: vistas previas y editores (scripts, JSON, CSV), imágenes, validación del mod,
+# liberación de resultados grandes que ya no se usan (``release_in_background``) y el índice de símbolos
+# (construcción y reextracción incremental, wizard §7).
 POOL_PREVIEW, POOL_IMAGES, POOL_VALIDATION, POOL_RELEASE = "preview", "images", "validation", "release"
-POOL_THREADS = {POOL_PREVIEW: 2, POOL_IMAGES: 1, POOL_VALIDATION: 1, POOL_RELEASE: 1}
+POOL_INDEX = "index"
+POOL_THREADS = {POOL_PREVIEW: 2, POOL_IMAGES: 1, POOL_VALIDATION: 1, POOL_RELEASE: 1, POOL_INDEX: 1}
 
 _FINISHED, _FAILED, _PROGRESS = "finished", "failed", "progress"
 _STEPS_DONE = object()  # fin de los pasos de un ``dismantle`` (sus pasos dan None)
