@@ -165,6 +165,55 @@ class FakeVfs:
         stack = self.stack(rel)
         return stack[0] if stack else None
 
+    # --- lo que usan el índice, la validación y LocSync (iteración 3) ------------------------------------------
+
+    def _layers(self) -> list[tuple[Layer, Path]]:
+        layers = [(self.mod_layer, self.mod_root)]
+        if self.game_layer is not None:
+            layers.append((self.game_layer, self.game_root))
+        return layers
+
+    def _files(self) -> dict[str, list[FileEntry]]:
+        """Todos los archivos de las capas (sin ``<juego>/mod/`` ni ``.vic2studio/``), ganador primero."""
+        found: dict[str, list[FileEntry]] = {}
+        for layer, root in self._layers():
+            for path in sorted(root.rglob("*")):
+                if not path.is_file():
+                    continue
+                relative = path.relative_to(root).as_posix()
+                top = relative.split("/", 1)[0].lower()
+                if top == ".vic2studio" or (layer.kind is LayerKind.GAME and top == "mod") or path.suffix == ".bak":
+                    continue
+                rel = Rel.of(relative)
+                found.setdefault(rel.key, []).append(FileEntry(rel, layer, path, fingerprint(path)))
+        return found
+
+    def list(self, folder: str, pattern: str = "*.txt", *, recursive: bool | None = None) -> list[FileEntry]:
+        import fnmatch
+
+        prefix = str(folder).strip("/").upper()
+        winners = []
+        for key, stack in sorted(self._files().items()):
+            head, _, name = key.rpartition("/")
+            inside = key.startswith(prefix + "/") if recursive else head == prefix
+            if inside and fnmatch.fnmatchcase(name, pattern.upper()):
+                winners.append(stack[0])
+        return winners
+
+    def entry(self, rel, kind: LayerKind) -> FileEntry | None:
+        return next((e for e in self.stack(rel) if e.layer.kind is kind), None)
+
+    def hidden_by_replace_path(self, entry: FileEntry) -> bool:
+        return False
+
+    def snapshot(self):
+        from types import MappingProxyType
+
+        from vic2studio.core.vfs.model import VfsSnapshot
+
+        layers = tuple(layer for layer, _ in self._layers())
+        return VfsSnapshot(layers, MappingProxyType({k: tuple(v) for k, v in self._files().items()}), frozenset())
+
 
 class FakeTxn:
     def __init__(self, label: str, fmt: dict, merge_key: str | None):
@@ -247,6 +296,15 @@ class FakeWorkspace:
     def peek(self, rel) -> DocHandle | None:
         self._check()
         return self._docs.get(_key(rel))
+
+    def documents(self) -> list[DocHandle]:
+        """Documentos abiertos, ordenados por ``rel.key`` (como el real)."""
+        self._check()
+        return sorted(self._docs.values(), key=lambda h: _key(h.rel))
+
+    @property
+    def in_transaction(self) -> bool:
+        return self._txn is not None
 
     @contextmanager
     def transaction(self, label: str, *, merge_key: str | None = None, **fmt):

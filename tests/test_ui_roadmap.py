@@ -25,11 +25,10 @@ PLAN = {
     "war:bookmarks": 4, "war:wars": 6, "war:diplomacy": 6, "war:cb": 4, "war:land": 4, "war:naval": 4,
     "events:events": 7, "events:decisions": 7, "events:modifiers": 7,
     "interface:windows": 8, "interface:sprites": 8, "interface:images": 8,
-    "localisation:all": 3, "localisation:pending": 3,
-    "project:validation": 3,
 }
-# Lo que ya existe en la iteración 2.
-READY = {"project:home", "project:descriptor", "project:files", "project:pending", "localisation:csv"}
+# Lo que ya existe: lo de la iteración 2 y, desde la 3, Validación, Todos los textos y Pendientes de traducir.
+READY = {"project:home", "project:descriptor", "project:files", "project:validation", "project:pending",
+         "localisation:all", "localisation:pending", "localisation:csv"}
 
 
 class ColumnsTests(unittest.TestCase):

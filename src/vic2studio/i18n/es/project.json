@@ -152,8 +152,5 @@
   "section.project.home": "Inicio",
   "section.project.pending": "Cambios pendientes",
   "section.project.validation": "Validación",
-  "section.project.validation.f1": "Reglas cruzadas: referencias rotas, ids repetidos y coherencia del mapa.",
-  "section.project.validation.f2": "Arreglos de un clic, con vista previa y confirmación.",
-  "section.project.validation.f3": "Mientras tanto, «Validar mod» de Archivos revisa la sintaxis de todos los archivos (F7).",
-  "section.project.validation.intro": "La validación completa del mod con línea base: los problemas que ya tiene el juego base se marcan como heredados y no cuentan."
+  "section.project.validation.intro": "La validación del mod con las reglas del juego y una línea base: lo que ya falla en el juego base sale como heredado y no cuenta"
 }
