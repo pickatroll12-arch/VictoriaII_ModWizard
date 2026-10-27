@@ -2,15 +2,19 @@
 
 Validar nunca bloquea guardar (I10) ni escribe nada (I4). Una regla que lanza no
 aborta la validación: su fallo sale como un ``Problem`` ``check_failed`` y se
-registra en el log. Lanza ``core.cancel.Cancelled``.
+registra en el log; un ``check_failed`` nunca se marca heredado (aunque la regla
+falle igual sin el mod, es un fallo del Studio que no debe quedar oculto). Lanza
+``core.cancel.Cancelled``.
 
 Cada función de regla se ejecuta una sola vez aunque declare varios códigos
 (decoradores apilados); con ``codes`` solo corren las que declaran alguno de ellos
-y solo se devuelven esos códigos.
+y solo se devuelven esos códigos. El contexto que recibe no cambia: ``files`` y
+``cancelled`` se ponen en una copia superficial (que comparte sus cachés de lectura).
 """
 
 from __future__ import annotations
 
+import copy
 import logging
 import time
 from collections.abc import Callable, Collection
@@ -59,37 +63,35 @@ class Validator:
         """Todas las reglas (o solo ``codes``); ``files`` limita las de ``SCOPE_FILE`` a esos archivos.
         ``progress(reglas hechas, total)``."""
         start = time.perf_counter()
-        ctx = self.ctx
+        # Copia superficial: comparte las cachés (``_parsed``, ``_read``) pero no ``files`` ni ``cancelled``, así
+        # que otro hilo que consulte ``self.ctx`` (el explicador) no los ve cambiar.
+        ctx = copy.copy(self.ctx)
         cancelled = cancelled if cancelled is not None else ctx.cancelled
-        previous_cancel = ctx.cancelled
         ctx.cancelled = cancelled
         wanted = None if codes is None else set(codes)
         groups = rule_groups(wanted)
         problems: list[Problem] = []
-        previous_files = ctx.files
-        try:
-            for done, (fn, specs) in enumerate(groups):
-                raise_if_cancelled(cancelled)
-                file_scope = all(spec.scope == SCOPE_FILE for spec in specs)
-                ctx.files = None if files is None or not file_scope else {VPath.of(f).key for f in files}
-                try:
-                    found = list(fn(ctx) or ())
-                except Cancelled:
-                    raise
-                except Exception as exc:  # noqa: BLE001 - una regla rota no tumba la validación (docstring)
-                    _log.exception("la regla %s.%s falló", specs[0].family, fn.__name__)
-                    found = [_check_failed(specs[0], exc)]
-                if wanted is not None:
-                    found = [p for p in found if p.code in wanted or p.code == CHECK_FAILED]
-                problems.extend(found)
-                if progress is not None:
-                    progress(done + 1, len(groups))
-        finally:
-            ctx.files = previous_files
-            ctx.cancelled = previous_cancel
+        limited = None if files is None else {VPath.of(f).key for f in files}
+        for done, (fn, specs) in enumerate(groups):
+            raise_if_cancelled(cancelled)
+            file_scope = all(spec.scope == SCOPE_FILE for spec in specs)
+            ctx.files = limited if file_scope else None
+            try:
+                found = list(fn(ctx) or ())
+            except Cancelled:
+                raise
+            except Exception as exc:  # noqa: BLE001 - una regla rota no tumba la validación (docstring)
+                _log.exception("la regla %s.%s falló", specs[0].family, fn.__name__)
+                found = [_check_failed(specs[0], exc)]
+            if wanted is not None:
+                found = [p for p in found if p.code in wanted or p.code == CHECK_FAILED]
+            problems.extend(found)
+            if progress is not None:
+                progress(done + 1, len(groups))
         baseline = self.baseline
         if baseline is not None:
-            problems = [replace(p, inherited=True) if p.fingerprint() in baseline else p for p in problems]
+            problems = [replace(p, inherited=True) if p.code != CHECK_FAILED and p.fingerprint() in baseline else p
+                        for p in problems]
         problems.sort(key=_sort_key)
         return ValidationReport(tuple(problems), ctx.read_count, time.perf_counter() - start, False,
                                 baseline is not None)

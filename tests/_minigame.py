@@ -408,3 +408,26 @@ def build_minigame(root: Path | None = None, *, mod: bool = True, mod_name: str 
         files[rel] = game[rel]
     files.update(mod_files or {})
     return MiniGame(build_layers(game=game, mod=files, mod_name=mod_name, base=root))
+
+
+# --- ampliación de la revisión de la iteración 3: dependencias --------------------------------------------
+
+
+def build_minigame_with_deps(dependencies: Mapping[str, Mapping[str, bytes | str]], *,
+                             mod_files: Mapping[str, bytes | str] | None = None,
+                             game_files: Mapping[str, bytes | str] | None = None,
+                             root: Path | None = None) -> MiniGame:
+    """El minijuego con el mod vacío (o con ``mod_files``) sobre ``dependencies`` (``{nombre: archivos}``, en el
+    orden en que se declaran: la última gana). ``deps_vfs``/``deps_snapshot`` las cargan."""
+    game = dict(GAME_FILES)
+    game.update(game_files or {})
+    return MiniGame(build_layers(game=game, mod=dict(mod_files or {}), dependencies=dependencies, base=root))
+
+
+def deps_vfs(game: MiniGame, **kwargs):
+    """``VirtualFS`` escaneada del juego, las dependencias de ``game`` y el mod."""
+    return game.vfs(dependencies=game.layers.dependencies, **kwargs)
+
+
+def deps_snapshot(game: MiniGame, **kwargs):
+    return deps_vfs(game, **kwargs).snapshot()

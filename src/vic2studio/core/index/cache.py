@@ -1,18 +1,22 @@
 """Caché de hechos del índice: JSON-lines comprimido por capa, nunca pickle (wizard §7).
 
 ``<cache_dir>/index/game-<sha1(realpath)>/facts.v<INDEX_FORMAT>.jsonl.gz`` para el
-juego base (compartida entre mods) y ``…/mod-<sha1>/`` para cada mod o
-dependencia. Cada línea son los ``FileFacts`` de un archivo con su huella y la
-versión de su extractor; al leer se descartan los de un extractor de otra versión.
-Escribe solo fuera del mod, a través de ``core.fileio`` y con rutas de
+juego base (compartida entre mods), ``…/mod-<sha1>/`` para el mod y
+``…/dependency-<sha1>/`` para cada dependencia: el tipo de capa va en el nombre
+para que dos capas con la misma carpeta (un mod que se declara dependencia de sí
+mismo) no se pisen. Cada línea son los ``FileFacts`` de un archivo con su huella y
+la versión de su extractor; al leer se descartan los de un extractor de otra
+versión. Escribe solo fuera del mod, a través de ``core.fileio`` y con rutas de
 ``core.appdirs`` (I1, I4; lo vigila ``test_arch_writes``). Una caché ilegible o de
 otro formato se ignora (se reconstruye), nunca hace fallar la apertura.
 
 Formato: la primera línea es la cabecera ``{"format", "layer", "root"}``; cada
 línea siguiente, ``[rel, extractor, versión, tamaño, mtime_ns, defs, refs]`` con
 ``defs = [[kind, name, line, attrs|null], …]`` y ``refs = [[kind, name, line,
-column, role], …]``. Si la carpeta de la caché cayera dentro de la capa (una
-variable de entorno mal puesta), no se escribe nada: indexar no escribe en el mod.
+column, role], …]``. Si la carpeta de la caché cayera dentro de la capa o de
+cualquiera de las ``roots`` que se le pasan (las de todas las capas de la vista: una
+variable de entorno mal puesta), no se escribe nada: indexar no escribe en el juego
+ni en el mod.
 """
 
 from __future__ import annotations
@@ -26,7 +30,7 @@ from pathlib import Path
 from types import MappingProxyType
 
 from .. import appdirs, fileio
-from ..vfs.model import Fingerprint, Layer, LayerKind
+from ..vfs.model import Fingerprint, Layer
 from ..vfs.paths import VPath
 from .model import INDEX_FORMAT, FileFacts, Symbol, SymbolRef
 
@@ -71,9 +75,8 @@ class FactsCache:
         return self._root if self._root is not None else appdirs.cache_dir() / "index"
 
     def folder(self, layer: Layer) -> Path:
-        """Carpeta de la caché de una capa (``game-``/``mod-`` + sha1 de su ruta real)."""
-        prefix = "game" if layer.kind is LayerKind.GAME else "mod"
-        return self.root / f"{prefix}-{appdirs.mod_key(layer.root)}"
+        """Carpeta de la caché de una capa (``game-``/``mod-``/``dependency-`` + sha1 de su ruta real)."""
+        return self.root / f"{layer.kind.value}-{appdirs.mod_key(layer.root)}"
 
     def path(self, layer: Layer) -> Path:
         return self.folder(layer) / f"facts.v{INDEX_FORMAT}.jsonl.gz"
@@ -92,6 +95,7 @@ class FactsCache:
                 return {}
             found: dict[tuple[str, str], FileFacts] = {}
             kind = layer.kind
+            root = str(layer.root)
             loads = json.loads
             for line in lines[1:]:
                 if not line:
@@ -102,17 +106,23 @@ class FactsCache:
                                 for k, n, ln, a in defs)
                 uses = tuple(_ref(k, n, rel, ln, col, role) for k, n, ln, col, role in refs)
                 found[(rel.key, name)] = FileFacts(rel, kind, Fingerprint(size, mtime), symbols, uses, name,
-                                                   version)
+                                                   version, root)
             return found
         except (OSError, EOFError, ValueError, TypeError, KeyError, IndexError) as exc:
             _log.info("caché del índice ilegible en %s (%s): se reconstruye", self.path(layer), exc)
             return {}
 
-    def store(self, layer: Layer, facts: Iterable[FileFacts]) -> None:
-        """Sustituye la caché de la capa por ``facts`` (escritura atómica)."""
+    def _inside(self, target: Path, layer: Layer, roots: Iterable[Path]) -> Path | None:
+        """La raíz (de la capa o de ``roots``) que contiene ``target``; None si no cae dentro de ninguna."""
+        return next((root for root in (layer.root, *roots) if _is_under(target, root)), None)
+
+    def store(self, layer: Layer, facts: Iterable[FileFacts], *, roots: Iterable[Path] = ()) -> None:
+        """Sustituye la caché de la capa por ``facts`` (escritura atómica). ``roots``: las demás capas de la vista
+        (``build_index`` pasa todas): si la caché cae dentro de alguna, no se escribe."""
         target = self.path(layer)
-        if _is_under(target, layer.root):
-            _log.warning("la caché del índice (%s) está dentro de la capa %s: no se escribe", target, layer.root)
+        inside = self._inside(target, layer, roots)
+        if inside is not None:
+            _log.warning("la caché del índice (%s) está dentro de la capa %s: no se escribe", target, inside)
             return
         dumps = json.JSONEncoder(ensure_ascii=False, separators=(",", ":"), check_circular=False).encode
         lines = [dumps({"format": INDEX_FORMAT, "layer": layer.kind.value, "root": str(layer.root)})]
@@ -124,14 +134,15 @@ class FactsCache:
         data = gzip.compress("\n".join(lines).encode("utf-8", "surrogatepass"), COMPRESS_LEVEL, mtime=0)
         fileio.atomic_write_bytes(target, data)
 
-    def drop(self, layer: Layer, rels: Iterable[VPath] = ()) -> None:
-        """Olvida la capa entera o solo esas rutas."""
+    def drop(self, layer: Layer, rels: Iterable[VPath] = (), *, roots: Iterable[Path] = ()) -> None:
+        """Olvida la capa entera o solo esas rutas (``roots`` como en ``store``)."""
         rels = list(rels)
+        roots = list(roots)
         if not rels:
             target = self.path(layer)
-            if not _is_under(target, layer.root):
+            if self._inside(target, layer, roots) is None:
                 fileio.remove_file(target)
             return
         keys = {VPath.of(rel).key for rel in rels}
         kept = [facts for (key, _), facts in self.load(layer).items() if key not in keys]
-        self.store(layer, kept)
+        self.store(layer, kept, roots=roots)

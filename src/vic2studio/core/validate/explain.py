@@ -23,6 +23,7 @@ from types import MappingProxyType
 
 from ..encoding import decode_bytes
 from ..index import model as m
+from ..rules.ids import flag_tag
 from ..vfs.model import LayerKind
 from ..vfs.paths import VPath
 from .context import ValidationContext
@@ -125,14 +126,14 @@ def layer_steps(ctx: ValidationContext, rel: VPath | None, line: int | None) -> 
     winner_text = ""
     if ctx.unsaved(rel):
         data = ctx.read(rel)
-        lines = _lines(data)
         if data is not None:
-            winner_text = _excerpt(lines, line)
+            winner_text = _excerpt(_lines(data) if line is not None else [], line)
             steps.append(ExplainStep(LAYER_UNSAVED, rel, line, winner_text, VERDICT_WINS))
     stack = ctx.stack(rel)
     winner = None if steps else ctx.entry(rel)
     for entry in stack:
-        lines = _lines(ctx.read_entry(entry))
+        # Sin línea no hay extracto: no se lee ni se decodifica el archivo (un BMP de 11 MB costaba 0,5 s).
+        lines = _lines(ctx.read_entry(entry)) if line is not None else []
         if ctx.hidden(rel) and entry.layer.kind is LayerKind.GAME:
             layer, verdict = LAYER_REPLACE_PATH, VERDICT_HIDDEN
         else:
@@ -152,7 +153,8 @@ def layer_steps(ctx: ValidationContext, rel: VPath | None, line: int | None) -> 
 def _step_at(ctx: ValidationContext, rel: VPath, line: int | None, verdict: str) -> ExplainStep:
     layer = ctx.layer_of(rel)
     name = LAYER_UNSAVED if ctx.unsaved(rel) else _LAYERS.get(layer, LAYER_MOD)
-    return ExplainStep(name, rel, line, _excerpt(_lines(ctx.read(rel)), line), verdict)
+    excerpt = _excerpt(_lines(ctx.read(rel)), line) if line is not None else ""
+    return ExplainStep(name, rel, line, excerpt, verdict)
 
 
 def _generic(problem: Problem, ctx: ValidationContext) -> Explanation:
@@ -162,11 +164,14 @@ def _generic(problem: Problem, ctx: ValidationContext) -> Explanation:
 # --- explicadores propios ------------------------------------------------------------------------------
 
 COUNTRIES_REL = VPath.of("common/countries.txt")
+PROVINCE_ROLES = ("owner", "controller", "add_core")
 
 
 @explainer("tag_not_registered")
 def _tag_not_registered(problem: Problem, ctx: ValidationContext) -> Explanation:
-    """Lo que hay del TAG (historia, archivo de país, banderas, provincias) frente a ``countries.txt``."""
+    """Lo que hay del TAG (historia, archivo de país, banderas, provincias y demás usos) frente a ``countries.txt``."""
+    from .rules.countries import TAG_USE_ROLES
+
     tag = problem.entity[1] if problem.entity else str(problem.args.get("tag", ""))
     index = ctx.index
     steps: list[ExplainStep] = []
@@ -187,15 +192,20 @@ def _tag_not_registered(problem: Problem, ctx: ValidationContext) -> Explanation
             steps.append(_step_at(ctx, ctx.entry(rel).rel if ctx.entry(rel) else rel, 1, VERDICT_NOT_LOADED))
     for history in histories:
         steps.append(_step_at(ctx, history.rel, 1, VERDICT_NOT_LOADED))
-    flags = [s for s in index.symbols(m.KIND_IMAGE) if s.name.startswith(f"gfx/flags/{tag.lower()}")]
+    flags = [s for s in index.symbols(m.KIND_IMAGE) if flag_tag(s.name) == tag]
     for flag in flags:
         steps.append(ExplainStep(_LAYERS.get(flag.layer, LAYER_MOD), flag.rel, None, flag.rel.name,
                                  VERDICT_NOT_LOADED))
-    # Las provincias que lo usan (dueño, controlador o núcleo): la primera línea de cada una.
-    uses = [r for r in index.refs(m.KIND_TAG) if r.name == tag and r.role in ("owner", "controller", "add_core")]
+    # Las provincias que lo usan (dueño, controlador o núcleo): la primera línea de cada una; después, los demás
+    # usos (guerras, diplomacia, ``union``/``primary`` de las culturas), el primero de cada archivo.
+    refs = index.refs_to(m.KIND_TAG, tag)
+    uses = [r for r in refs if r.role in PROVINCE_ROLES]
     first_use: dict[str, object] = {}
     for ref in uses:
         first_use.setdefault(ref.rel.key, ref)
+    for ref in refs:
+        if ref.role in TAG_USE_ROLES and ref.role not in PROVINCE_ROLES:
+            first_use.setdefault(ref.rel.key, ref)
     provinces = sorted({r.rel.name.split(" ")[0].split("-")[0].strip() for r in uses}, key=_numeric)
     for ref in first_use.values():
         steps.append(_step_at(ctx, ref.rel, ref.line, VERDICT_MISSING))
@@ -207,11 +217,48 @@ def _numeric(text: str) -> tuple:
     return (0, int(text), "") if text.isdigit() else (1, 0, text)
 
 
+def _csv_row_at(data: bytes, line: int | None) -> tuple[str, str, list[str]] | None:
+    """``(texto, clave, campos)`` de la fila ``line`` de un CSV de localización, partida como ``csvloc.parse_csv``
+    (filas por LF, sin el CR final ni el BOM): para no analizar el archivo entero. None si no existe."""
+    if line is None or line < 1:
+        return None
+    pieces = decode_bytes(data).text.split("\n", line)
+    if len(pieces) < line:
+        return None
+    raw = pieces[line - 1]
+    if raw.endswith("\r"):
+        raw = raw[:-1]
+    if line == 1:
+        raw = raw.lstrip("\ufeff")
+    parts = raw.split(";")
+    return raw, parts[0], parts[1:]
+
+
+def _degraded_example(problem: Problem, mod_data: bytes, game_data: bytes):
+    """La fila de ejemplo del problema en el mod y en el juego, ``((línea, raw, campos), …)``: la que nombran sus
+    ``args`` (``key`` y ``game_line``, la del problema en el mod) o, si faltan o ya no cuadran, la primera
+    degradada (recalculada)."""
+    from .rules.localisation import degraded_rows, is_degraded
+
+    key = problem.args.get("key")
+    game_line = problem.args.get("game_line")
+    if isinstance(key, str) and isinstance(game_line, int):
+        mod_row = _csv_row_at(mod_data, problem.line)
+        game_row = _csv_row_at(game_data, game_line)
+        if (mod_row is not None and game_row is not None and mod_row[1] == key == game_row[1]
+                and is_degraded(mod_row[0], game_row[0])):
+            return (problem.line, mod_row[0], mod_row[2]), (game_line, game_row[0], game_row[2])
+    rows = degraded_rows(mod_data, game_data)
+    if not rows:
+        return None
+    mod_row, game_row, _ = rows[0]
+    return (mod_row.line, mod_row.raw, mod_row.fields), (game_row.line, game_row.raw, game_row.fields)
+
+
 @explainer("loc_copy_degraded")
 def _loc_copy_degraded(problem: Problem, ctx: ValidationContext) -> Explanation:
     """El CSV del mod sustituye al del juego con el mismo nombre: una fila de ejemplo en las dos capas."""
     from ..csvloc.model import LANGUAGE_CODES
-    from .rules.localisation import degraded_rows
 
     rel = problem.rel
     game = next((e for e in ctx.stack(rel) if e.layer.kind is LayerKind.GAME), None)
@@ -219,20 +266,21 @@ def _loc_copy_degraded(problem: Problem, ctx: ValidationContext) -> Explanation:
     game_data = ctx.read_entry(game) if game is not None else None
     if mod_data is None or game_data is None:
         return _generic(problem, ctx)
-    rows = degraded_rows(mod_data, game_data)
-    if not rows:
+    example = _degraded_example(problem, mod_data, game_data)
+    if example is None:
         return _generic(problem, ctx)
-    mod_row, game_row, _ = rows[0]
+    (mod_line, mod_raw, mod_fields), (game_line, game_raw, game_fields) = example
     # ``fields`` son las columnas tras la clave: el índice 0 es el inglés (columna 1 del CSV).
-    position = next((i for i, (a, b) in enumerate(zip(mod_row.fields, game_row.fields)) if a != b), 0)
+    position = next((i for i, (a, b) in enumerate(zip(mod_fields, game_fields)) if a != b), 0)
     column = position + 1
     lang = next((code for code, number in LANGUAGE_CODES.items() if number == column), "en")
     mod_layer = LAYER_UNSAVED if ctx.unsaved(rel) else LAYER_MOD
-    steps = [ExplainStep(mod_layer, rel, mod_row.line, _clip(mod_row.raw), VERDICT_WINS),
-             ExplainStep(LAYER_GAME, game.rel, game_row.line, _clip(game_row.raw), VERDICT_LOSES)]
-    example = mod_row.fields[position] if position < len(mod_row.fields) else ""
-    original = game_row.fields[position] if position < len(game_row.fields) else ""
-    return _explanation(problem, steps, key=mod_row.key, example=_clip(example, 60), original=_clip(original, 60),
+    steps = [ExplainStep(mod_layer, rel, mod_line, _clip(mod_raw), VERDICT_WINS),
+             ExplainStep(LAYER_GAME, game.rel, game_line, _clip(game_raw), VERDICT_LOSES)]
+    shown = mod_fields[position] if position < len(mod_fields) else ""
+    original = game_fields[position] if position < len(game_fields) else ""
+    key = mod_raw.split(";", 1)[0]
+    return _explanation(problem, steps, key=key, example=_clip(shown, 60), original=_clip(original, 60),
                         column=column, lang=lang)
 
 

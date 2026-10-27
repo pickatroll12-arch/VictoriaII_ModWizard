@@ -57,9 +57,18 @@ class RealCoreWindowCase(ValidationCase):
         self.assertTrue(_qt.wait_until(lambda: session.validation_state() == "ready" and not self.window.is_busy(),
                                        timeout), f"la validación no terminó: {session.validation_error()}")
 
-    def apply_from_dialog(self, page, code: str, *, confirm: bool = False) -> str:
-        """[Arreglar] del problema ``code`` como el usuario: revisa el plan y acepta. Devuelve el diff del plan."""
-        self.select(page, code)
+    def select_where(self, page, code: str, **args):
+        """Como ``select``, pero el primer problema de ``code`` con esos argumentos."""
+        for row, item in enumerate(page.model.problems()):
+            if item.code == code and all(item.args.get(k) == v for k, v in args.items()):
+                page.view.setCurrentIndex(page.model.index(row, 0))
+                return item
+        self.fail(f"no está el problema {code} {args}")
+
+    def apply_from_dialog(self, page, code: str, *, confirm: bool = False, **args) -> str:
+        """[Arreglar] del problema ``code`` (y ``args``) como el usuario: revisa el plan y acepta. Devuelve el diff
+        del plan."""
+        self.select_where(page, code, **args)
         seen = []
 
         def review(dialog: FixPlanDialog):
@@ -219,15 +228,18 @@ class VsmEndToEndTests(RealCoreWindowCase):
             ("nationalvalue_unknown", "history/countries/MAJ - Majeerteen.txt"),
             ("nationalvalue_unknown", "history/countries/SOM - Somalia.txt"),
             ("nationalvalue_unknown", "history/countries/WRL - Warsangali.txt"),
+            # CSR solo tiene sus 5 banderas (ver test_validate_corpus): un error que el criterio no conocía.
+            ("tag_not_registered", "gfx/flags/CSR.tga"),
             ("tag_not_registered", "history/countries/SIL - Silesia.txt"),
             ("unclosed_block", "decisions/somaliland_shago.txt"),
             ("unclosed_block", "decisions/zulu_expancionshago.txt"),
         ], "criterio 3: los errores propios, sin heredados")
-        diff = self.apply_from_dialog(page, "tag_not_registered")
+        diff = self.apply_from_dialog(page, "tag_not_registered", tag="SIL")
         self.assertEqual(added_lines(diff), ['+SIL = "countries/Silesia.txt"'])
         self.wait_validated(VSM_MS)
         codes = self.codes(page)
-        self.assertNotIn("tag_not_registered", codes, "criterio 5: revalidar quita el error")
+        tags = [p.args["tag"] for p in page.model.problems() if p.code == "tag_not_registered"]
+        self.assertEqual(tags, ["CSR"], "criterio 5: revalidar quita el error de SIL")
         self.assertIn("graphical_culture_unknown", codes, "y destapa los de los archivos de SIL")
         (write,) = session.changeset().writes
         self.assertEqual((str(write.rel), write.action), ("common/countries.txt", WriteAction.MODIFY))

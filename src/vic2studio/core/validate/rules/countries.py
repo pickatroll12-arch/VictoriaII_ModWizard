@@ -25,7 +25,7 @@ from ...clausewitz import Severity
 from ...clausewitz.nodes import ClausewitzDate
 from ...index import model as m
 from ...index.extractors._support import path_name
-from ...rules.ids import DYNAMIC_TAG_RE, RESERVED_TAGS, tag_problem
+from ...rules.ids import DYNAMIC_TAG_RE, RESERVED_TAGS, flag_tag, tag_problem
 from ...vfs.paths import VPath
 from ...vfs.rules import tag_key
 from ..registry import make_problem, rule
@@ -33,11 +33,12 @@ from ..registry import make_problem, rule
 E, W = Severity.ERROR, Severity.WARNING
 REGISTRY_REL = VPath.of("common/countries.txt")
 
-# Roles de las referencias a un TAG que cuentan como «se usa» para ``tag_not_registered``.
+# Roles de las referencias a un TAG que cuentan como «se usa» para ``tag_not_registered`` (``union`` y ``primary``:
+# el país de unión de un grupo de culturas y el de una cultura, en ``common/cultures.txt``).
 TAG_USE_ROLES = frozenset({"owner", "controller", "add_core", "remove_core", "add_attacker", "add_defender",
                            "rem_attacker", "rem_defender", "actor", "receiver", "country", "alliance_first",
                            "alliance_second", "vassal_first", "vassal_second", "substate_first", "substate_second",
-                           "union_first", "union_second"})
+                           "union_first", "union_second", "union", "primary"})
 
 # Tipo referenciado → (código, tipos que lo definen).
 UNKNOWN = {
@@ -132,6 +133,8 @@ def first_ref(index, rel: VPath, role: str, name: str | None = None):
 
 @rule("tag_not_registered", E, fixes=("register_tag",))
 def tags_not_registered(ctx):
+    """Un problema por TAG sin registrar, en su primer uso: la historia de país; si no, una referencia (provincias,
+    guerras, diplomacia, ``union``/``primary`` de las culturas); si no, su bandera ``gfx/flags/<TAG>*.tga``."""
     index = ctx.index
     registered = set(index.names(m.KIND_TAG))
     first: dict[str, tuple] = {}
@@ -141,6 +144,10 @@ def tags_not_registered(ctx):
     for ref in index.refs(m.KIND_TAG):
         if ref.role in TAG_USE_ROLES and ref.name not in registered and ref.name not in first:
             first[ref.name] = (1, ref.rel, ref.line, ref.column)
+    for image in index.symbols(m.KIND_IMAGE):
+        tag = flag_tag(image.name)
+        if tag is not None and tag not in registered and tag not in first and tag not in RESERVED_TAGS:
+            first[tag] = (2, image.rel, None, None)
     return [make_problem("tag_not_registered", rel, line, column, entity=(m.KIND_TAG, tag), tag=tag)
             for tag, (_, rel, line, column) in sorted(first.items())]
 

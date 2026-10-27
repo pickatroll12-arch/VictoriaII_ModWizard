@@ -15,10 +15,11 @@ from __future__ import annotations
 from ...clausewitz import Severity
 from ...index import model as m
 from ...rules.ids import province_id_problem
-from ...vfs.paths import VPath
+from ...vfs.paths import InvalidPathError, VPath
 from ..registry import make_problem, rule
 
 E, W = Severity.ERROR, Severity.WARNING
+DEFAULT_PROVINCES_BMP = "provinces.bmp"
 
 
 @rule("province_history_duplicate", E)
@@ -72,10 +73,19 @@ def bmp_colors(data: bytes):
     return {(int(v) >> 16, (int(v) >> 8) & 0xFF, int(v) & 0xFF): int(counts[v]) for v in present}
 
 
+def provinces_bmp_rel(rules) -> VPath:
+    """Ruta del BMP de provincias que nombra ``default.map`` (``GameRules.map_files``); la de vanilla si el nombre
+    no es una ruta válida (``GameRules`` ya lo comprueba, pero unas reglas hechas a mano pueden traer cualquiera)."""
+    name = getattr(rules, "map_files", {}).get("provinces", DEFAULT_PROVINCES_BMP)
+    try:
+        return VPath.of(f"map/{name}")
+    except (InvalidPathError, TypeError):
+        return VPath.of(f"map/{DEFAULT_PROVINCES_BMP}")
+
+
 @rule("bmp_color_unmapped", W)
 def unmapped_colors(ctx):
-    files = getattr(ctx.rules, "map_files", {})
-    rel = VPath.of(f"map/{files.get('provinces', 'provinces.bmp')}")
+    rel = provinces_bmp_rel(ctx.rules)
     data = ctx.read(rel)
     if data is None:
         return []

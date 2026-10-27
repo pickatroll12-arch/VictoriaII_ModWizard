@@ -32,7 +32,8 @@ _log = logging.getLogger(__name__)
 ParseCounter = Callable[[VPath, str], None]
 
 
-def _run(spec: ExtractorSpec, rel: VPath, data: bytes, layer: LayerKind, fingerprint: Fingerprint) -> FileFacts:
+def _run(spec: ExtractorSpec, rel: VPath, data: bytes, layer: LayerKind, fingerprint: Fingerprint,
+         root: str | None = None) -> FileFacts:
     try:
         defs, refs = spec.fn(rel, data if spec.needs_data else b"", layer)
     except Cancelled:
@@ -40,20 +41,22 @@ def _run(spec: ExtractorSpec, rel: VPath, data: bytes, layer: LayerKind, fingerp
     except Exception:  # noqa: BLE001 - un archivo roto nunca tumba el índice
         _log.exception("el extractor %s falló con %s", spec.name, rel)
         defs, refs = (), ()
-    return FileFacts(rel, layer, fingerprint, tuple(defs), tuple(refs), spec.name, spec.version)
+    return FileFacts(rel, layer, fingerprint, tuple(defs), tuple(refs), spec.name, spec.version, root)
 
 
-def extract_bytes(rel: VPath, data: bytes, layer: LayerKind, *, fingerprint=None) -> list[FileFacts]:
+def extract_bytes(rel: VPath, data: bytes, layer: LayerKind, *, fingerprint=None,
+                  root: str | None = None) -> list[FileFacts]:
     """Hechos de unos bytes con todos los extractores que procesan ``rel`` (uno por extractor; vacío si ninguno).
 
-    Nunca lanza por el contenido: un archivo roto da los hechos que se puedan sacar.
+    ``root`` (``FileFacts.root``) solo hace falta para una dependencia concreta. Nunca lanza por el contenido: un
+    archivo roto da los hechos que se puedan sacar.
     """
     discover_extractors()
     rel = VPath.of(rel)
     data = bytes(data)
     fingerprint = fingerprint if fingerprint is not None else Fingerprint(len(data), 0)
     try:
-        return [_run(spec, rel, data, layer, fingerprint) for spec in extractors_for(rel)]
+        return [_run(spec, rel, data, layer, fingerprint, root) for spec in extractors_for(rel)]
     finally:
         parsing.forget()
 
@@ -63,7 +66,8 @@ def extract_entry(entry: FileEntry) -> list[FileFacts]:
     discover_extractors()
     specs = extractors_for(entry.rel)
     data = entry.path.read_bytes() if any(spec.needs_data for spec in specs) else b""
-    return extract_bytes(entry.rel, data, entry.layer.kind, fingerprint=entry.fingerprint)
+    return extract_bytes(entry.rel, data, entry.layer.kind, fingerprint=entry.fingerprint,
+                         root=str(entry.layer.root))
 
 
 class _Specs:
@@ -107,8 +111,10 @@ def build_index(snapshot: VfsSnapshot, cache: FactsCache | None, overrides: Mapp
     total = sum(len(items) for items in by_layer.values()) + len(pending)
     done = 0
     all_facts: list[FileFacts] = []
+    roots = [layer.root for layer in layers]      # la caché nunca escribe dentro de ninguna capa (I1, I4)
     for index in sorted(by_layer):
         layer = layers[index]
+        root = str(layer.root)
         cached = cache.load(layer) if cache is not None else {}
         layer_facts: list[FileFacts] = []
         changed = False
@@ -134,7 +140,7 @@ def build_index(snapshot: VfsSnapshot, cache: FactsCache | None, overrides: Mapp
                 if data is not None:
                     try:
                         for spec in missing:
-                            fresh.append(_run(spec, entry.rel, data, entry.layer.kind, entry.fingerprint))
+                            fresh.append(_run(spec, entry.rel, data, entry.layer.kind, entry.fingerprint, root))
                             if on_extract is not None:
                                 on_extract(entry.rel, spec.name)
                     finally:
@@ -149,7 +155,7 @@ def build_index(snapshot: VfsSnapshot, cache: FactsCache | None, overrides: Mapp
             current = {(f.rel.key, f.extractor) for f in layer_facts}
             if changed or current != set(cached):
                 try:
-                    cache.store(layer, layer_facts)
+                    cache.store(layer, layer_facts, roots=roots)
                 except OSError as exc:      # la caché es una ayuda: sin ella solo se tarda más
                     _log.warning("no se pudo guardar la caché del índice: %s", exc)
         all_facts.extend(layer_facts)

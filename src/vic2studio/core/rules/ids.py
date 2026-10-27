@@ -16,6 +16,22 @@ RESERVED_TAGS = frozenset({"REB"})
 SCRIPT_WORDS = frozenset({"AND", "NOT", "ALL", "ANY", "OR", "THIS", "FROM"})
 DYNAMIC_TAG_RE = re.compile(r"D[0-9]{2}")         # D01–D50: dominios dinámicos de HoD (H11)
 EVENT_ID_RANGE = (1, 2**31 - 1)
+# Banderas de un país en gfx/flags/: <TAG><sufijo>.tga (los mismos que core.gfx.flags, sin importar Pillow).
+FLAG_SUFFIXES = ("", "_communist", "_fascist", "_monarchy", "_republic")
+FLAGS_FOLDER = "gfx/flags/"
+
+
+def flag_tag(image: str) -> str | None:
+    """El TAG de una bandera (``gfx/flags/sil_communist.tga`` → ``SIL``, sin mayúsculas en la ruta, como los
+    símbolos ``image`` del índice); None si la ruta no es una bandera de país."""
+    lowered = image.replace("\\", "/").lower()
+    if not lowered.startswith(FLAGS_FOLDER) or not lowered.endswith(".tga"):
+        return None
+    stem = lowered[len(FLAGS_FOLDER):-len(".tga")]
+    if "/" in stem or len(stem) < 3 or stem[3:] not in FLAG_SUFFIXES:
+        return None
+    tag = stem[:3].upper()
+    return tag if TAG_RE.fullmatch(tag) else None
 
 TAG_INVALID = "tag_invalid"
 PROVINCE_ID_INVALID = "province_id_invalid"
