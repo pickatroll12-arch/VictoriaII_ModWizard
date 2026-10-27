@@ -58,6 +58,11 @@ STRAY_BOM = codecs.BOM_UTF8.decode("latin-1")
 _WITH_BOM = {UTF8: UTF8_BOM, UTF16_LE: UTF16, UTF16_BE: UTF16_BE_BOM}
 # Codificaciones que quitan su BOM al leer y lo vuelven a escribir delante.
 BOM_ENCODINGS = frozenset(_WITH_BOM.values())
+# Nombres para mostrar (visor, diagnósticos del parser, lint del CSV): con el orden de bytes y el BOM explícitos.
+DISPLAY_NAMES = {
+    GAME_ENCODING: "Windows-1252", UTF8: "UTF-8", UTF8_BOM: "UTF-8 BOM", UTF16: "UTF-16 LE BOM",
+    UTF16_BE_BOM: "UTF-16 BE BOM", UTF16_LE: "UTF-16 LE", UTF16_BE: "UTF-16 BE",
+}
 
 _CP1252_UNDEFINED = frozenset((0x81, 0x8D, 0x8F, 0x90, 0x9D))
 _ERROR_HANDLER = "vic2-cp1252-passthrough"
@@ -199,6 +204,17 @@ def normalize_encoding(encoding: str) -> str:
     if not getattr(info, "_is_text_encoding", True):
         raise LookupError(f"{encoding!r} no es una codificación de texto")
     return info.name
+
+
+def display_name(encoding: str) -> str:
+    """Nombre legible de ``encoding`` (``utf-16-be-bom`` → ``UTF-16 BE BOM``, ``cp1252`` → ``Windows-1252``).
+
+    Acepta alias (``windows-1252``, ``UTF-16-BE-BOM``); una codificación sin nombre propio sale en mayúsculas.
+    """
+    try:
+        return DISPLAY_NAMES.get(normalize_encoding(encoding), encoding.upper())
+    except LookupError:
+        return encoding.upper()
 
 
 def has_stray_bom(text: str, encoding: str) -> bool:

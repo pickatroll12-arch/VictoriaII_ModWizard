@@ -21,9 +21,26 @@ SRC = Path(__file__).resolve().parents[1] / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
+from vic2studio.compat import broken_binding_message, broken_qt_binding  # noqa: E402
+
+# Con PySide6 6.12 en Python 3.10/3.11 la batería abortaría a mitad («none_dealloc»): mejor parar aquí y decir por qué.
+_broken = broken_qt_binding()
+if _broken is not None:
+    raise RuntimeError(broken_binding_message(*_broken))
+
 SETTINGS_DIR = tempfile.mkdtemp(prefix="vic2studio-tests-")
 atexit.register(shutil.rmtree, SETTINGS_DIR, True)
 os.environ["VIC2STUDIO_SETTINGS_DIR"] = SETTINGS_DIR
+# Abrir un mod desde la ventana usa el Project real, que escribe su bloqueo en la carpeta de datos: tampoco la real.
+APP_DIRS = tempfile.mkdtemp(prefix="vic2studio-appdirs-")
+atexit.register(shutil.rmtree, APP_DIRS, True)
+os.environ["VIC2STUDIO_DATA_DIR"] = os.path.join(APP_DIRS, "data")
+os.environ["VIC2STUDIO_CACHE_DIR"] = os.path.join(APP_DIRS, "cache")
+# Qt 6.5.0 avisa al crear la aplicación si falta (contenedores y CI), y los avisos hacen fallar las pruebas.
+if sys.platform.startswith("linux") and not os.environ.get("XDG_RUNTIME_DIR"):
+    RUNTIME_DIR = tempfile.mkdtemp(prefix="vic2studio-runtime-")  # 0700, como pide Qt
+    atexit.register(shutil.rmtree, RUNTIME_DIR, True)
+    os.environ["XDG_RUNTIME_DIR"] = RUNTIME_DIR
 
 from PySide6.QtCore import QtMsgType, qInstallMessageHandler  # noqa: E402
 

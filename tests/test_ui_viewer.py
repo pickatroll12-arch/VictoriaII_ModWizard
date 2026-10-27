@@ -25,7 +25,7 @@ from unittest import mock
 
 import _qt
 from _corpus import CLAUSEWITZ_SUFFIXES, FIXTURE_ROOT, corpus_files
-from PySide6.QtCore import QElapsedTimer, QEvent, QModelIndex, QObject, QPoint, QPointF, Qt, QTimer
+from PySide6.QtCore import QElapsedTimer, QEvent, QModelIndex, QObject, QPoint, QPointF, QRect, Qt, QTimer
 from PySide6.QtGui import QFont, QFontMetrics, QHelpEvent, QHoverEvent, QTextCursor
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QLineEdit, QStyle, QStyleOptionViewItem, QToolTip, QVBoxLayout, QWidget
@@ -37,7 +37,7 @@ from vic2studio.core.cancel import Cancelled  # noqa: E402
 from vic2studio.core.clausewitz import Block, Entry, Scalar, parse, parse_file, to_json, to_source  # noqa: E402
 from vic2studio.core.encoding import GAME_UNREADABLE  # noqa: E402
 from vic2studio.i18n import set_language, tr  # noqa: E402
-from vic2studio.ui.tasks import POOL_RELEASE, thread_pool, wait_for_tasks  # noqa: E402
+from vic2studio.ui.tasks import POOL_PREVIEW, POOL_RELEASE, thread_pool, wait_for_tasks  # noqa: E402
 from vic2studio.ui.viewers import clausewitz_viewer  # noqa: E402
 from vic2studio.ui.viewers.clausewitz_viewer import (  # noqa: E402
     EXPAND_ALL_LIMIT, RELEASE_CHUNK, ROOT_BATCH, TAB_DIAGNOSTICS, TAB_JSON, TAB_SOURCE, TAB_STRUCTURE, TABS,
@@ -557,6 +557,34 @@ class DiagnosticsViewTests(WidgetCase):
                     index = model.index(row, column)
                     self.assertTrue(self.cell_fits(view, index), f"{lang}: {index.data()}")
 
+    def test_fitted_header_titles_are_painted_whole(self):
+        """Qt 6.5 reserva en cada sección el ancho de la flecha de orden de la hoja de estilo, aunque la tabla
+        no ordene: con el ancho ajustado se pintaba «Gravedac» y «Líne». El título debe pintarse igual que
+        con 60 px de holgura."""
+        rows = [DiagnosticRow("error", 35, 24, _Message("m"), "c", Path("x"), "a.txt")]
+        view = self.table(rows)
+        header, model = view.horizontalHeader(), view.diagnostics_model()
+
+        def title(section: int, width: int, fitted: int):
+            header.resizeSection(section, width)
+            _qt.process_events(20)
+            # El cursor de offscreen está en (10, 10), sobre Gravedad: el ratón pasa a Mensaje, sin «:hover».
+            away = QPointF(header.width() - 5, header.height() / 2)
+            QApplication.sendEvent(header.viewport(), QHoverEvent(QEvent.Type.HoverMove, away, away, away))
+            x = header.sectionViewportPosition(section)
+            return header.grab().toImage().copy(QRect(x, 0, fitted - 2, header.height()))  # sin el borde
+
+        for lang in ("es", "en"):
+            set_language(lang)
+            model.retranslate()
+            _qt.process_events(20)
+            for column in (self.COLUMNS.index(COL_SEVERITY), self.COLUMNS.index(COL_LINE)):
+                fitted = header.sectionSize(column)
+                painted = title(column, fitted, fitted)
+                self.assertTrue(painted == title(column, fitted + 60, fitted),
+                                f"{lang}: {model.headerData(column, Qt.Orientation.Horizontal)}")
+                header.resizeSection(column, fitted)
+
     def test_line_column_follows_the_rows_and_keeps_a_manual_width(self):
         short = [DiagnosticRow("error", 35, 24, _Message("m"), "c", Path("x"), "a.txt")]
         view = self.table(short)
@@ -943,6 +971,58 @@ class ViewerTests(WidgetCase):
             self.addCleanup(patcher.stop)
         return handed, steps
 
+    def test_an_analysis_that_arrives_already_superseded_is_released_off_the_interface_thread(self):
+        """R2-STALE-RESULT-UI-THREAD: un análisis que terminó cuando ya se había pedido otro archivo se soltaba
+        de una sola cascada en el hilo de la interfaz (0,5 s con 20 MB) al llegar su entrega ya superada."""
+        viewer = self.viewer
+        handed, _ = self.record_releases()
+        big, small = self.folder / "grande.txt", self.folder / "b.txt"
+        big.write_bytes(provinces_like(2000).encode("cp1252"))
+        small.write_bytes(b"a = 1\n")
+        viewer.load(big)
+        # Sin procesar eventos: la tarea termina y su entrega queda en la cola del hilo de la interfaz.
+        self.assertTrue(thread_pool(POOL_PREVIEW).waitForDone(LOAD_TIMEOUT_MS))
+        viewer.load(small)  # supera al grande, que ya terminó
+        self.assertTrue(_qt.wait_until(lambda: viewer.current_load() is not None
+                                       and viewer.current_load().path == small and not viewer.is_busy(),
+                                       LOAD_TIMEOUT_MS))
+        self.assertIn(([], "grande.txt"), handed, "el análisis superado no se soltó en segundo plano")
+
+    def test_a_cancelled_analysis_is_dismantled_in_steps(self):
+        """R2-CANCELLED-LOAD-CASCADE: al cancelar un análisis a medias (dejar el archivo mientras aún se
+        indexaba), la excepción soltaba el árbol y el índice parcial de una sola cascada, con el GIL tomado
+        (0,2-0,5 s de interfaz parada con 20 MB). Ahora se desmontan por pasos antes de salir."""
+        path = self.folder / "grande.txt"
+        path.write_bytes(provinces_like(9000).encode("cp1252"))  # ~72 000 entradas: pasa del control de 65 536
+        seen = {}
+        original_parse, original_index = clausewitz_viewer.parse_file, clausewitz_viewer.build_index
+
+        def parse(*args, **kwargs):
+            seen["result"] = original_parse(*args, **kwargs)
+            return seen["result"]
+
+        def build(block, cancelled=None, index=None):
+            seen["index"] = index
+            return original_index(block, cancelled, index)
+
+        def cancelled():  # se cancela cuando el índice ya tiene entradas (en su segundo control)
+            index = seen.get("index")
+            return index is not None and len(index.entries) > 0
+
+        with mock.patch.object(clausewitz_viewer, "parse_file", parse), \
+                mock.patch.object(clausewitz_viewer, "build_index", build):
+            with self.assertRaises(Cancelled):
+                clausewitz_viewer.load_clausewitz(path, None, cancelled)
+        result, index = seen["result"], seen["index"]
+        self.assertEqual(result.document.entries, [], "el árbol no se desmontó")
+        self.assertEqual(result.diagnostics, [])
+        # Las listas retienen objetos (entradas, textos): se vacían por pasos. Los ``array`` de enteros se
+        # liberan de una vez sin cascada, igual que en ``dismantle_load``.
+        holders = [name for name in index.__dataclass_fields__ if isinstance(getattr(index, name), (list, dict))]
+        self.assertIn("entries", holders)
+        self.assertEqual({name: len(getattr(index, name)) for name in holders}, dict.fromkeys(holders, 0),
+                         "el índice a medias no se desmontó")
+
     def test_an_analysis_no_longer_shown_is_released_off_the_interface_thread(self):
         """NF-TREE-RELEASE: al cambiar de archivo, al fallar la lectura y al vaciar el visor, el análisis
         anterior se suelta por pasos en el hilo de una tarea, y solo cuando ya no lo usa ninguna vista."""
@@ -1021,14 +1101,20 @@ class ViewerTests(WidgetCase):
             self.assertEqual([(row.severity, row.code, row.line, row.column) for row in load.rows],
                              [("error", "unreadable_encoding", 1, 1)])
             name = clausewitz_viewer.ENCODING_NAMES[encoding]
+            # Literal, no sacado del propio diccionario: cruzar dos etiquetas tiene que hacer fallar la prueba.
+            big, bom = {"utf-16": (False, True), "utf-16-be-bom": (True, True),
+                        "utf-16-le": (False, False), "utf-16-be": (True, False)}[encoding]
+            self.assertEqual(("BE" in name, "LE" in name, "BOM" in name), (big, not big, bom), encoding)
             for lang in ("es", "en"):
                 set_language(lang)
                 viewer.retranslate()
+                # Que el juego no puede leerlo lo dice la insignia (y su ayuda), no la línea de detalles.
                 self.assertEqual(viewer.header.details.text(), tr(
-                    "viewer.details_one", path=path.name, encoding=tr("viewer.encoding_unreadable", encoding=name),
-                    lines="1", size=format_size(len(data))), lang)
+                    "viewer.details_one", path=path.name, encoding=name, lines="1", size=format_size(len(data))),
+                    lang)
                 self.assertEqual((viewer.header.badge.level, viewer.header.badge.label.text()),
                                  ("error", tr("viewer.summary_unreadable")), lang)
+                self.assertEqual(viewer.header.badge.toolTip(), tr("viewer.unreadable_tooltip", encoding=name), lang)
                 self.assertEqual(diagnostics_tab()[:2], (severity_icon("error").cacheKey(), False), lang)
             set_language("es")
         # Con algo que no es ASCII el parser avisa de la codificación; la pestaña sigue diciendo error.
@@ -1309,3 +1395,75 @@ class MainWindowViewerTests(IntegrationCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class RetryEndingInFailureTests(WidgetCase):
+    """R2-ONFAILED-TIMER-UNTESTED: ningún reintento acababa por la señal ``failed``; sin el ``timer.stop()`` de
+    ``_on_failed`` el visor se quedaba en «cargando…» para siempre, con el error borrado y sin tarea en curso."""
+
+    def setUp(self):
+        super().setUp()
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.folder = Path(tmp.name)
+
+    def test_image_retry_ending_in_failed_keeps_the_failure(self):
+        from PIL import Image
+
+        from vic2studio.ui.viewers import image_viewer
+
+        viewer = self.show(image_viewer.ImageViewer(), 600, 500)
+        path = self.folder / "b.png"
+        Image.new("RGB", (8, 6)).save(path)
+        denied = PermissionError(errno.EACCES, os.strerror(errno.EACCES), os.fspath(path))
+        with mock.patch.object(image_viewer, "open", side_effect=denied, create=True):
+            viewer.load(path, root=self.folder)
+            self.assertTrue(_qt.wait_until(lambda: not viewer.is_busy(), LOAD_TIMEOUT_MS))
+        with mock.patch.object(image_viewer, "try_load_image", side_effect=MemoryError("sin memoria")), \
+                self.assertLogs("vic2studio.ui.tasks", "WARNING"):
+            self.assertTrue(viewer.reload_if_changed())
+            self.assertTrue(_qt.wait_until(lambda: not viewer.is_busy(), LOAD_TIMEOUT_MS))
+            _qt.process_events(2 * LOADING_DELAY_MS)  # el temporizador de «cargando…» ya habría saltado
+        self.assertIs(viewer.stack.currentWidget(), viewer.failure)
+        self.assertEqual(viewer.error(), "sin memoria")
+
+    def test_script_retry_ending_in_failed_keeps_the_failure(self):
+        viewer = self.show(ClausewitzViewer(), 900, 600)
+        path = self.folder / "b.txt"
+        path.write_bytes(b"a = 1\n")
+        denied = PermissionError(errno.EACCES, os.strerror(errno.EACCES), os.fspath(path))
+        with mock.patch.object(clausewitz_viewer, "parse_file", side_effect=denied):
+            viewer.load(path, root=self.folder)
+            self.assertTrue(_qt.wait_until(lambda: not viewer.is_busy(), LOAD_TIMEOUT_MS))
+        with mock.patch.object(clausewitz_viewer, "try_load_clausewitz", side_effect=MemoryError("sin memoria")), \
+                self.assertLogs("vic2studio.ui.tasks", "WARNING"):
+            self.assertTrue(viewer.reload_if_changed())
+            self.assertTrue(_qt.wait_until(lambda: not viewer.is_busy(), LOAD_TIMEOUT_MS))
+            _qt.process_events(2 * LOADING_DELAY_MS)
+        self.assertIs(viewer.stack.currentWidget(), viewer.failure)
+        self.assertEqual(viewer.failure_text(), "MemoryError: sin memoria")
+
+
+class CountTextTests(WidgetCase):
+    """R2-SINGULAR-TEXT-UNTESTED y R2-PLURAL-BYTES: las pruebas de NF-SINGULAR-LINE sacaban lo esperado de la
+    misma clave que usa el código; aquí el texto es literal (0, 1 y 2 líneas, y 1 byte)."""
+
+    def test_line_and_byte_counts_read_naturally(self):
+        viewer = self.show(ClausewitzViewer(), 1400, 600)
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        folder = Path(tmp.name)
+        expected = {"es": (" · 0 líneas · 0 bytes", " · 1 línea · 1 byte", " · 2 líneas · 12 bytes"),
+                    "en": (" · 0 lines · 0 bytes", " · 1 line · 1 byte", " · 2 lines · 12 bytes")}
+        for i, data in enumerate((b"", b"a", b"a = 1\nb = 2\n")):
+            path = folder / f"f{i}.txt"
+            path.write_bytes(data)
+            viewer.load(path, root=folder)
+            self.assertTrue(_qt.wait_until(lambda: not viewer.is_busy() and viewer.current_load() is not None
+                                           and viewer.current_load().path == path, LOAD_TIMEOUT_MS))
+            for lang in ("es", "en"):
+                set_language(lang)
+                viewer.retranslate()
+                self.assertTrue(viewer.header.details.text().endswith(expected[lang][i]),
+                                (lang, viewer.header.details.text()))
+            set_language("es")

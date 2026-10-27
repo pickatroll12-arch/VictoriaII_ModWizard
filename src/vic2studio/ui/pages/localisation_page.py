@@ -334,7 +334,7 @@ class LocalisationPage(BasePage):
         self._retranslate_file_label()
         seconds = time.perf_counter() - self._open_started
         # Invocables: la barra de estado los vuelve a formatear si cambia el idioma.
-        self.request_status("status.csv_loaded", name=load.path.name, rows=lambda: format_number(load.data_rows),
+        self.request_status("status.csv_loaded_one" if load.data_rows == 1 else "status.csv_loaded", name=load.path.name, rows=lambda: format_number(load.data_rows),
                             seconds=lambda: format_seconds(seconds))
         self._apply_pending_line()
 

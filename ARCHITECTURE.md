@@ -5,14 +5,13 @@ aplicación de escritorio (Windows + Linux) para crear y editar mods de
 Victoria II (motor Clausewitz de Paradox, con *A House Divided* y *Heart of
 Darkness*) de forma visual.
 
-Estado: **iteración 1**, en la última ronda de su tarea T4 (§6.1). Este
-documento describe el código que hay hoy en el repositorio. El diseño de las
+Estado: **iteración 1**, cerrada salvo dos tareas: la segunda revisión
+adversarial de la última ronda de la interfaz, que está en curso, y T5, el
+informe final al usuario (§6.1). Este documento describe el código que hay hoy
+en el repositorio. El diseño de las
 iteraciones 2 a 10 está en [`docs/diseno/wizard.md`](docs/diseno/wizard.md)
 («wizard» en adelante), que sustituye a lo que aquí estaba planificado: §2.2–2.4,
-§3 y §6 remiten a él. Lo marcado *(planificado)* no existe todavía en el código;
-lo marcado *(llega en la última ronda de T4)* ya está en el código, pero este
-documento todavía describe el comportamiento anterior: el estado real está en
-`CONTINUAR_EN_CLAUDE_CODE.md` (§3) y actualizarlo es su §5, paso 4.
+§3 y §6 remiten a él. Lo marcado *(planificado)* no existe todavía en el código.
 
 Índice:
 
@@ -76,7 +75,17 @@ Lo que se acepta a cambio:
   problema para una herramienta de modding.
 
 Versiones: `pyproject.toml` (y `requirements.txt`) exigen Python ≥ 3.10,
-PySide6 ≥ 6.5, numpy ≥ 1.24 y Pillow ≥ 10. Las cifras de §7 se midieron con
+PySide6 ≥ 6.5 (< 6.12 en Python 3.10 y 3.11), numpy ≥ 1.24 y Pillow ≥ 10. El
+tope se debe a un fallo de PySide6 6.12.0: suelta referencias de más a `None`,
+`True` y `False` (una por cada tarea de `QThreadPool`), y antes de Python 3.12,
+donde esos objetos aún no son inmortales, el proceso acaba abortando («Fatal
+Python error: none_dealloc»). Para quien ya tenga instalada esa combinación,
+`vic2studio/compat.py` la detecta leyendo `PySide6.__version_info__`, sin cargar
+QtCore: `app.main` avisa con un `QMessageBox` antes de abrir la ventana y sale
+con 1 (§8.1), y `tests/_qt.py` lanza `RuntimeError` al importarse (§7.1).
+`VIC2STUDIO_ALLOW_BROKEN_PYSIDE=1` (cualquier valor que no sea vacío ni `0`)
+desactiva la comprobación, para probar una PySide6 posterior que quizá lo
+corrija. Las cifras de §7 se midieron con
 Python 3.13.17, PySide6 6.12.0, numpy 2.5.3 y Pillow 12.3.0. El código evita lo
 que no existe en los mínimos: por ejemplo, `ui/tasks.wait_for_tasks` pasa el
 plazo como entero a `QThreadPool.waitForDone`, porque la sobrecarga con
@@ -164,7 +173,7 @@ Otros archivos del mapa:
 ```mermaid
 flowchart TB
     subgraph UI["ui — Qt (PySide6)"]
-        app["app.py · __main__.py · settings.py"]
+        app["app.py · __main__.py · settings.py · compat.py"]
         mw["ui/main_window.py"]
         pages["ui/pages/* (5 páginas)"]
         viewers["ui/viewers/* (visores y validación)"]
@@ -195,7 +204,6 @@ flowchart TB
     modcheck --> csv
     modfile --> cw
     modfile --> enc
-    modcheck --> enc
     cw --> enc
     csv --> enc
     cw --> cancel
@@ -228,7 +236,8 @@ Reglas de dependencia:
   nombra `fileio.FileStamp` solo en las anotaciones de tipos); `fileio` usa
   `encoding`; `clausewitz` y `csvloc` usan `encoding`, `fileio` y `cancel`;
   `modfile` usa `encoding`, `fileio` y `clausewitz`; y `modcheck` usa
-  `encoding`, `cancel`, `clausewitz`, `csvloc` y `modfile`. Todos los recorridos
+  `cancel`, `clausewitz`, `csvloc` y `modfile` (los diagnósticos de
+  codificación le llegan de `parse_file` y de `read_csv_file`). Todos los recorridos
   largos aceptan `cancelled=` de `cancel` (§2.5). El contrato de cada
   subpaquete es lo que exporta su `__init__.py`.
 - **ui** presenta y no escribe nada en el juego ni en el mod: sus únicas
@@ -238,11 +247,13 @@ Reglas de dependencia:
   (`parse_file`, `read_csv_file`, `find_descriptor`, `check_mod`), salvo dos
   lecturas directas: las imágenes, con Pillow (`image_viewer.load_image`), y los
   primeros 2 MiB de un archivo sin visor propio para su ficha
-  (`project_page.gather_facts`, que los decodifica con `decode_bytes`).
+  (`project_page.gather_facts`, que los decodifica con `decode_bytes`, con
+  `partial=True` si el archivo es más largo).
 - Ningún trabajo largo corre en el hilo de la interfaz: los visores y la
-  validación usan `ui/tasks.py` (§2.5). Excepciones conocidas (§6.3):
-  `gather_facts`, la liberación del árbol del archivo anterior y la maquetación
-  y destrucción del documento de la pestaña Código con un archivo enorme.
+  validación usan `ui/tasks.py` (§2.5), y el análisis del archivo anterior se
+  suelta por trozos en un hilo propio. Excepciones conocidas (§6.3):
+  `gather_facts` y la maquetación y destrucción del documento de la pestaña
+  Código con un archivo enorme.
 - **i18n** pertenece a la capa de UI: `Translator(QObject)` emite
   `languageChanged(str)` y cada página implementa `retranslate()`.
 - No hay capa `services/`: el estado de la aplicación vivirá en
@@ -255,15 +266,21 @@ Reglas de dependencia:
           \                     /
            +--- VFS (planif.) -+      hoy la UI trabaja con rutas absolutas (explorador, «Validar mod»)
                      |
-                     v
-   fileio.read_text ──> encoding.decode_bytes ──> DecodedText: texto, codificación y huella (FileStamp)
-                     |
           +----------+-----------+
           v                      v
    clausewitz.parse_file    csvloc.read_csv_file
-   (ParseResult: CST sin     (LocalisationFile: filas
-    pérdidas, diagnósticos,   crudas, diagnósticos de
-    stamp)                    lint, stamp)
+   read_bytes               fileio.read_text: read_bytes ──> encoding.decode_bytes
+   ──> decode_bytes         ──> DecodedText: texto, codificación y huella (FileStamp.of)
+   ──> match_bom,           ──> parse_csv: split_bom, split_extra_boms
+       split_bom,                |
+       split_extra_boms          |
+   huella: FileStamp.of          |
+          |                      |
+          v                      v
+   ParseResult: CST sin     LocalisationFile: filas
+   pérdidas, diagnósticos   crudas, diagnósticos de
+   (con el de la            lint, stamp
+   codificación), stamp
           |                      |
           v                      v
    visores en una tarea de fondo (TaskRunner): estructura, código, diagnósticos, JSON, tabla CSV
@@ -354,9 +371,17 @@ funciones nuevas que puedan tardar deben aceptar los dos.
   tarea no deja señales huérfanas. `TaskFailure` guarda la excepción sin traza
   y la traza ya formateada.
 - Grupos de hilos por área (`thread_pool(nombre)`): `POOL_PREVIEW` (`"preview"`,
-  2 hilos: visor de scripts, JSON y localización), `POOL_IMAGES` (`"images"`, 1)
-  y `POOL_VALIDATION` (`"validation"`, 1). Así una validación larga no deja en
-  cola la vista previa.
+  2 hilos: visor de scripts, JSON y localización), `POOL_IMAGES` (`"images"`, 1),
+  `POOL_VALIDATION` (`"validation"`, 1) y `POOL_RELEASE` (`"release"`, 1). Así
+  una validación larga no deja en cola la vista previa.
+- `release_in_background(value, dismantle)` suelta en `POOL_RELEASE` un
+  resultado grande que ya no se usa: tras `RELEASE_DELAY` (0,1 s, para no
+  competir con el repintado que sigue al cambio) recorre los pasos de
+  `dismantle(value)`, cada uno de los cuales suelta poco, y entre paso y paso el
+  hilo cede el GIL. Soltar el árbol de 20 MB de una vez es una cascada en C de
+  ~0,9 s que no suelta el GIL (docstring de `ui/tasks.py`). Lo usa el visor de
+  scripts con `dismantle_load` (§8.2); lo que se suelte así no puede llevar
+  objetos de Qt.
 - `cancel_all()` cancela la tarea de todos los runners vivos y
   `wait_for_tasks(timeout_ms=-1)` espera a que los grupos queden vacíos.
   `app.main` llama a las dos al salir; `MainWindow.closeEvent` solo cancela.
@@ -374,7 +399,9 @@ funciones nuevas que puedan tardar deben aceptar los dos.
   acto, y los fallos no se vigilan. Contrato: los resultados de las tareas no
   deben formar ciclos (congelado, un objeto solo muere por recuento de
   referencias), quien recibe un resultado grande lo guarda entero mientras use
-  sus partes, y `ui/tasks.py` es el único módulo que congela.
+  sus partes, y `ui/tasks.py` es el único módulo que congela. El resultado
+  viaja en una lista que vacía quien lo recibe (`_Job`), así que el hilo de la
+  tarea, aunque aún no haya vuelto, no lo retiene si la interfaz lo suelta.
 
 ---
 
@@ -479,8 +506,13 @@ lanza excepciones por un archivo mal formado (el analizador es iterativo: la
 profundidad de anidamiento no tiene límite). Devuelve un `ParseResult` con
 `document`, `diagnostics`, `path`, `stamp` (huella de lo leído; `None` sin
 archivo), `encoding` y `newline` (los del documento) y las vistas `ok`, `errors`
-y `warnings`. `parse_file(path, *, encoding=None, cancelled=None)` lee con
-`fileio.read_text` (§4.2). Cada `Diagnostic` tiene `code`, `severity`,
+y `warnings`. `parse_file(path, *, encoding=None, cancelled=None)` detecta la
+codificación con `decode_bytes` (§4.2), ajusta una `encoding` explícita al BOM
+real del archivo (`match_bom` y `split_bom`), quita del texto los BOM repetidos
+y los cuenta en `Document.extra_boms` (`split_extra_boms`), y añade él mismo
+el diagnóstico de la codificación (`non_game_encoding`, `unreadable_encoding`
+o `stray_bom`, los de `diagnostics.ENCODING_CODES`): la CLI, «Validar mod» y
+el visor lo reciben del mismo sitio. Cada `Diagnostic` tiene `code`, `severity`,
 `line`/`column` (desde 1), `offset`, `args`, `related`, `message(lang)` (tablas
 `es` y `en` completas; por defecto `en`) y `format(path, lang)`, que da
 `archivo:línea:columna: severidad: mensaje`. Los argumentos que se citan en los
@@ -499,11 +531,13 @@ mensajes se escapan y se cortan a 60 caracteres.
 | `multiline_string` | aviso | Una cadena abarca varias líneas: probablemente falta una comilla. | `name = "a` ⏎ `b"` |
 | `control_character` | aviso | Caracteres de control invisibles en el archivo. | byte `0x01` |
 | `invisible_character` | aviso | Un carácter invisible o de espacio raro dentro de una palabra (espacio de no separación, de ancho cero…). | `GER` seguido de U+00A0 |
-| `non_game_encoding` | aviso | Solo `parse_file`: el archivo no está en Windows-1252. Con BOM UTF-8 se informa en 1:1; si no, en el primer carácter no ASCII (un archivo solo ASCII no avisa). | — |
+| `non_game_encoding` | aviso | Solo `parse_file`: el archivo está en UTF-8. Con BOM se informa en 1:1; si no, en el primer carácter no ASCII (un archivo solo ASCII no avisa). | — |
+| `unreadable_encoding` | error | Solo `parse_file`: el archivo está en UTF-16 (cualquiera de las cuatro de `GAME_UNREADABLE`), que el juego no puede leer. En 1:1; `args`: `encoding`. | — |
+| `stray_bom` | aviso | Solo `parse_file`: BOM UTF-8 delante de un texto en Windows-1252; el juego pega esos bytes a la primera clave. En 1:1. | — |
 | `suspicious_close_brace` | info | Una `}` cierra un bloque con menos sangría que la línea que lo abrió: pista de dónde falta una llave. | ver el caso real |
 
-Caso real: `check` sobre la carpeta del mod del usuario (`VSM`, 3927 archivos)
-da 3 errores, 1 aviso y 1 pista:
+Caso real: `check` sobre la carpeta del mod del usuario (`VSM`, 3927 archivos;
+medido en una sesión con el corpus) da 3 errores, 1 aviso y 1 pista:
 
 - `decisions/somaliland_shago.txt` y `decisions/zulu_expancionshago.txt` no
   cierran el bloque `political_decisions` abierto en la línea 1
@@ -538,6 +572,7 @@ clave, `find`, `find_all`, `get`, `get_all`, `get_text`, `has`,
 | `keys()`, `values()`, `index_by_key()` | Claves sin repetir en orden, valores sueltos e índice `clave -> [entradas]` (una foto). |
 | `find_path(path)`, `get_path(path, default=None)`, `path_of(entry)` | Rutas de claves desde el bloque; `"[i]"` es la entrada en la posición `i`; `path_of` da la ruta exacta que `find_path` devuelve. |
 | `line`, `column`, `is_closed` | Posición de la `{` y si al bloque leído le falta la `}`. `Document.unclosed_blocks()` los lista. |
+| `Block.close_position`, `Entry.value_end` | Posiciones finales, como `(línea, columna)` desde 1: la `}` leída que cierra el bloque, y el último carácter del valor leído de la entrada (su token o, en un bloque, su `}`; una cadena puede acabar en otra línea). Dan `None` si el bloque es nuevo o no se cerraba al leerlo, o si el valor o la entrada los creó o cambió el código. Para un token, `value_end` usa `end_position(token)`, una función del módulo interno `lexer` que `__init__.py` no exporta. El índice de estructura del visor solo usa esta API. |
 
 **API de edición** (conserva el formato existente):
 
@@ -620,7 +655,10 @@ backup=True, verify=True, expected=None) -> Path | None`:
   `SourceMismatchError` (código `source_mismatch`, con la ruta y la línea de la
   primera entrada distinta) y no escribe nada;
 - codifica en `encoding` o en la del documento (cp1252 para documentos nuevos):
-  un carácter que no cabe da `UnencodableTextError` (§4.2);
+  un carácter que no cabe da `UnencodableTextError` (§4.2); los BOM repetidos
+  (`Document.extra_boms`) se escriben delante solo si se guarda en la misma
+  codificación y esta lleva BOM: un UTF-8 con dos BOM se guarda en cp1252 sin
+  ellos y, sin cambios en su codificación, da los mismos bytes;
 - con `expected` (normalmente `ParseResult.stamp`) lanza `FileChangedError` si
   el archivo cambió fuera de la aplicación; tras guardar un `ParseResult` en su
   propio archivo, su `stamp` pasa a ser el de lo escrito;
@@ -717,9 +755,11 @@ en la salida de error y sale con código 1 si hay errores; un archivo que no se
 puede leer cuenta como error. `tojson` imprime el árbol con `iter_json` (con
 `--comments`, con los comentarios), deja los diagnósticos en la salida de error
 y sale con 0 si el archivo no tiene errores y con 1 si los tiene o no se puede
-leer. El idioma por defecto de la CLI es `es`. *(Llega en la última ronda de
-T4: que `check` avise de los archivos en UTF-16, que el juego no puede leer;
-hoy solo `modcheck` lo marca como error, §4.4.)*
+leer. El idioma por defecto de la CLI es `es`. Un archivo en UTF-16 da el
+error `unreadable_encoding` (y el código de salida 1) y un BOM UTF-8 delante de
+Windows-1252, el aviso `stray_bom`: los da `parse_file`, como a «Validar mod»
+y al visor. `check` recorre `CLAUSEWITZ_SUFFIXES`, que tiene una sola
+definición (`parser.py`); `modcheck`, el visor y `tests/_corpus.py` la importan.
 
 ### 4.2 Lectura y escritura (`core.encoding`, `core.fileio`)
 
@@ -739,20 +779,27 @@ al detectar):
 `GAME_UNREADABLE` reúne las cuatro variantes de UTF-16: el juego no puede
 leerlas. En las codificaciones con BOM (`BOM_ENCODINGS`: `utf-8-sig`, `utf-16`
 y `utf-16-be-bom`) el BOM no queda en el texto y se vuelve a escribir delante.
-Con una codificación explícita se usa ese codec tal cual; `split_bom(text,
-encoding)` pasa un U+FEFF inicial a la codificación (`utf-8` → `utf-8-sig`…) y
-`split_extra_boms(text, encoding)` separa los BOM repetidos que siguen al
-primero y devuelve cuántos había. `normalize_encoding` rechaza los codecs que no
-son de texto. `partial=True` es para vistas previas: una secuencia multibyte
+Con una codificación explícita, `decode_bytes` usa ese codec tal cual;
+`split_bom(text, encoding)` pasa un U+FEFF inicial a la codificación (`utf-8` →
+`utf-8-sig`…), `match_bom(data, encoding)` ajusta la codificación al BOM que
+tienen de verdad los bytes (`utf-8-sig` sin BOM pasa a `utf-8`; `utf-16` con
+BOM `FE FF`, a `utf-16-be-bom`…) y `split_extra_boms(text, encoding)` separa los
+BOM repetidos que siguen al primero y devuelve cuántos había. `parse_file` usa
+las tres (§4.1). `normalize_encoding` rechaza los codecs que no
+son de texto. `display_name(encoding)` da el nombre para mostrar
+(`DISPLAY_NAMES`: `utf-16-be-bom` → «UTF-16 BE BOM», `cp1252` →
+«Windows-1252»; acepta alias), el que llevan en `args` los diagnósticos de
+codificación del parser y del lint y el que enseña el visor. `partial=True` es para vistas previas: una secuencia multibyte
 cortada al final no cambia la detección. Decodificar y volver a codificar un
 archivo sin cambios da los mismos bytes: lo comprueba la prueba de corpus con
 los 12 007 archivos de texto (`.txt`, `.csv`, `.mod`, `.lua`, `.bak`) del corpus
 completo (§7.2).
 
 **Codificación al guardar.** Por defecto la detectada al leer (cp1252 para
-archivos nuevos). El juego no entiende UTF-8 ni UTF-16: `parse_file` avisa con
-`non_game_encoding`; el lint del CSV también, como error si es UTF-16; y
-`modcheck` marca como error los scripts en UTF-16 (§4.4). El validador global
+archivos nuevos). El juego no entiende UTF-8 ni UTF-16: `parse_file` avisa de
+UTF-8 con `non_game_encoding` y da el error `unreadable_encoding` con UTF-16
+(§4.1), y el lint del CSV usa `non_game_encoding`, como error si es UTF-16
+(§4.3). El validador global
 ofrecerá convertirlos *(planificado, wizard §11 y §15)*. Si el texto tiene
 caracteres que la codificación no puede representar, `encode_text` lanza
 `UnencodableTextError` con `encoding` y `problems` (índice, línea, columna y
@@ -959,8 +1006,10 @@ clausewitz_files, csv_files, issues, elapsed, cancelled)` con los `Issue`
 ordenados por gravedad, ruta, línea y columna. `progress(hechos, total, ruta)`
 se llama al explorar (con total 0 y la carpeta que se recorre), antes de cada
 archivo (con los ya analizados y el que empieza) y al final, si no se canceló,
-con `(total, total, "")`. Además de los diagnósticos de cada archivo, añade estos
-códigos:
+con `(total, total, "")`. Los diagnósticos de cada archivo llegan tal cual,
+también los de codificación de los scripts (`unreadable_encoding` y
+`stray_bom`, que da `parse_file`, §4.1), con línea y columna y sus argumentos
+en `issue.diagnostic.args`. Además, añade estos códigos:
 
 | Código | Severidad | Significado |
 |---|---|---|
@@ -968,8 +1017,6 @@ códigos:
 | `check_failed` | error | El análisis de un archivo falló de forma inesperada. |
 | `folder_error` | error | No se pudo recorrer una carpeta. |
 | `no_game_folders` | aviso | La carpeta no parece la raíz de un mod: no tiene ninguna de las carpetas que lee el juego ni un descriptor. |
-| `unreadable_encoding` | error | Un script en UTF-16, que el juego no puede leer: sustituye al aviso `non_game_encoding` del parser. |
-| `stray_bom` | aviso | Un script que empieza por el BOM de UTF-8 con el resto en Windows-1252: el juego pega esos bytes a la primera clave. |
 | `descriptor_no_name` | aviso | El descriptor no tiene `name`. |
 | `descriptor_no_path` | error | El descriptor no tiene `path`. |
 | `descriptor_bad_path` | error | `path` no tiene la forma `mod/<carpeta>`. |
@@ -1005,7 +1052,7 @@ VictoriaII_ModWizard/
 ├── pyproject.toml                       metadatos y empaquetado (setuptools, layout src, gui-script vic2studio)
 ├── requirements.txt                     dependencias de ejecución (las mismas que pyproject.toml)
 ├── docs/
-│   ├── capturas/                        7 PNG de la interfaz (01_proyecto_diagnosticos … 07_countries_planned_en)
+│   ├── capturas/                        10 PNG ES/EN de la muestra (01_validar_mod_es_1100x700 … 10_map_roadmap_en_1920x1080)
 │   ├── diseno/
 │   │   ├── wizard.md                    diseño de las iteraciones 2 a 10
 │   │   └── prototipos/mapforge/         README y 61 scripts de estudio del taller de mapas (wizard §18); no se instalan ni se prueban
@@ -1024,7 +1071,8 @@ VictoriaII_ModWizard/
 ├── src/vic2studio/
 │   ├── __init__.py                      __version__, APP_NAME, ORG_NAME
 │   ├── __main__.py                      python -m vic2studio → app.main()
-│   ├── app.py                           create_application(argv), main(argv): tema, MainWindow, cierre de tareas
+│   ├── app.py                           create_application(argv), main(argv): tema, aviso de PySide6 incompatible, MainWindow, cierre de tareas
+│   ├── compat.py                        combinaciones de Python y PySide6 que abortan, sin cargar QtCore; VIC2STUDIO_ALLOW_BROKEN_PYSIDE
 │   ├── settings.py                      preferencias QSettings (INI); VIC2STUDIO_SETTINGS_DIR las desvía
 │   ├── core/                            Python puro, sin Qt
 │   │   ├── __init__.py
@@ -1053,12 +1101,12 @@ VictoriaII_ModWizard/
 │   │       └── diagnostics.py           CsvDiagnostic, Severity y mensajes es/en
 │   ├── i18n/
 │   │   ├── __init__.py                  Translator, translator(), tr(), N_(), set_language(), …
-│   │   ├── es.json                      textos en español (331 claves planas "nav.project", …)
+│   │   ├── es.json                      textos en español (346 claves planas "nav.project", …)
 │   │   └── en.json                      textos en inglés (las mismas claves)
 │   └── ui/
 │       ├── __init__.py
 │       ├── main_window.py               MainWindow: estandarte, idioma, navegación, páginas, estado
-│       ├── tasks.py                     TaskRunner, TaskContext, grupos de hilos, recolector (§2.5)
+│       ├── tasks.py                     TaskRunner, TaskContext, grupos de hilos, recolector, liberación en segundo plano (§2.5)
 │       ├── theme.py                     paleta, apply_theme(), texturas procedurales, fuentes
 │       ├── style.qss                    hoja de estilo Qt
 │       ├── pages/
@@ -1066,9 +1114,9 @@ VictoriaII_ModWizard/
 │       │   ├── base.py                  BasePage: key, título, subtítulo, icono, retranslate(), shutdown()
 │       │   ├── planned.py               página de módulo planificado (funcionalidades y hoja de ruta)
 │       │   ├── project_page.py          1 · Proyecto y Archivos: rutas, explorador, vista previa, validación
-│       │   ├── map_page.py              2 · Editor de Mapa (planificado)
-│       │   ├── countries_page.py        3 · Creador de Países (planificado)
-│       │   ├── events_page.py           4 · Estudio de Eventos (planificado)
+│       │   ├── map_page.py              2 · Editor de Mapa (planificado, iteración 5)
+│       │   ├── countries_page.py        3 · Creador de Países (planificado, iteración 6)
+│       │   ├── events_page.py           4 · Estudio de Eventos (planificado, iteración 7)
 │       │   └── localisation_page.py     5 · Localización (CSV, solo lectura)
 │       ├── viewers/
 │       │   ├── __init__.py              API de los visores
@@ -1082,7 +1130,7 @@ VictoriaII_ModWizard/
 │       └── widgets/
 │           ├── __init__.py
 │           ├── banner.py                cabecera-estandarte con emblema y título
-│           ├── cards.py                 insignias, estados vacíos, cintas, hoja de ruta
+│           ├── cards.py                 insignias, estados vacíos, cintas, hoja de ruta (RoadmapStrip, en filas si no cabe)
 │           ├── flow.py                  disposición en filas que salta de línea
 │           ├── icons.py                 iconos vectoriales dibujados con QPainter
 │           ├── navigation.py            placas de navegación con icono, nombre y atajo
@@ -1090,8 +1138,8 @@ VictoriaII_ModWizard/
 │           └── surfaces.py              paneles de madera/terciopelo, marco ornamentado, tarjetas
 └── tests/
     ├── _corpus.py                       localiza el corpus (VIC2_CORPUS) y crea la plantilla sintética
-    ├── _qt.py                           entorno Qt: offscreen, preferencias aisladas, avisos, dispose
-    ├── fixtures/shago_mod_min/          muestra mínima del mod del usuario: VSM.mod y 19 archivos de VSM/
+    ├── _qt.py                           entorno Qt: PySide6 incompatible, offscreen, preferencias aisladas, avisos, dispose
+    ├── fixtures/shago_mod_min/          muestra mínima del mod del usuario: VSM.mod y 19 archivos de VSM/ (los 6 de países, sintéticos)
     ├── test_clausewitz_cli.py           CLI check / tojson
     ├── test_clausewitz_corpus.py        ida y vuelta, invariante JSON y errores conocidos del corpus
     ├── test_clausewitz_edit.py          API de edición, valores, errores, guardado, mover, deshacer y formato
@@ -1099,6 +1147,7 @@ VictoriaII_ModWizard/
     ├── test_clausewitz_json.py          JSON (con comentarios e iter_json), from_json, simplify, walk, formato canónico
     ├── test_clausewitz_lexer.py         tokens, trivia y saltos de línea
     ├── test_clausewitz_parser.py        árbol, diagnósticos, escalares, fechas, consultas, saltos de línea, cancelación
+    ├── test_compat.py                   aviso con PySide6 6.12 en Python 3.10/3.11: combinaciones, app.main y tests/_qt.py
     ├── test_csvloc_cli.py               CLI check / tojson / fromjson
     ├── test_csvloc_corpus.py            ida y vuelta, edición y rendimiento con los CSV del corpus y del mod del usuario
     ├── test_csvloc_db.py                LocalisationDB: orden de carga y precedencia
@@ -1112,6 +1161,7 @@ VictoriaII_ModWizard/
     ├── test_ui_integration.py           vista previa, validación, localización y capturas en la ventana
     ├── test_ui_localisation.py          página y editor de localización
     ├── test_ui_pages.py                 página Proyecto: explorador, descriptor, carpeta del mod, imágenes, validación
+    ├── test_ui_roadmap.py               hoja de ruta: iteraciones de wizard §22 en ES y EN y reparto en filas
     ├── test_ui_smoke.py                 ventana principal, navegación, idioma, preferencias, tema y arranque
     └── test_ui_viewer.py                visor Clausewitz: índice, código, diagnósticos, archivos grandes y latidos
 ```
@@ -1138,15 +1188,25 @@ iteración 2 ya está hecho (pruebas
 `test_clausewitz_parser.LineBreakTests.test_cr_only_files` y
 `test_encoding.EncodingTests.test_cr_only_newlines`, que se pueden ejecutar
 por nombre con `python3 -m unittest` desde `tests/`), así que allí solo queda
-comprobar la regresión. *Llega en la última ronda de T4*:
+comprobar la regresión. La última ronda de T4 añadió:
 
-- una API pública de las posiciones finales del CST para el visor (hoy usa
-  atributos privados, §6.3);
-- avisos de UTF-16 en `python -m vic2studio.core.clausewitz check`;
-- el BOM repetido en `parse_file` (hoy un archivo UTF-8 con dos BOM no se puede
-  guardar en cp1252 con `write_file`);
-- soltar el árbol de un archivo grande fuera del hilo de la interfaz;
-- las etiquetas de las codificaciones UTF-16 en la interfaz.
+- la API pública de las posiciones finales del CST (`Block.close_position` y
+  `Entry.value_end`, que se apoya en `lexer.end_position`, interna del
+  paquete), la única que usa el visor (§4.1);
+- los diagnósticos de codificación en `parse_file` (`unreadable_encoding` con
+  UTF-16 y `stray_bom`), y por tanto en `python -m vic2studio.core.clausewitz
+  check`;
+- los BOM repetidos en `parse_file` (`Document.extra_boms`): un UTF-8 con dos
+  BOM ya se puede guardar en cp1252 con `write_file`;
+- el análisis de un archivo grande soltado por trozos fuera del hilo de la
+  interfaz (`release_in_background`, §2.5);
+- los nombres de las cuatro codificaciones UTF-16 en el visor y en la ficha, y
+  la insignia roja «Ilegible para el juego».
+
+Después llegaron el aviso al arrancar con PySide6 6.12 en Python 3.10 y 3.11
+(§1.3), la hoja de ruta de las páginas con la numeración de wizard §22 (§8.1) y
+la muestra con los archivos de país sintéticos (§7.2). Quedan la segunda
+revisión adversarial de la última ronda de la interfaz, en curso, y T5.
 
 **Iteraciones 2 a 10.** Resumen de wizard §22, que tiene el objetivo, las
 entregas y los criterios de aceptación de cada una. Cada iteración sigue el
@@ -1182,20 +1242,15 @@ Paradox, nombres inválidos en Windows, cambios externos, taller de mapas…).
 | Escribir fuera del mod | Aún no hay `WriteGuard`: `write_file`, `write_csv_file`, `write_descriptor` y `atomic_write_bytes` escriben en la ruta que reciben. Hoy la interfaz no escribe nada en el juego ni en el mod (§2), así que solo escriben las CLI (con `-o`) y el código que llame al núcleo. Lo resuelve la iteración 2 (§3.1). |
 | Copias `.bak` distintas según quién guarda | `write_file` hace la copia solo en el primer guardado de la sesión (guarda el original); `write_csv_file`, en cada guardado (guarda el anterior). Unificar al integrar el guardado con diario (wizard §6.5, D4). |
 | Huella esperada distinta según quién guarda | `write_csv_file` comprueba la huella siempre que guarda sobre el archivo leído (salvo `force=True`); `write_file` solo si se le pasa `expected`. |
-| Línea mal contada en archivos solo CR | `find_unencodable` cuenta las líneas solo por `\n`: en un script con saltos solo CR, el `UnencodableTextError` de `encode_text` y `write_file` da la línea 1 y una columna desde el principio del archivo. El `unencodable_character` de Clausewitz (`Document.check_text`) no lleva posición, y el lint CSV no se ve afectado: allí un CR suelto es contenido de la fila. |
-| UTF-16 en la CLI de scripts | `python -m vic2studio.core.clausewitz check` no marca como error un script en UTF-16 (un archivo solo ASCII no avisa; uno con texto no ASCII da `non_game_encoding` como aviso); `modcheck` sí (`unreadable_encoding`). *Llega en la última ronda de T4.* |
-| BOM repetido al leer un script | `parse_file` deja los U+FEFF de más en el texto (el parser los trata como espacio); guardar ese documento en cp1252 falla con `UnencodableTextError`. `write_descriptor` ya los quita al convertir UTF-16. *Llega en la última ronda de T4.* |
-| El visor usa partes internas del CST | `clausewitz_viewer.build_index` lee `entry._vtok` y `value._close` y usa `clausewitz.lexer.LINE_BREAK_RE` y `Token` para las posiciones finales. *La API pública llega en la última ronda de T4.* |
-| Árbol grande liberado en el hilo de la interfaz | Al cambiar de archivo, el árbol del anterior se libera en el hilo de la interfaz. *Llega en la última ronda de T4.* |
-| Etiquetas de codificación | `ENCODING_NAMES` del visor y `ENCODING_KEYS` de la ficha solo nombran cp1252, UTF-8 y UTF-8 con BOM: las variantes UTF-16 se muestran con su nombre de codec. *Llega en la última ronda de T4.* |
-| Ficha de archivo en el hilo de la interfaz | `project_page.gather_facts` lee hasta 2 MiB y los decodifica en el hilo de la interfaz, con `decode_bytes` sin `partial=True`: un carácter multibyte cortado al final del bloque puede cambiar la codificación detectada. |
+| Línea mal contada en archivos solo CR | `find_unencodable` cuenta las líneas solo por `\n`: en un script con saltos solo CR, el `UnencodableTextError` de `encode_text` y `write_file` da la línea 1 y una columna desde el principio del archivo (con `a = 1`, `b = 2` y `c = Ω` separados por CR: línea 1, columna 17, en vez de línea 3, columna 5). La ficha de archivo (`gather_facts`) también cuenta las líneas por `\n`: un archivo de 3 líneas solo CR sale con 1. El `unencodable_character` de Clausewitz (`Document.check_text`) no lleva posición, y el lint CSV no se ve afectado: allí un CR suelto es contenido de la fila. |
+| Árbol grande soltado en segundo plano | Al cambiar de archivo, el visor suelta el `QTextDocument` del código en el hilo de la interfaz y el resto del análisis en `POOL_RELEASE`, por trozos de `RELEASE_CHUNK` (4 096) elementos (`dismantle_load`, §2.5). Quedan dos cascadas sin trocear, fuera del hilo de la interfaz pero con el GIL tomado: si la tarea del JSON sigue en marcha al cambiar de archivo, retiene la raíz, y el árbol se suelta de una vez cuando esa tarea acaba (NF-JSON-HELD-ROOT: una pausa de unos cientos de ms), y `core.modcheck.check_file` suelta el árbol de cada archivo al terminar con él (NF-VALIDATE-TREE-RELEASE: huecos de 206–260 ms con 7,9 MB, por debajo del límite de 0,5 s de §7.4). |
+| Ficha de archivo en el hilo de la interfaz | `project_page.gather_facts` lee hasta 2 MiB (`MAX_SCAN_BYTES`) y los decodifica en el hilo de la interfaz. Si el archivo es más largo usa `decode_bytes(partial=True)`, así que un carácter multibyte cortado al final del bloque ya no cambia la codificación detectada (NF-FACTS-PARTIAL). |
 | Contrato del recolector | Un resultado de tarea que forme un ciclo no se libera nunca mientras está congelado; con varios resultados grandes seguidos, la basura congelada con el primero espera a que no viva ninguno (§2.5). Las pruebas de `test_tasks` lo vigilan. |
-| `CLAUSEWITZ_SUFFIXES` triplicado | La misma lista está en `core/clausewitz/parser.py`, `core/modcheck.py` y `tests/_corpus.py`; hay que cambiarla en los tres sitios. |
-| Numeración antigua en la interfaz | Las páginas planificadas y su hoja de ruta (`ui/pages/planned.py`, `CURRENT_ITERATION = 1`) muestran la numeración anterior: Mapa en la iteración 3, Países en la 4 y Eventos en la 5, y la localización editable en la 2 (`roadmap.it2`); según wizard §22 son la 5, la 6, la 7 y la 3. La página Localización, que ya existe, anuncia también la edición para la iteración 2 (`localisation.roadmap` y `loc.read_only`). Las páginas planificadas se retiran cuando exista su sala (wizard §21), pero esos dos avisos de Localización no desaparecen con ellas: hay que corregirlos aparte. |
 | Sin pruebas de arquitectura ni CI | La regla «core sin PySide6» y la compatibilidad con Python 3.10 se comprobaron a mano (§7.5); las pruebas automáticas de arquitectura están planificadas (wizard §19.5). wizard solo prevé CI para `tools/bench_mapforge.py` con las versiones mínimas (wizard §18.12); un CI con Windows y Linux para toda la batería no está planificado todavía. |
-| Pestaña Código con archivos enormes | Al mostrar la pestaña Código, `QPlainTextEdit.setDocument` maqueta todos los bloques del documento en el hilo de la interfaz, y al cambiar de archivo el documento anterior se destruye también en ese hilo. Medido en esta revisión con 1,3 M líneas sintéticas: unos 0,67 s al colgarlo y 0,18 s al destruirlo. Según `code_view.py`, crear los `QTextLayout` en la tarea bajaría lo primero a unos 0,25 s, pero alargaría la carga unos 6 s y ocuparía unos 350 MB más aunque el código no llegue a mostrarse (con 20 MB); se dejó como límite conocido. |
-| Ediciones junto a texto descartado | En un archivo con errores de sintaxis, el texto que el parser descarta queda como trivia, y una edición pegada a él puede combinarse con ese texto al releer (con `a =`, añadir `z = 9` da `z = 9a =`, que se relee como `z = 9a`). `write_file(verify=True)` lo detecta y no escribe (`SourceMismatchError`), y el fuzz de edición solo compara árboles si el original no tenía errores (§7.3). |
-| Codificación explícita que no describe el archivo | Con una codificación forzada, la ida y vuelta o la conversión pueden fallar: `parse_file(ruta, encoding="utf-16-be")` sobre un archivo UTF-16 BE con BOM deja el U+FEFF en el texto y guardar en cp1252 da `UnencodableTextError`; `decode_bytes(datos, "utf-16")` de un UTF-16 BE con BOM vuelve a codificar en LE; y `"utf-8-sig"` sobre datos sin BOM añade un BOM al guardar. Ninguna llamada de `src/` fuerza una codificación al leer un script o un CSV: la interfaz, las CLI, `modfile` y `modcheck` usan la detección. |
+| Pestaña Código con archivos enormes | Al mostrar la pestaña Código, `QPlainTextEdit.setDocument` maqueta todos los bloques del documento en el hilo de la interfaz, y al cambiar de archivo el documento anterior se destruye también en ese hilo. Con 1,3 M líneas, `code_view.py` da ~0,6 s al colgarlo y 0,16–0,35 s al destruirlo (NF-DOC-DELETE: vaciarlo por trozos cuesta 1,4–1,9 s con el GIL tomado, y destruirlo en otro hilo no es seguro). Crear los `QTextLayout` en la tarea bajaría lo primero a unos 0,25 s, pero alargaría la carga unos 6 s y ocuparía unos 350 MB más aunque el código no llegue a mostrarse (con 20 MB); se dejó como límite conocido. |
+| Ediciones junto a texto descartado | En un archivo con errores de sintaxis, una edición puede releerse de otra forma: lo que se pone detrás de un bloque sin cerrar queda dentro de él (con `a = { b = 1` sin `}`, añadir `z = 9` al documento lo relee dentro de `a`), y un valor suelto seguido de un operador descartado forma con él una asignación. Lo nuevo ya no se pega al texto descartado (con `a =`, añadir `z = 9` da `z = 9 a =`). `write_file(verify=True)` detecta esos casos y no escribe (`SourceMismatchError` con `near_errors`), y el fuzz de edición solo compara árboles si el original no tenía errores (§7.3). |
+| Codificación explícita que no describe el archivo | `parse_file` ya ajusta una codificación forzada a los bytes (`match_bom` y `split_bom`, §4.2): `encoding="utf-16-be"` sobre un UTF-16 BE con BOM da `utf-16-be-bom`, y `"utf-8-sig"` sobre datos sin BOM, `utf-8`. `decode_bytes` y `fileio.read_text` no: `decode_bytes(datos, "utf-16")` de un UTF-16 BE con BOM vuelve a codificar en LE, y `"utf-8-sig"` sobre datos sin BOM añade un BOM al guardar, también con `read_csv_file` y `write_csv_file`. Ninguna llamada de `src/` fuerza una codificación al leer un script o un CSV: la interfaz, las CLI, `modfile` y `modcheck` usan la detección. |
+| Errores de guardado que no pasan por `pickle` | `pickle.loads(pickle.dumps(error))` falla con `SourceMismatchError` (su `__init__` pide 3 argumentos: `TypeError`), con `UnencodableTextError` (pide 2: `TypeError`) y con `DescriptorFieldError` (recibe el mensaje como código: `KeyError`). `EditError`, `FileChangedError` e `InvalidFieldError` sí se recuperan. Hoy no se usan procesos; hay que arreglarlo antes de que un error de guardado cruce al proceso trabajador del taller de mapas (wizard §18.4). |
 
 ---
 
@@ -1208,11 +1263,22 @@ Paradox, nombres inválidos en Windows, cambios externos, taller de mapas…).
   instalar el paquete. `tests/_qt.py` fuerza `QT_QPA_PLATFORM=offscreen` si no
   está definida y aísla las preferencias en una carpeta temporal
   (`VIC2STUDIO_SETTINGS_DIR`).
-- **Cifras actuales**: 561 pruebas en 22 archivos. Sin corpus: 561 correctas y
-  3 omitidas. Con el corpus completo (instalación de vanilla, la plantilla del
-  usuario y su mod): 561 correctas. Los recuentos son exactos; los tiempos son
-  orientativos y varían entre ejecuciones: en esta máquina, entre 135 y 160 s
-  sin corpus y entre 210 y 225 s con él.
+- **PySide6 incompatible**: con Python 3.10 o 3.11 y PySide6 6.12 o posterior,
+  `tests/_qt.py` lanza al importarse un `RuntimeError` que dice por qué y cómo
+  arreglarlo (`compat.broken_binding_message`, §1.3). Todas las pruebas que usan
+  Qt lo importan, así que fallan al cargarse en vez de abortar el proceso a
+  mitad de la batería; `VIC2STUDIO_ALLOW_BROKEN_PYSIDE=1` desactiva la
+  comprobación.
+- **Cifras actuales**: 609 pruebas en 24 archivos. Sin corpus: 609 correctas y
+  3 omitidas, con Python 3.13.17 y PySide6 6.12.0; con Python 3.10.20 y
+  PySide6 6.11.3 pasaron las 593 anteriores a `test_compat.py` y
+  `test_ui_roadmap.py` (3 omitidas) y, aparte, las 16 de esos dos archivos. Con
+  el corpus completo (instalación de vanilla, la plantilla del usuario y su
+  mod), la última ejecución fue con esas 593, antes también de los archivos de
+  país sintéticos de la muestra: 593 correctas. Los recuentos son exactos; los
+  tiempos son orientativos y varían entre ejecuciones: con 561 pruebas, en la
+  máquina de una sesión anterior, entre 135 y 160 s sin corpus y entre 210 y
+  225 s con él.
 
 ```bash
 # Desde la raíz del repositorio; sin VIC2_CORPUS usa la muestra del repositorio.
@@ -1223,17 +1289,18 @@ VIC2_CORPUS="/ruta/vanilla:/ruta/Plantilla Mod:/ruta/ShagoMod" python3 -m unitte
 
 | Archivo | Pruebas | Archivo | Pruebas |
 |---|---|---|---|
-| `test_clausewitz_cli.py` | 7 | `test_csvloc_parse.py` | 31 |
-| `test_clausewitz_corpus.py` | 7 | `test_encoding.py` | 19 |
-| `test_clausewitz_edit.py` | 85 | `test_i18n.py` | 17 |
-| `test_clausewitz_fuzz.py` | 6 | `test_modcheck.py` | 28 |
-| `test_clausewitz_json.py` | 26 | `test_tasks.py` | 24 |
-| `test_clausewitz_lexer.py` | 20 | `test_ui_integration.py` | 16 |
-| `test_clausewitz_parser.py` | 54 | `test_ui_localisation.py` | 22 |
-| `test_csvloc_cli.py` | 9 | `test_ui_pages.py` | 39 |
-| `test_csvloc_corpus.py` | 10 | `test_ui_smoke.py` | 24 |
-| `test_csvloc_db.py` | 17 | `test_ui_viewer.py` | 44 |
-| `test_csvloc_edit.py` | 30 | `test_csvloc_lint.py` | 26 |
+| `test_clausewitz_cli.py` | 8 | `test_csvloc_lint.py` | 26 |
+| `test_clausewitz_corpus.py` | 7 | `test_csvloc_parse.py` | 31 |
+| `test_clausewitz_edit.py` | 88 | `test_encoding.py` | 20 |
+| `test_clausewitz_fuzz.py` | 6 | `test_i18n.py` | 17 |
+| `test_clausewitz_json.py` | 26 | `test_modcheck.py` | 29 |
+| `test_clausewitz_lexer.py` | 20 | `test_tasks.py` | 28 |
+| `test_clausewitz_parser.py` | 61 | `test_ui_integration.py` | 16 |
+| `test_compat.py` | 9 | `test_ui_localisation.py` | 22 |
+| `test_csvloc_cli.py` | 9 | `test_ui_pages.py` | 43 |
+| `test_csvloc_corpus.py` | 10 | `test_ui_roadmap.py` | 7 |
+| `test_csvloc_db.py` | 17 | `test_ui_smoke.py` | 25 |
+| `test_csvloc_edit.py` | 30 | `test_ui_viewer.py` | 54 |
 
 ### 7.2 Corpus
 
@@ -1245,6 +1312,15 @@ El corpus es opcional y no está en el repositorio (`tests/_corpus.py`):
   6 archivos de países, 6 historias de país, 4 de decisiones, entre ellas las
   dos rotas, y 3 CSV de localización). Así las pruebas del mod del usuario
   corren también sin el corpus completo.
+- Los 6 archivos de países de la muestra son sintéticos desde el 26-10-2026,
+  por decisión del usuario: repetían bloques de partidos y listas `unit_names`
+  de vanilla. Las políticas, las fechas de los partidos y los `unit_names` son
+  inventados; se conservan los nombres de partido (con el TAG de cada país),
+  las ideologías, los colores, `graphical_culture`, la clave `social_policy` en
+  5 de los 6 (un error real del usuario), los partidos `MAJ_*` de Warsangali y
+  las rarezas de formato (CRLF en cinco archivos y LF en uno, tabulaciones,
+  llaves mal sangradas…). El resto de la muestra son archivos creados por el
+  usuario.
 - Las pruebas que necesitan archivos que la muestra no trae (`text.csv`, una
   historia de provincia) usan, si el corpus no los tiene, una plantilla
   sintética con la misma forma (`synthetic_template()`: `text.csv` de unas
@@ -1300,6 +1376,15 @@ Con `random` y semilla fija (`test_clausewitz_fuzz.py`):
   texto visible queda sin traducir ni muestra una clave cruda, restaurar
   preferencias y aplicar el tema. `test_i18n.py` comprueba que `es.json` y
   `en.json` tienen las mismas claves.
+- **Hoja de ruta** (`test_ui_roadmap.py`): las páginas anuncian la iteración de
+  wizard §22 en ES y EN (Mapa en la 5, Países en la 6, Eventos en la 7 y la
+  edición de la localización en la 3), el plan tiene 10 hitos y, a 1100×700,
+  se reparten en filas equilibradas sin títulos cortados, mientras que a
+  1920×1080 caben en una.
+- **Arranque con PySide6 incompatible** (`test_compat.py`): la tabla de
+  combinaciones, la variable de escape, `app.main` con un `exec()` falso (sale
+  con 1 sin crear la ventana y con el mensaje traducido) y la importación de
+  `tests/_qt.py` en un subproceso.
 - **Avisos de Qt**: `tests/_qt.py` instala un manejador de mensajes y las
   pruebas fallan si Qt emite algún aviso (`take_qt_messages()`).
 - **Ventanas destruidas de verdad**: los `tearDown` comprueban que
@@ -1331,8 +1416,10 @@ Con `random` y semilla fija (`test_clausewitz_fuzz.py`):
   `ast.parse(src, feature_version=(3, 10))`. Las pruebas (incluida
   `test_arch_writes`) están planificadas en wizard §4 y §19.5. Diferencia
   conocida con wizard: su §4 dice que «la prueba de subproceso actual se
-  amplía», pero en `tests/` no hay ninguna prueba que importe core en un
-  subproceso; hay que crearla.
+  amplía», pero en `tests/` ninguna prueba comprueba en un subproceso que
+  importar core no carga PySide6 (los subprocesos de las pruebas de CLI, de
+  `test_tasks`, del visor, de las capturas y de `test_compat` no lo miran); hay
+  que crearla.
 - **Capturas**: `tools/screenshot.py` genera PNG por idioma, página y estado
   para revisión visual (no se comparan píxel a píxel: las fuentes varían entre
   equipos); `test_ui_integration.py` prueba la herramienta.
@@ -1349,7 +1436,12 @@ Con `random` y semilla fija (`test_clausewitz_fuzz.py`):
 ### 8.1 Ventana y páginas
 
 `app.main(argv)` crea la aplicación (`create_application`: nombre, versión,
-tema e icono), muestra `MainWindow` y, al salir del bucle de eventos, llama a
+tema e icono) y, antes de la ventana y de cualquier tarea, comprueba la
+combinación de Python y PySide6 (`compat.broken_qt_binding()`, §1.3). Con
+Python 3.10 o 3.11 y PySide6 6.12 o posterior, `refuse_broken_binding` escribe
+el mensaje en los dos idiomas en la salida de error, muestra un `QMessageBox`
+traducido (`compat.pyside_title` y `compat.pyside_text`) y `main` devuelve 1.
+Si no, muestra `MainWindow` y, al salir del bucle de eventos, llama a
 `cancel_all()` y `wait_for_tasks()` para que ningún hilo siga ejecutando Python
 mientras se cierra el intérprete.
 
@@ -1371,8 +1463,8 @@ Las páginas heredan de `BasePage` (`key`, `title_key`, `subtitle_key`,
 | Página | Qué hace hoy |
 |---|---|
 | Proyecto (`ProjectPage`) | Rutas del juego y del mod con su comprobación (`inspect_folder`, `evaluate_game`, `evaluate_mod`) y el descriptor encontrado (`find_descriptor`); explorador de archivos y pestaña «Validación». Al seleccionar un archivo muestra el visor que le corresponde: scripts (`CLAUSEWITZ_SUFFIXES`) en `ClausewitzViewer`, imágenes (`.tga`, `.dds`, `.bmp`, `.png`, `.jpg`, `.jpeg`, `.gif`) en `ImageViewer`, CSV de localización en la página Localización y el resto en una ficha con codificación y extracto. Vuelve a cargar la vista previa si el archivo cambió al reseleccionarlo o al volver a la aplicación. |
-| Localización (`LocalisationPage`) | CSV del mod en una tabla de solo lectura (`LocalisationEditor`) con filtro de texto sobre la tabla, conmutadores de comentarios y de todas las columnas, y la lista de lint traducida con su filtro de gravedad; `open_file(path, line=None)` salta a una fila. Anuncia la edición para la iteración 2 (numeración antigua, §6.3). |
-| Mapa, Países, Eventos | `PlannedModulePage`: funcionalidades previstas y hoja de ruta (con la numeración antigua, §6.3). |
+| Localización (`LocalisationPage`) | CSV del mod en una tabla de solo lectura (`LocalisationEditor`) con filtro de texto sobre la tabla, conmutadores de comentarios y de todas las columnas, y la lista de lint traducida con su filtro de gravedad; `open_file(path, line=None)` salta a una fila. Anuncia la edición para la iteración 3 (`localisation.roadmap` y `loc.read_only`). |
+| Mapa, Países, Eventos | `PlannedModulePage`: funcionalidades previstas, la iteración en que llegan (Mapa en la 5, Países en la 6 y Eventos en la 7, según wizard §22) y la hoja de ruta de 10 hitos (`RoadmapStrip`; el hito 9 reúne la 9a y la 9b). Si los hitos no caben a `MIN_COLUMN` (150 px) cada uno, se reparten en filas equilibradas: 5 + 5 a 1100 × 700 y una sola fila a 1920 × 1080. |
 
 Las señales de la página Proyecto conectan con el resto: `mod_path_changed`
 actualiza la página Localización y `csv_requested(path, line)` abre allí un CSV
@@ -1388,7 +1480,21 @@ actualiza la página Localización y `csv_requested(path, line)` abre allí un C
   raíces, se abre entero por debajo de `AUTO_EXPAND_LIMIT` entradas, «expandir
   todo» hasta `EXPAND_ALL_LIMIT` filas), Código fuente, Diagnósticos (activar
   uno salta a su línea del código y selecciona su entrada) y JSON (generado en
-  otra tarea con `iter_json`, hasta `JSON_DISPLAY_LIMIT` caracteres).
+  otra tarea con `iter_json`, hasta `JSON_DISPLAY_LIMIT` caracteres). El
+  índice sitúa el final de cada entrada con `Entry.value_end` y
+  `Block.close_position` (§4.1). Un archivo en UTF-16 sale en rojo: la
+  insignia de la cabecera dice «Ilegible para el juego» (con la explicación
+  en su ayuda emergente) y la pestaña Diagnósticos, con el icono de error,
+  muestra el error `unreadable_encoding` que da `parse_file`; la barra de
+  estado lo dice también, sin llamarlo «error de sintaxis». La insignia va a
+  la derecha del nombre, así que la línea de detalles tiene todo el ancho; un
+  nombre largo se recorta por el medio. Las codificaciones se nombran con
+  `encoding.display_name` (`DISPLAY_NAMES`: «UTF-16 BE BOM», «Windows-1252»…),
+  el mismo mapa que usan los diagnósticos del parser y el lint del CSV.
+  Al cambiar de archivo, el análisis anterior se suelta en segundo plano
+  (`dismantle_load`, §2.5, §6.3). Al reintentar un fallo de lectura, el fallo
+  sigue a la vista hasta la respuesta o hasta `LOADING_DELAY_MS` (150 ms,
+  `common.py`); el visor de imágenes hace lo mismo.
 - **`CodeView`** (`code_view.py`): texto con números de línea, resaltado
   perezoso y marcas de diagnóstico; el documento se construye en la tarea
   (`build_document`).
@@ -1417,7 +1523,7 @@ resultados grandes se congela al terminar (§2.5).
 
 ### 8.4 Idioma
 
-`i18n.Translator` carga `es.json` y `en.json` (331 claves cada uno), emite
+`i18n.Translator` carga `es.json` y `en.json` (346 claves cada uno), emite
 `languageChanged(str)` y cada página y visor implementa `retranslate()`; el
 cambio es inmediato, sin reiniciar. Los mensajes del núcleo se piden en el
 idioma activo con `message(lang)`.
@@ -1437,7 +1543,9 @@ ventana, las rutas del juego y del mod y la pestaña del visor.
 - `tests/_qt.py`: `application()`, `reset_settings()`,
   `process_events(ms)`, `delete_pending()`, `dispose(*widgets)` (devuelve los
   que siguen vivos), `live_main_windows()`, `wait_until(pred, timeout_ms)` y
-  `take_qt_messages()`; fuerza offscreen y aísla las preferencias (§7.1).
+  `take_qt_messages()`; fuerza offscreen y aísla las preferencias, y al
+  importarse para con un `RuntimeError` si PySide6 es incompatible con la
+  versión de Python (§7.1).
 - Las pruebas de visor y de integración usan archivos grandes sintéticos
   (scripts de 1,2 a 1,5 MB y el `text.csv` sintético) y miden los latidos del
   hilo de la interfaz (§7.4).

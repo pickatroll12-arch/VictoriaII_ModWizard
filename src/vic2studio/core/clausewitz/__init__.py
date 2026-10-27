@@ -13,7 +13,7 @@ from .diagnostics import Diagnostic, EditError, EditTypeError, Severity
 from .json_bridge import from_json, iter_json, simplify, to_json, walk
 from .nodes import OPERATORS, Block, ClausewitzDate, Document, Entry, Scalar
 from .parser import CLAUSEWITZ_SUFFIXES, ParseResult, parse, parse_file
-from .serializer import SourceMismatchError, format_canonical, to_source, write_file
+from .serializer import SourceMismatchError, format_canonical, render_checked, to_source, write_file
 
 __all__ = [
     "CLAUSEWITZ_SUFFIXES",
@@ -34,6 +34,7 @@ __all__ = [
     "iter_json",
     "parse",
     "parse_file",
+    "render_checked",
     "simplify",
     "to_json",
     "to_source",

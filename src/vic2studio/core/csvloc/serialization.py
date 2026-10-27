@@ -80,6 +80,26 @@ def _same_file(a: Path, b: Path) -> bool:
     return os.path.normcase(os.path.realpath(a)) == os.path.normcase(os.path.realpath(b))
 
 
+def render_csv_checked(file: LocalisationFile, *, encoding: str | None = None) -> bytes:
+    """Los bytes que escribiría ``write_csv_file``, sin tocar el disco ni el modelo (wizard §6.1).
+
+    Misma codificación por defecto (la del archivo), mismo tratamiento de los BOM
+    repetidos y ``UnencodableTextError`` si algún carácter no cabe.
+    ``write_csv_file`` pasa a usarla sin cambiar su comportamiento.
+    """
+    return _render(file, encoding)[0]
+
+
+def _render(file: LocalisationFile, encoding: str | None) -> tuple[bytes, str, int]:
+    """(bytes, codificación de destino, BOM repetidos que se conservan)."""
+    target = normalize_encoding(encoding or file.encoding)
+    text = file.to_source()
+    extra_boms = file.extra_boms
+    if extra_boms and (target != normalize_encoding(file.encoding) or target not in BOM_ENCODINGS):
+        text, extra_boms = text[extra_boms:], 0
+    return encode_text(text, target), target, extra_boms
+
+
 def write_csv_file(path: str | os.PathLike, file: LocalisationFile, *,
                    encoding: str | None = None, backup: bool = True, force: bool = False) -> Path | None:
     """Codifica y escribe de forma atómica; devuelve la ruta de la copia ``.bak`` si se hizo.
@@ -92,12 +112,7 @@ def write_csv_file(path: str | os.PathLike, file: LocalisationFile, *,
     conservan al guardar en la misma codificación, si es de las que llevan BOM.
     """
     path = Path(path)
-    target = normalize_encoding(encoding or file.encoding)
-    text = file.to_source()
-    extra_boms = file.extra_boms
-    if extra_boms and (target != normalize_encoding(file.encoding) or target not in BOM_ENCODINGS):
-        text, extra_boms = text[extra_boms:], 0
-    data = encode_text(text, target)
+    data, target, extra_boms = _render(file, encoding)
     expected = None
     if not force and file.stamp is not None and file.path is not None and _same_file(path, file.path):
         expected = file.stamp

@@ -1,0 +1,19 @@
+{
+  "project.save_outside_mod": "No se guarda {rel}: su destino ({path}) está fuera del mod. El juego base y los demás mods son de solo lectura.",
+  "project.save_windows_name": "No se guarda {rel}: «{name}» no es un nombre válido en Windows (nombre reservado como CON o NUL, uno de los caracteres <>:\"|?* o un punto o espacio al final).",
+  "project.save_path_too_long": "La ruta de {rel} tiene {length} caracteres: en Windows puede pasar del límite de 260 y el juego no la leería. Acorta el nombre o mueve el mod a una carpeta más corta.",
+  "project.save_conflict": "{rel} ha cambiado fuera del Studio desde que se abrió. Elige si conservas tus cambios, recargas el archivo del disco o comparas las dos versiones.",
+  "project.save_unencodable": "{rel}, línea {line}, columna {column}: «{char}» no se puede guardar en {encoding}, la codificación que lee el juego ({count} carácter(es) en total).",
+  "project.save_source_mismatch": "No se guarda {rel}: el texto generado no se vuelve a leer igual cerca de «{entry}» (línea {line}). Suele deberse a errores de sintaxis del archivo: corrígelos en la pestaña Código.",
+  "project.save_no_space": "No hay espacio suficiente en el disco para guardar: hacen falta {needed} bytes y quedan {free}.",
+  "project.save_read_only": "El proyecto está abierto en solo lectura porque otra ventana del Studio lo tiene abierto. Ciérrala para poder guardar.",
+  "project.save_case_collision": "No se guarda {rel}: choca con «{other}», que solo se diferencia en mayúsculas. Windows los trataría como el mismo archivo.",
+  "project.save_not_writable": "{rel} no se puede guardar desde el Studio ({reason}).",
+  "project.save_failed": "No se pudo completar el guardado y todo quedó como estaba: {error}",
+  "project.recovery_unreadable": "Hay un diario de guardado que no se puede leer; no se ha tocado. Revisa la carpeta .vic2studio/journal del mod.",
+  "project.recovery_completed": "Se terminó un guardado que se había interrumpido: los archivos ya tenían sus cambios.",
+  "project.recovery_incomplete": "Un guardado interrumpido no se pudo resolver del todo: algunos archivos se han dejado como estaban. Revisa la papelera (.vic2studio/trash).",
+  "undo.revert_file": "Descartar los cambios de {rel}",
+  "undo.project_settings": "Cambiar los ajustes del proyecto",
+  "undo.restore_session": "Restaurar el autoguardado {session}"
+}

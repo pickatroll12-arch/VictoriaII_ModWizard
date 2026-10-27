@@ -21,7 +21,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 import _qt  # noqa: E402  (antes de PySide6.QtWidgets: plataforma offscreen y avisos)
 from PIL import Image  # noqa: E402
-from PySide6.QtCore import QModelIndex, QRect, Qt  # noqa: E402
+from PySide6.QtCore import QModelIndex, QRect, QSize, Qt  # noqa: E402
 from PySide6.QtGui import QTextDocument  # noqa: E402
 from PySide6.QtTest import QTest  # noqa: E402
 from PySide6.QtWidgets import QComboBox, QLabel, QProxyStyle, QStyle  # noqa: E402
@@ -105,8 +105,9 @@ class PageCase(unittest.TestCase):
         self.window = MainWindow()
         self.window.resize(1440, 900)
         self.window.show()
+        # Con 7 salas la ventana abre en Proyecto › Inicio: estas pruebas trabajan en «Archivos».
+        self.project = self.window.show_page("project")
         _qt.process_events(30)
-        self.project = self.window.page("project")
 
     def tearDown(self):
         self.window.close()
@@ -552,22 +553,118 @@ class ExplorerTests(PageCase):
             self.wait(lambda: self.project.preview.facts is not None and self.project.preview.facts.path == path,
                       f"la ficha de {path.name} no apareció")
             shown = self.project.preview.form_values["encoding"]
-            for lang, says in (("es", "el juego no puede leerlo"), ("en", "the game cannot read it")):
-                set_language(lang)
-                _qt.process_events(20)
-                self.assertEqual(shown.text(), tr(project_page.ENCODING_KEYS[encoding]), lang)
-                self.assertIn(says, shown.text(), lang)
-                self.assertNotIn(encoding, shown.text(), lang)
-                # Se veía en una sola línea recortada por la derecha: se perdía justo el aviso.
-                room, metrics = shown.contentsRect(), shown.fontMetrics()
-                if shown.wordWrap():
-                    needed = metrics.boundingRect(QRect(0, 0, room.width(), 10 * room.height()),
-                                                  int(shown.alignment()) | Qt.TextFlag.TextWordWrap, shown.text())
-                    fits = needed.width() <= room.width() and shown.height() >= shown.heightForWidth(shown.width()) > 0
-                else:
-                    fits = metrics.horizontalAdvance(shown.text()) <= room.width()
-                self.assertTrue(fits, (lang, encoding, room.width(), room.height()))
+            # Literal, no sacado de ENCODING_KEYS: cruzar dos etiquetas tiene que hacer fallar la prueba.
+            big, bom = {"utf-16": (False, True), "utf-16-be-bom": (True, True),
+                        "utf-16-le": (False, False), "utf-16-be": (True, False)}[encoding]
+            splitter = self.project.splitter
+            default_sizes = splitter.sizes()
+            # Con el divisor por defecto y con la vista previa estrecha (~300 px, moviendo el divisor): con la
+            # política vertical Fixed el alto se quedaba en el sizeHint y se perdía «puede leerlo».
+            for sizes in (default_sizes, [sum(default_sizes) - 300, 300]):
+                splitter.setSizes(sizes)
+                for lang, says, with_bom, without_bom in (
+                        ("es", "el juego no puede leerlo", "con BOM", "sin BOM"),
+                        ("en", "the game cannot read it", "with BOM", "without BOM")):
+                    set_language(lang)
+                    _qt.process_events(40)
+                    where = (lang, encoding, sizes)
+                    self.assertEqual(shown.text(), tr(project_page.ENCODING_KEYS[encoding]), where)
+                    self.assertIn(says, shown.text(), where)
+                    self.assertNotIn(encoding, shown.text(), where)
+                    self.assertEqual(("UTF-16 BE" in shown.text(), "UTF-16 LE" in shown.text()), (big, not big), where)
+                    self.assertIn(with_bom if bom else without_bom, shown.text(), where)
+                    # Se veía en una sola línea recortada por la derecha: se perdía justo el aviso.
+                    room, metrics = shown.contentsRect(), shown.fontMetrics()
+                    if shown.wordWrap():
+                        needed = metrics.boundingRect(QRect(0, 0, room.width(), 10 * room.height()),
+                                                      int(shown.alignment()) | Qt.TextFlag.TextWordWrap, shown.text())
+                        fits = needed.width() <= room.width() and shown.height() >= shown.heightForWidth(
+                            shown.width()) > 0
+                    else:
+                        fits = metrics.horizontalAdvance(shown.text()) <= room.width()
+                    self.assertTrue(fits, (*where, room.width(), room.height()))
+            splitter.setSizes(default_sizes)
             set_language("es")
+
+    UTF16_SCRIPT = b"\xff\xfe" + "political_decisions = {\r\n\ta = { }\r\n}\r\n".encode("utf-16-le")
+
+    def open_script(self, path: Path):
+        viewer = self.project.clausewitz_viewer
+        self.assertTrue(self.project.reveal_file(path))
+        self.wait(lambda: viewer.current_load() is not None and viewer.current_load().path == path
+                  and not viewer.is_busy(), f"{path.name} no cargó")
+        _qt.process_events(50)
+        return viewer
+
+    def test_a_utf16_script_is_not_a_syntax_error(self):
+        """La barra de estado decía «a.txt: 1 error de sintaxis» de un UTF-16 sin ningún error de sintaxis
+        (contaba ``unreadable_encoding``); ahora dice que el juego no puede leerlo."""
+        self.set_mod()
+        path = self.mod / "decisions" / "a.txt"
+        path.write_bytes(self.UTF16_SCRIPT)
+        self.open_script(path)
+        for lang, word in (("es", "sintaxis"), ("en", "syntax")):
+            set_language(lang)
+            self.assertNotIn(word, self.status(), lang)
+            self.assertEqual(self.status(), tr("status.file_unreadable", name="a.txt"), lang)
+        set_language("es")
+        # Un error de sintaxis de verdad se sigue contando, y solo él.
+        broken = self.mod / "decisions" / "b.txt"
+        broken.write_bytes(b"political_decisions = {\r\n\ta = { }\r\n")
+        self.open_script(broken)
+        self.assertEqual(self.status(), tr("status.file_errors_one", name="b.txt", count=1))
+
+    def test_a_utf16_descriptor_is_not_a_syntax_error(self):
+        """El descriptor en UTF-16 salía en Rutas como «· 1 error de sintaxis»."""
+        (self.mod.parent / "TestMod.mod").write_bytes(
+            b"\xff\xfe" + 'name = "Test Mod"\r\npath = "mod/TestMod"\r\n'.encode("utf-16-le"))
+        self.set_mod()
+        for lang, word in (("es", "sintaxis"), ("en", "syntax")):
+            set_language(lang)
+            shown = plain(self.project.mod_field.descriptor.text())
+            self.assertNotIn(word, shown, lang)
+            self.assertIn(tr("check.descriptor_unreadable"), shown, lang)
+        set_language("es")
+
+    def test_the_header_of_a_utf16_file_fits(self):
+        """A 1440x900, con la ruta más corta, la cabecera de un UTF-16 perdía la ruta entera y el tamaño: repetía
+        «(el juego no puede leerlo)» y la insignia, más ancha, le quitaba sitio a la línea de detalles."""
+        self.set_mod()
+        path = self.mod / "decisions" / "a.txt"
+        path.write_bytes(self.UTF16_SCRIPT)
+        header = self.open_script(path).header
+        for size in (MINIMUM_SIZE, QSize(1440, 900)):
+            self.window.resize(size)
+            for lang in ("es", "en"):
+                set_language(lang)
+                _qt.process_events(40)
+                self.assertEqual(header.details.displayed_text(), header.details.text(), (lang, size))
+                self.assertTrue(header.badge.isVisible())
+        set_language("es")
+
+    def test_a_long_file_name_does_not_widen_the_file_card(self):
+        """Un nombre largo sin espacios no puede partirse: la ficha se ensanchaba y la etiqueta UTF-16 perdía
+        «el juego no puede leerlo». Ahora el nombre se recorta por el medio (la fila «Ruta» lo lleva entero)."""
+        self.window.resize(MINIMUM_SIZE)
+        self.set_mod()
+        long_name = "definicion_de_provincias_con_un_nombre_larguisimo_que_no_cabe_en_la_ficha_" * 2 + "be.csv"
+        for name in ("corto.csv", long_name):
+            path = self.mod / "map" / name
+            path.write_bytes(b"\xfe\xff" + "province;red\r\n".encode("utf-16-be"))
+            self.assertTrue(self.project.reveal_file(path))
+            self.wait(lambda: self.project.preview.facts is not None and self.project.preview.facts.path == path,
+                      f"la ficha de {name} no apareció")
+            _qt.process_events(60)
+            preview, shown = self.project.preview, self.project.preview.form_values["encoding"]
+            if name == "corto.csv":
+                width = preview.width()
+                continue
+            self.assertEqual(preview.width(), width, "el nombre largo ensanchó la vista previa")
+            self.assertEqual(preview.name.text(), long_name)
+            self.assertNotEqual(preview.name.displayed_text(), long_name)
+            self.assertIn(long_name, preview.form_values["path"].text())
+            self.assertIn("el juego no puede leerlo", shown.text())
+            self.assertGreaterEqual(shown.height(), shown.heightForWidth(shown.width()))
 
     def test_a_long_file_cut_inside_a_character_keeps_its_encoding(self):
         """De un archivo de más de ``MAX_SCAN_BYTES`` la ficha lee solo el principio; si el corte caía dentro

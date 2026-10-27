@@ -481,10 +481,12 @@ class FileEncodingTests(unittest.TestCase):
         cp1252 (antes, nada)."""
         ascii_text = self.TEXT.replace("\u00f3", "o")
         cases = [
-            (ascii_text.encode("utf-16"), "UTF-16"),
-            (ascii_text.encode("utf-16-le"), "UTF-16-LE"),
-            (codecs.BOM_UTF16_BE + self.TEXT.encode("utf-16-be"), "UTF-16-BE-BOM"),
-            (self.TEXT.encode("utf-16-be"), "UTF-16-BE"),
+            # El nombre para mostrar (encoding.display_name), igual que en la cabecera del visor: con el orden de
+            # bytes y el BOM, no el nombre interno del codec («UTF-16-BE-BOM»).
+            (ascii_text.encode("utf-16"), "UTF-16 LE BOM"),
+            (ascii_text.encode("utf-16-le"), "UTF-16 LE"),
+            (codecs.BOM_UTF16_BE + self.TEXT.encode("utf-16-be"), "UTF-16 BE BOM"),
+            (self.TEXT.encode("utf-16-be"), "UTF-16 BE"),
         ]
         for raw, shown in cases:
             with self.subTest(shown=shown):

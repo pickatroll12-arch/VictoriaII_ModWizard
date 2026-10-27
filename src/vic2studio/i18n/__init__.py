@@ -1,8 +1,12 @@
 """Traducción de la interfaz en tiempo real (español / inglés).
 
-Los textos viven en catálogos JSON planos (``es.json``, ``en.json``) con claves
-del tipo ``"nav.project"``. Toda cadena visible pasa por ``tr``; los widgets se
-re-traducen al recibir ``Translator.languageChanged`` sin reiniciar la app.
+Los textos viven en catálogos JSON planos con claves del tipo ``"nav.project"``:
+``<idioma>.json`` más los fragmentos ``<idioma>/<área>.json`` (wizard §20, §21: cada
+agente o sala añade los suyos sin tocar un archivo común) y los textos del núcleo
+(``core.texts.load_texts``: etiquetas de esquema, mensajes de guardado...).
+``load_catalog`` los combina y lanza ``ValueError`` si una clave se repite. Toda
+cadena visible pasa por ``tr``; los widgets se re-traducen al recibir
+``Translator.languageChanged`` sin reiniciar la app.
 
 Las claves que se guardan para traducir más tarde se marcan con ``N_`` para
 que la búsqueda estática de las pruebas las encuentre.
@@ -35,11 +39,58 @@ def catalog_path(code: str) -> Path:
     return _CATALOG_DIR / f"{code}.json"
 
 
-def load_catalog(code: str) -> dict[str, str]:
-    data = json.loads(catalog_path(code).read_text(encoding="utf-8"))
+def fragment_paths(code: str) -> list[Path]:
+    """Fragmentos ``i18n/<code>/*.json``, ordenados por nombre."""
+    folder = _CATALOG_DIR / code
+    return sorted(folder.glob("*.json")) if folder.is_dir() else []
+
+
+def _read_flat(path: Path) -> dict[str, str]:
+    data = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(data, dict) or not all(isinstance(k, str) and isinstance(v, str) for k, v in data.items()):
-        raise ValueError(f"catálogo {code!r} mal formado: se espera un objeto plano de cadenas")
+        raise ValueError(f"catálogo {path.name!r} mal formado: se espera un objeto plano de cadenas")
     return data
+
+
+def _merge(target: dict[str, str], origin: dict[str, str], mapping: dict[str, str], source: str) -> None:
+    for key, value in mapping.items():
+        if key in target:
+            raise ValueError(f"clave de traducción repetida {key!r}: en {origin[key]} y en {source}")
+        target[key] = value
+        origin[key] = source
+
+
+def _source_name(path: Path) -> str:
+    """Cómo se nombra un catálogo en los errores: relativo a ``i18n/`` si está dentro."""
+    try:
+        return path.relative_to(_CATALOG_DIR).as_posix()
+    except ValueError:
+        return path.as_posix()
+
+
+def ui_catalog(code: str) -> dict[str, str]:
+    """``<code>.json`` más sus fragmentos ``<code>/*.json`` (sin los textos del núcleo)."""
+    catalog: dict[str, str] = {}
+    origin: dict[str, str] = {}
+    for path in (catalog_path(code), *fragment_paths(code)):
+        _merge(catalog, origin, _read_flat(path), _source_name(path))
+    return catalog
+
+
+def core_catalog(code: str) -> dict[str, str]:
+    """Textos del núcleo (``core/**/texts/*.<code>.json``) para ``code``."""
+    from ..core.texts import load_texts
+
+    return dict(load_texts(code))
+
+
+def load_catalog(code: str) -> dict[str, str]:
+    """Catálogo completo de ``code``: ``ui_catalog`` más ``core_catalog``; ``ValueError`` ante claves repetidas
+    (entre archivos de la interfaz o entre la interfaz y el núcleo) o un archivo mal formado."""
+    catalog = ui_catalog(code)
+    origin = dict.fromkeys(catalog, "i18n")
+    _merge(catalog, origin, core_catalog(code), "core/**/texts")
+    return catalog
 
 
 def system_language(locale_name: str | None = None) -> str:

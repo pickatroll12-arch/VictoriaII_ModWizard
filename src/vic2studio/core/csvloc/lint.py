@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 from ..cancel import CancelCheck, raise_if_cancelled
-from ..encoding import GAME_ENCODING, GAME_UNREADABLE, UTF8_BOM, UnencodableTextError, encode_text, \
-    has_stray_bom, normalize_encoding
+from ..encoding import GAME_ENCODING, GAME_UNREADABLE, UTF8, UTF8_BOM, UnencodableTextError, display_name, \
+    encode_text, has_stray_bom, normalize_encoding
 from . import diagnostics as d
 from .model import END_MARKER, LANGUAGE_COUNT, LAST_DISPLAYED_COLUMN, LocalisationFile, LocRow, RowKind, \
     marker_index
@@ -100,13 +100,15 @@ def lint_file(file: LocalisationFile, encoding: str = GAME_ENCODING, *,
     target = normalize_encoding(encoding)
     current = normalize_encoding(file.encoding)
     if current in GAME_UNREADABLE:
-        add(d.NON_GAME_ENCODING, None, None, severity=d.Severity.ERROR, encoding=current,
-            expected=GAME_ENCODING, utf16=True)
+        add(d.NON_GAME_ENCODING, None, None, severity=d.Severity.ERROR, encoding=display_name(current),
+            expected=display_name(GAME_ENCODING), utf16=True)
     elif current != GAME_ENCODING:
-        add(d.NON_GAME_ENCODING, None, None, encoding=current, expected=GAME_ENCODING,
-            bom=current == UTF8_BOM)
+        # Con BOM el mensaje ya dice «con BOM»: «UTF-8», no «UTF-8 BOM».
+        add(d.NON_GAME_ENCODING, None, None, encoding=display_name(UTF8 if current == UTF8_BOM else current),
+            expected=display_name(GAME_ENCODING), bom=current == UTF8_BOM)
     elif file.rows and has_stray_bom(file.rows[0].to_line(), current):
-        add(d.NON_GAME_ENCODING, 1, 1, encoding=current, expected=GAME_ENCODING, stray_bom=True,
+        add(d.NON_GAME_ENCODING, 1, 1, encoding=display_name(current), expected=display_name(GAME_ENCODING),
+            stray_bom=True,
             key=file.rows[0].key)
 
     first_seen: dict[str, int] = {}
@@ -151,7 +153,7 @@ def lint_file(file: LocalisationFile, encoding: str = GAME_ENCODING, *,
                 _, _, column, char = problems[0]
                 key = rows[number - 1].key if number <= len(rows) else ""
                 add(d.UNENCODABLE_CHARACTER, number, column, key=key, char=char,
-                    codepoint=f"{ord(char):04X}", count=len(problems), encoding=target)
+                    codepoint=f"{ord(char):04X}", count=len(problems), encoding=display_name(target))
         first_line += chunk.count("\n") + 1
     if unencodable:
         found.sort(key=lambda diag: diag.line or 0)

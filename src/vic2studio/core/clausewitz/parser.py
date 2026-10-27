@@ -27,6 +27,7 @@ from ..encoding import (
     UTF8_BOM,
     decode_bytes,
     detect_newline,
+    display_name,
     has_stray_bom,
     match_bom,
     split_bom,
@@ -422,14 +423,14 @@ def _encoding_diagnostic(text: str, encoding: str) -> Diagnostic | None:
             return Diagnostic("stray_bom", WARNING, 1, 1, 0)
         return None
     if encoding in GAME_UNREADABLE:
-        return Diagnostic("unreadable_encoding", ERROR, 1, 1, 0, {"encoding": encoding.upper()})
+        return Diagnostic("unreadable_encoding", ERROR, 1, 1, 0, {"encoding": display_name(encoding)})
     if encoding == UTF8_BOM:
-        return Diagnostic("non_game_encoding", WARNING, 1, 1, 0, {"encoding": "UTF-8 (BOM)"})
+        return Diagnostic("non_game_encoding", WARNING, 1, 1, 0, {"encoding": display_name(UTF8_BOM)})
     match = _NON_ASCII_RE.search(text)
     if match is None:
         return None
     line, column = position(text, match.start())
-    return Diagnostic("non_game_encoding", WARNING, line, column, match.start(), {"encoding": encoding.upper()})
+    return Diagnostic("non_game_encoding", WARNING, line, column, match.start(), {"encoding": display_name(encoding)})
 
 
 def parse_file(path: str | os.PathLike, *, encoding: str | None = None,

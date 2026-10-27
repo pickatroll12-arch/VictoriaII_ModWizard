@@ -8,3 +8,5 @@ venv/
 /capturas/
 *.bak
 !tests/fixtures/**
+# Worktrees de los agentes de Claude Code (workflows con isolation: worktree)
+.claude/worktrees/

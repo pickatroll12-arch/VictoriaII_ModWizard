@@ -11,7 +11,7 @@ import re
 
 from PySide6.QtCore import QPointF, QRectF, QSize, Qt
 from PySide6.QtGui import QFontMetricsF, QLinearGradient, QPainter, QPainterPath, QPen, QPolygonF
-from PySide6.QtWidgets import QHBoxLayout, QLabel, QSizePolicy, QStackedWidget, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QGridLayout, QHBoxLayout, QLabel, QSizePolicy, QStackedWidget, QVBoxLayout, QWidget
 
 from .. import theme
 from .icons import draw_icon
@@ -226,20 +226,31 @@ class NumeralBadge(QWidget):
 
 
 class RoadmapStrip(QWidget):
-    """Hoja de ruta horizontal: un hito por iteración unido por un riel de bronce."""
+    """Hoja de ruta: un hito por iteración unido por un riel de bronce.
+
+    Si los hitos no caben con ``MIN_COLUMN`` px cada uno, se reparten en filas
+    equilibradas (10 → 5 + 5), cada una con su riel.
+    """
+
+    MIN_COLUMN = 150
+    ROW_SPACING = 14
 
     def __init__(self, count: int, current: int, highlight: int, parent: QWidget | None = None):
         super().__init__(parent)
         self.current = current
         self.highlight = highlight
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(6)
+        self._grid = QGridLayout(self)
+        self._grid.setContentsMargins(0, 0, 0, 0)
+        self._grid.setHorizontalSpacing(6)
+        self._grid.setVerticalSpacing(self.ROW_SPACING)
+        self.milestones: list[QWidget] = []
         self.badges: list[NumeralBadge] = []
         self.titles: list[QLabel] = []
         self.states: list[QLabel] = []
         for n in range(1, count + 1):
-            column = QVBoxLayout()
+            milestone = QWidget(self)
+            column = QVBoxLayout(milestone)
+            column.setContentsMargins(0, 0, 0, 0)
             column.setSpacing(4)
             fill = "velvet" if n == highlight else ("success" if n == current else "bronze")
             badge = NumeralBadge(n, 38, fill)
@@ -256,24 +267,54 @@ class RoadmapStrip(QWidget):
             column.addWidget(title)
             column.addWidget(state)
             column.addStretch(1)
-            layout.addLayout(column, 1)
+            self.milestones.append(milestone)
             self.badges.append(badge)
             self.titles.append(title)
             self.states.append(state)
+        self.per_row = 0
+        self._place(count)
+
+    @classmethod
+    def columns_for(cls, count: int, width: int) -> int:
+        """Hitos por fila: todos si caben; si no, filas equilibradas."""
+        if count <= 1 or width >= count * cls.MIN_COLUMN:
+            return max(count, 1)
+        rows = -(-count * cls.MIN_COLUMN // max(width, 1))
+        return max(1, -(-count // rows))
+
+    def rows(self) -> list[list[NumeralBadge]]:
+        per_row = max(self.per_row, 1)
+        return [self.badges[i:i + per_row] for i in range(0, len(self.badges), per_row)]
+
+    def _place(self, per_row: int) -> None:
+        if per_row == self.per_row:
+            return
+        for milestone in self.milestones:
+            self._grid.removeWidget(milestone)
+        for column in range(max(self.per_row, per_row)):
+            self._grid.setColumnStretch(column, 1 if column < per_row else 0)
+        for index, milestone in enumerate(self.milestones):
+            self._grid.addWidget(milestone, index // per_row, index % per_row)
+        self.per_row = per_row
+        self.update()
+
+    def resizeEvent(self, event) -> None:
+        self._place(self.columns_for(len(self.milestones), event.size().width()))
+        super().resizeEvent(event)
 
     def paintEvent(self, event) -> None:
-        if len(self.badges) < 2:
-            return
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
-        first, last = self.badges[0], self.badges[-1]
-        y = first.geometry().center().y()
-        x1, x2 = first.geometry().center().x(), last.geometry().center().x()
-        rail = QPainterPath()
-        rail.addRoundedRect(QRectF(x1, y - 2.5, x2 - x1, 5), 2.5, 2.5)
-        g = QLinearGradient(QPointF(0, y - 2.5), QPointF(0, y + 2.5))
-        g.setColorAt(0.0, C("gold_light"))
-        g.setColorAt(1.0, C("bronze_dark"))
-        p.fillPath(rail, g)
-        p.setPen(QPen(C("bronze_dark"), 0.8))
-        p.drawPath(rail)
+        for row in self.rows():
+            if len(row) < 2:
+                continue
+            first, last = (badge.mapTo(self, badge.rect().center()) for badge in (row[0], row[-1]))
+            y = first.y()
+            rail = QPainterPath()
+            rail.addRoundedRect(QRectF(first.x(), y - 2.5, last.x() - first.x(), 5), 2.5, 2.5)
+            g = QLinearGradient(QPointF(0, y - 2.5), QPointF(0, y + 2.5))
+            g.setColorAt(0.0, C("gold_light"))
+            g.setColorAt(1.0, C("bronze_dark"))
+            p.fillPath(rail, g)
+            p.setPen(QPen(C("bronze_dark"), 0.8))
+            p.drawPath(rail)

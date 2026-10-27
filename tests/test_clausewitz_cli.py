@@ -75,7 +75,7 @@ class CliCheckTests(unittest.TestCase):
         self.assertEqual(unreadable.stdout.splitlines(), [
             f"{self.root / name}:1:1: error: The file is encoded as {shown} (16-bit Unicode): Victoria II cannot "
             "read it at all. Save it as Windows-1252 (ANSI)."
-            for name, shown in (("le.txt", "UTF-16"), ("no_bom.txt", "UTF-16-LE"), ("be.txt", "UTF-16-BE-BOM"))
+            for name, shown in (("le.txt", "UTF-16 LE BOM"), ("no_bom.txt", "UTF-16 LE"), ("be.txt", "UTF-16 BE BOM"))
         ])
         self.assertIn("3 file(s), 3 error(s), 0 warning(s)", unreadable.stderr)
         stray = run_cli("check", self.root / "stray.txt")

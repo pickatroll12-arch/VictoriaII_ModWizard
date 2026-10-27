@@ -138,6 +138,14 @@ class LintTests(unittest.TestCase):
         bom = parse_csv("\ufeff" + OK).diagnostics
         self.assertEqual([(d.code, d.args["bom"]) for d in bom], [("non_game_encoding", True)])
         self.assertIn("BOM", bom[0].message("es"))
+        # Nombres para mostrar, no los del codec: dec\u00eda \u00abutf-8-sig with a BOM\u00bb y \u00abas cp1252\u00bb.
+        self.assertEqual((utf8[0].args["encoding"], utf8[0].args["expected"]), ("UTF-8", "Windows-1252"))
+        self.assertEqual(bom[0].args["encoding"], "UTF-8")
+        self.assertIn("UTF-8 with a BOM", bom[0].message("en"))
+        self.assertNotIn("utf-8-sig", bom[0].message("en") + bom[0].message("es"))
+        unencodable = next(d for d in parse_csv("K;\u041f\u0440\u0438\u0432\u0435\u0442;;;;;;;;;;;;;x\r\n").diagnostics
+                           if d.code == "unencodable_character")
+        self.assertEqual(unencodable.args["encoding"], "Windows-1252")
 
     def test_utf16_is_an_error(self):
         """LOC-M3: un CSV en UTF-16 no daba ningún aviso de codificación (el juego no puede leerlo)."""

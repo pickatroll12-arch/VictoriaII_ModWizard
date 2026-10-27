@@ -98,8 +98,9 @@ class IntegrationCase(unittest.TestCase):
         self.window = MainWindow()
         self.window.resize(1440, 900)
         self.window.show()
+        # Con 7 salas la ventana abre en Proyecto › Inicio: estas pruebas trabajan en «Archivos».
+        self.project = self.window.show_page("project")
         _qt.process_events(30)
-        self.project = self.window.page("project")
         self.localisation = self.window.page("localisation")
 
     def tearDown(self):
@@ -404,7 +405,8 @@ class ScreenshotToolTests(unittest.TestCase):
                                               "--search", "political", "--line", "3", "--tab", "source")
             self.assertEqual({k: state["script"][k] for k in ("tab", "line", "search", "matches")},
                              {"tab": "source", "line": 3, "search": "political", "matches": 1})
-            self.assertEqual(sorted(p.name for p in out.glob("*.png")), ["en_1_project.png", "en_5_localisation.png"])
+            # El número es el atajo Ctrl+n de la sala: Textos (con «Archivos CSV») es la 7.ª de las 7 salas.
+            self.assertEqual(sorted(p.name for p in out.glob("*.png")), ["en_1_project.png", "en_7_localisation.png"])
             for png in out.glob("*.png"):
                 with Image.open(png) as image:
                     self.assertEqual(image.size, (1200, 800))

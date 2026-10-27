@@ -24,7 +24,7 @@ Otros puntos de extensión: ``file_activated(Path)``, ``set_preview_widget(widge
 (``None`` restaura la vista por defecto), ``game_path_changed`` / ``mod_path_changed``.
 
 La inspección de carpetas (``inspect_folder``, ``evaluate_game``, ``evaluate_mod``)
-no depende de Qt para poder reutilizarla en el futuro sistema de archivos virtual.
+vive en ``core.vfs.guard`` (sin Qt) y se reexporta aquí.
 """
 
 from __future__ import annotations
@@ -77,15 +77,26 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from ...core.clausewitz import Severity
+from ...core.clausewitz.diagnostics import ENCODING_CODES
 from ...core.csvloc import is_localisation_csv
-from ...core.encoding import decode_bytes
-from ...core.modcheck import GAME_EXECUTABLES
+from ...core.encoding import GAME_UNREADABLE, decode_bytes
 from ...core.modfile import INSIDE, ModDescriptor, find_descriptor, read_descriptor
+from ...core.vfs.guard import (
+    EXPECTED_FOLDERS,
+    FolderReport,
+    evaluate_game,
+    evaluate_mod,
+    folder_key,
+    inspect_folder,
+    same_folder,
+)
+from ...core.vfs.guard import is_under as _is_under
 from ...i18n import N_, tr, translator
 from ...settings import app_settings
 from .. import theme
 from ..viewers import CLAUSEWITZ_SUFFIXES, IMAGE_SUFFIXES, ClausewitzViewer, ImageViewer, ValidationPanel
-from ..viewers.common import file_stamp, format_seconds
+from ..viewers.common import ElidedLabel, file_stamp, format_seconds, format_size
 from ..widgets import (
     Divider,
     EmptyState,
@@ -107,9 +118,6 @@ __all__ = [
     "read_descriptor", "same_folder",
 ]
 
-EXPECTED_FOLDERS = ("common", "history", "localisation", "map", "events", "decisions", "gfx", "interface")
-GAME_DATA_MIN_FOLDERS = 5
-
 SETTINGS_GAME = "project/game_path"
 SETTINGS_MOD = "project/mod_path"
 SETTINGS_ROOT = "project/explorer_root"
@@ -120,91 +128,6 @@ COMPACT_HEIGHT = 600
 SELECTION_DELAY_MS = 150  # con el teclado, espera antes de cargar la vista previa del archivo seleccionado
 REVEAL_TIMEOUT_MS = 5000  # como mucho, lo que se espera a que el explorador liste las carpetas de lo revelado
 RESCROLL_SECONDS = 1.0    # tras listarlas, cada cambio de disposición vuelve a centrarlo durante este tiempo
-
-# --- inspección de carpetas (sin Qt) ------------------------------------------------------
-# El descriptor .mod se lee con el parser Clausewitz (core.modfile).
-
-
-@dataclass(frozen=True)
-class FolderReport:
-    path: Path | None
-    exists: bool = False
-    present: tuple[str, ...] = ()
-    executable: str | None = None
-    entries: int = 0
-    descriptor: ModDescriptor | None = None
-
-    @property
-    def is_game(self) -> bool:
-        return self.executable is not None
-
-
-def inspect_folder(path: str | os.PathLike | None) -> FolderReport:
-    if path is None or os.fspath(path) == "":
-        return FolderReport(None)
-    folder = Path(path)
-    try:
-        entries = {entry.name.lower(): entry for entry in os.scandir(folder)}
-    except OSError:
-        return FolderReport(folder)
-    present = tuple(name for name in EXPECTED_FOLDERS if name in entries and entries[name].is_dir())
-    executable = next((entries[name].name for name in GAME_EXECUTABLES
-                       if name in entries and entries[name].is_file()), None)
-    return FolderReport(folder, True, present, executable, len(entries), find_descriptor(folder))
-
-
-def folder_key(path: str | os.PathLike) -> str:
-    """Clave de una carpeta para compararla con otras (ruta real, sin distinguir mayúsculas en Windows)."""
-    return os.path.normcase(os.path.realpath(path))
-
-
-def same_folder(a: Path | None, b: Path | None) -> bool:
-    if a is None or b is None:
-        return False
-    return folder_key(a) == folder_key(b)
-
-
-def _is_under(path: Path, root: Path) -> bool:
-    try:
-        Path(os.path.realpath(path)).relative_to(os.path.realpath(root))
-    except ValueError:
-        return False
-    return True
-
-
-def evaluate_game(report: FolderReport) -> tuple[str, str, dict]:
-    """(nivel, clave de catálogo, formato) para la ruta del juego base."""
-    if report.path is None:
-        return "neutral", N_("check.not_set"), {}
-    if not report.exists:
-        return "error", N_("check.missing"), {}
-    if report.is_game:
-        return "ok", N_("check.game_ok"), {"exe": report.executable}
-    if len(report.present) >= GAME_DATA_MIN_FOLDERS:
-        return "warning", N_("check.game_no_exe"), {}
-    return "error", N_("check.game_no_data"), {}
-
-
-def evaluate_mod(report: FolderReport, game_path: Path | None) -> tuple[str, str, dict]:
-    """El mod nunca puede ser el juego base, ni contenerlo, ni estar dentro de él salvo en su
-    carpeta ``mod/``: así jamás se escribe sobre el original ni se validan sus archivos."""
-    if report.path is None:
-        return "neutral", N_("check.not_set"), {}
-    if not report.exists:
-        return "error", N_("check.missing"), {}
-    if report.is_game or same_folder(report.path, game_path):
-        return "error", N_("check.mod_is_game"), {}
-    if game_path is not None:
-        if _is_under(game_path, report.path):
-            return "error", N_("check.mod_contains_game"), {}
-        if _is_under(report.path, game_path) and not _is_under(report.path, game_path / "mod"):
-            return "error", N_("check.mod_inside_game"), {}
-    if report.present:
-        return "ok", N_("check.mod_ok"), {"count": len(report.present)}
-    if report.entries == 0:
-        return "warning", N_("check.mod_empty"), {}
-    return "warning", N_("check.mod_unknown"), {}
-
 
 # --- tipos de archivo ---------------------------------------------------------------------
 
@@ -348,7 +271,7 @@ class ExplorerModel(QIdentityProxyModel):
             source = self.mapToSource(index)
             locale = translator().locale()
             if index.column() == 1:
-                return "" if self.fs.isDir(source) else locale.formattedDataSize(self.fs.size(source))
+                return "" if self.fs.isDir(source) else format_size(self.fs.size(source))
             return locale.toString(self.fs.lastModified(source), QLocale.FormatType.ShortFormat)
         if role == Qt.ItemDataRole.DecorationRole and index.column() == 0:
             source = self.mapToSource(index)
@@ -411,10 +334,17 @@ _LINK_TOKEN = "\ue000"
 _VALUE_TOKENS = {"name": "\ue001", "path": "\ue002", "user_dir": "\ue003"}
 
 
+def syntax_error_count(diagnostics) -> int:
+    """Errores de sintaxis de verdad: los de codificación (``ENCODING_CODES``, p. ej. un UTF-16) se cuentan aparte."""
+    return sum(1 for d in diagnostics if d.severity is Severity.ERROR and d.code not in ENCODING_CODES)
+
+
 def _descriptor_errors_text(descriptor: ModDescriptor) -> str:
-    errors = len(descriptor.errors)
-    return tr("check.descriptor_errors_one" if errors == 1 else "check.descriptor_errors", count=errors) \
-        if errors else ""
+    parts = [] if descriptor.game_readable else [tr("check.descriptor_unreadable")]
+    errors = syntax_error_count(descriptor.errors)
+    if errors:
+        parts.append(tr("check.descriptor_errors_one" if errors == 1 else "check.descriptor_errors", count=errors))
+    return " · ".join(parts)
 
 
 def descriptor_html(descriptor: ModDescriptor) -> str:
@@ -492,8 +422,9 @@ class PathField(QWidget):
         self.descriptor.setTextInteractionFlags(Qt.TextInteractionFlag.LinksAccessibleByMouse
                                                 | Qt.TextInteractionFlag.LinksAccessibleByKeyboard)
         self.descriptor.linkActivated.connect(self._on_descriptor_link)
-        self.descriptor.setVisible(kind == "mod")
         layout.addWidget(self.descriptor)
+        # Después de meterla en la fila: sin padre, setVisible(True) la mostraría como ventana suelta.
+        self.descriptor.setVisible(kind == "mod")
         layout.addStretch(1)
         self._compact = False
         self._report = FolderReport(None)
@@ -623,11 +554,10 @@ class FilePreview(QWidget):
         head.addWidget(self.icon, 0, Qt.AlignmentFlag.AlignTop)
         names = QVBoxLayout()
         names.setSpacing(0)
-        self.name = mark_data(QLabel())
+        # Recortado por el medio: un nombre largo sin espacios no puede partirse y ensancharía la ficha.
+        self.name = mark_data(ElidedLabel())
         self.name.setFont(theme.font("body_bold", 13))
         self.name.setProperty("role", "title")
-        self.name.setWordWrap(True)
-        self.name.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         self.kind = QLabel()
         self.kind.setProperty("role", "caption")
         self.kind.setFont(theme.font("caption"))
@@ -648,8 +578,10 @@ class FilePreview(QWidget):
             value = mark_data(QLabel())
             value.setProperty("role", "value")
             value.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-            value.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
-            value.setWordWrap(True)  # «UTF-16 BE con BOM (…) — el juego no puede leerlo» no cabe en una línea
+            # Preferred y no Fixed: con Fixed el alto se queda en el sizeHint y, con la vista previa estrecha, el
+            # texto partido («UTF-16 BE con BOM (…) — el juego no puede leerlo») pierde sus últimas líneas.
+            value.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+            value.setWordWrap(True)
             self.form.addRow(label, value)
             self.form_labels[row_id] = label
             self.form_values[row_id] = value
@@ -702,7 +634,8 @@ class FilePreview(QWidget):
             self.icon.set_icon("folder_open", "bronze")
         else:
             self.icon.set_icon(*file_icon_spec(facts.path.suffix.lower()))
-        self.name.setText(facts.path.name or facts.relative)
+        name = facts.path.name or facts.relative  # la fila «Ruta» lo lleva entero
+        self.name.set_text(name, name)
         self.csv_button.setVisible(not facts.is_dir and preview_kind(facts.path) == PREVIEW_CSV)
         self.excerpt.setPlainText(facts.excerpt or "")
         self.excerpt.setVisible(facts.excerpt is not None)
@@ -723,9 +656,8 @@ class FilePreview(QWidget):
         self.kind.setText(file_type_text(facts.path, facts.is_dir))
         values = {
             "path": facts.relative,
-            "size": None if facts.is_dir else tr(
-                "project.preview.size_value", human=locale.formattedDataSize(facts.size),
-                bytes=locale.toString(facts.size)),
+            "size": None if facts.is_dir else format_size(facts.size) if facts.size < 1024 else tr(
+                "project.preview.size_value", human=format_size(facts.size), bytes=locale.toString(facts.size)),
             "modified": locale.toString(QDateTime.fromSecsSinceEpoch(int(facts.modified)), "d MMM yyyy, HH:mm"),
             "entries": None if facts.entries is None else tr(
                 "project.preview.entries_value_one" if facts.entries == 1 else "project.preview.entries_value",
@@ -1303,7 +1235,10 @@ class ProjectPage(BasePage):
             return  # terminó de analizarse cuando ya se mostraba otra cosa
         load = self.clausewitz_viewer.current_load()
         if load is not None and load.path == path:
-            errors = len(load.result.errors)
+            if load.result.encoding in GAME_UNREADABLE:
+                self.request_status("status.file_unreadable", name=path.name)
+                return
+            errors = syntax_error_count(load.result.errors)
             if errors:
                 self.request_status("status.file_errors_one" if errors == 1 else "status.file_errors",
                                     name=path.name, count=errors)

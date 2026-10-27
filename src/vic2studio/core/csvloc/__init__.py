@@ -67,11 +67,20 @@ from .model import (
     column_index,
     is_localisation_csv,
 )
-from .serialization import from_json, parse_csv, read_csv_file, to_json, to_source, write_csv_file
+from .serialization import (
+    from_json,
+    parse_csv,
+    read_csv_file,
+    render_csv_checked,
+    to_json,
+    to_source,
+    write_csv_file,
+)
 
 __all__ = [
     "CODES", "DISPLAYED_LANGUAGES", "END_MARKER", "END_MARKER_COLUMN", "LANGUAGE_CODES",
     "LANGUAGE_COLUMNS", "LANGUAGE_COUNT", "CsvDiagnostic", "DuplicateKeyError", "InvalidFieldError",
     "KeyOverride", "LocalisationDB", "LocalisationFile", "LocRow", "RowKind", "Severity", "column_index",
-    "from_json", "is_localisation_csv", "parse_csv", "read_csv_file", "to_json", "to_source", "write_csv_file",
+    "from_json", "is_localisation_csv", "parse_csv", "read_csv_file", "render_csv_checked", "to_json", "to_source",
+    "write_csv_file",
 ]

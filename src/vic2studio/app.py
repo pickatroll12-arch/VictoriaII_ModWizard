@@ -27,9 +27,31 @@ def create_application(argv: list[str] | None = None) -> QApplication:
     return app
 
 
+def refuse_broken_binding(python: str, pyside: str) -> int:
+    """Explica que esta combinación de Python y PySide6 aborta, y devuelve el código de salida."""
+    from PySide6.QtWidgets import QMessageBox
+
+    from .compat import broken_binding_message
+    from .i18n import tr
+
+    print(broken_binding_message(python, pyside), file=sys.stderr)
+    QMessageBox.critical(
+        None,
+        tr("compat.pyside_title"),
+        tr("compat.pyside_text", python=python, pyside=pyside),
+    )
+    return 1
+
+
 def main(argv: list[str] | None = None) -> int:
     """Arranca la interfaz; ``argv`` son los argumentos sin el nombre del programa."""
+    from .compat import broken_qt_binding
+
     app = create_application(sys.argv[1:] if argv is None else argv)
+    # Antes de la ventana y de cualquier tarea: con esa combinación el proceso aborta al rato.
+    broken = broken_qt_binding()
+    if broken is not None:
+        return refuse_broken_binding(*broken)
 
     from .ui.main_window import MainWindow
     from .ui.tasks import cancel_all, wait_for_tasks

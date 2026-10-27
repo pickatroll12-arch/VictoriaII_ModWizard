@@ -1366,27 +1366,14 @@ def _repeated_boms(document: Document, encoding: str) -> str:
     return BOM * document.extra_boms if same else ""
 
 
-def write_file(path: str | os.PathLike, document_or_result, *, encoding: str | None = None,
-               backup: bool = True, verify: bool = True, expected=None) -> Path | None:
-    """Escribe ``to_source`` de forma atómica; devuelve la copia de seguridad o None.
+def render_checked(document_or_result, *, encoding: str | None = None, verify: bool = True,
+                   path: str | os.PathLike | None = None) -> bytes:
+    """Los bytes que escribiría ``write_file``, sin tocar el disco (wizard §6.1, paso 0 de §6.5).
 
-    La codificación por defecto es la del documento (``document.encoding``: la
-    detectada al leer; cp1252 para documentos nuevos); los BOM repetidos del
-    documento (``extra_boms``) se escriben delante solo si se guarda en esa misma
-    codificación y lleva BOM (``encoding.BOM_ENCODINGS``). Con ``verify`` se comprueba
-    antes que el texto se vuelve a leer como el árbol en memoria (con los mismos
-    bloques sin cerrar) y sin errores de sintaxis que no estuvieran en lo leído (el
-    ``ParseResult``; ninguno en un documento creado por código); si no, se lanza
-    ``SourceMismatchError`` (con la ruta de la primera entrada distinta) y el
-    archivo no se toca. Es lo que pasa al editar junto a los errores de sintaxis de
-    un archivo (ver el docstring del módulo): el error lo indica (``near_errors``).
-    Con ``backup`` se guarda ``archivo.bak`` con lo que tenía
-    el archivo antes de su primer guardado de la sesión (del proceso): los
-    guardados siguientes no lo pisan, así que sigue siendo el original. Con
-    ``expected`` (``ParseResult.stamp``) se lanza ``FileChangedError`` sin escribir
-    si el archivo ha cambiado fuera de la aplicación desde que se leyó. Al guardar
-    un ``ParseResult`` en su propio archivo, su ``stamp`` pasa a ser el de lo escrito
-    (el ``expected`` del guardado siguiente).
+    Misma verificación por relectura (``SourceMismatchError``, que nombra ``path``),
+    misma codificación por defecto (la del documento; cp1252 si es nuevo) con sus
+    BOM repetidos, y ``UnencodableTextError`` si algún carácter no cabe.
+    ``write_file`` pasa a usarla sin cambiar su comportamiento.
     """
     from .parser import ParseResult, parse
 
@@ -1409,10 +1396,38 @@ def write_file(path: str | os.PathLike, document_or_result, *, encoding: str | N
             else:
                 near_errors = bool(document.unclosed_blocks())
             raise SourceMismatchError(path, *difference, near_errors)
+    codec = encoding or document.encoding or GAME_ENCODING
+    return encode_text(_repeated_boms(document, codec) + text, codec)
+
+
+def write_file(path: str | os.PathLike, document_or_result, *, encoding: str | None = None,
+               backup: bool = True, verify: bool = True, expected=None) -> Path | None:
+    """Escribe ``to_source`` de forma atómica; devuelve la copia de seguridad o None.
+
+    La codificación por defecto es la del documento (``document.encoding``: la
+    detectada al leer; cp1252 para documentos nuevos); los BOM repetidos del
+    documento (``extra_boms``) se escriben delante solo si se guarda en esa misma
+    codificación y lleva BOM (``encoding.BOM_ENCODINGS``). Con ``verify`` se comprueba
+    antes que el texto se vuelve a leer como el árbol en memoria (con los mismos
+    bloques sin cerrar) y sin errores de sintaxis que no estuvieran en lo leído (el
+    ``ParseResult``; ninguno en un documento creado por código); si no, se lanza
+    ``SourceMismatchError`` (con la ruta de la primera entrada distinta) y el
+    archivo no se toca. Es lo que pasa al editar junto a los errores de sintaxis de
+    un archivo (ver el docstring del módulo): el error lo indica (``near_errors``).
+    Con ``backup`` se guarda ``archivo.bak`` con lo que tenía
+    el archivo antes de su primer guardado de la sesión (del proceso): los
+    guardados siguientes no lo pisan, así que sigue siendo el original. Con
+    ``expected`` (``ParseResult.stamp``) se lanza ``FileChangedError`` sin escribir
+    si el archivo ha cambiado fuera de la aplicación desde que se leyó. Al guardar
+    un ``ParseResult`` en su propio archivo, su ``stamp`` pasa a ser el de lo escrito
+    (el ``expected`` del guardado siguiente).
+    """
+    from .parser import ParseResult
+
+    result = document_or_result if isinstance(document_or_result, ParseResult) else None
+    data = render_checked(document_or_result, encoding=encoding, verify=verify, path=path)
     target = Path(path)
     session_key = _session_key(target)
-    codec = encoding or document.encoding or GAME_ENCODING
-    data = encode_text(_repeated_boms(document, codec) + text, codec)
     if backup and session_key in _SESSION_BACKUPS:
         atomic_write_bytes(target, data, expected=expected)
         existing = target.with_name(target.name + BACKUP_SUFFIX)
