@@ -70,15 +70,19 @@ arreglarlo, deja una prueba de regresión que falle sin el arreglo y pasa la bat
   Los encargos de los dos agentes son `docs/handoff/iteracion3_agente_A.md` (núcleo) y `…_agente_B.md`
   (`LocSync` e interfaz). Si la sesión se corta, mira qué ramas de agente quedaron en `.claude/worktrees/` antes
   de relanzarlos.
-- **Gemini, segunda tanda (G4–G7, en curso).** Son piezas del núcleo para iteraciones futuras, en archivos nuevos
-  que nadie más toca:
-  - G4: `core/tablecsv.py` y `core/map/definition.py`;
-  - G5: el códec BMP, `core/map/bmp.py`;
-  - G6: DDS A8R8G8B8, `core/gfx/dds.py`;
-  - G7: banderas TGA, `core/gfx/flags.py`.
+- **Segunda tanda de Gemini (G4–G7): hecha por Claude.** La plataforma de Gemini se cayó y el usuario pidió
+  asumirlas. Son piezas del núcleo para iteraciones futuras, en archivos nuevos:
+  - G4 (`8c33ae6`): `core/tablecsv.py` y `core/map/definition.py`;
+  - G5 (`e3bae3e`): el códec BMP, `core/map/bmp.py`;
+  - G6 (`b412730` y `b973bb9`): DDS A8R8G8B8, `core/gfx/dds.py`;
+  - G7 (`ac3df50`): banderas TGA, `core/gfx/flags.py`.
 
-  El encargo es `docs/handoff/PARA_GEMINI.md`. Llegan como ramas `gemini/g4`…`g7`, con un PR contra esta rama.
-  Revísalas de forma adversarial (mutaciones, corpus, las 4 combinaciones) antes de fusionarlas.
+  El detalle (corpus y mutaciones) está en el estado de `docs/handoff/PARA_GEMINI.md`. Todas pasan en Python 3.13
+  y 3.10 con Pillow 12.3, en 3.10 con Pillow 10.0 y PySide6 6.5, y en 3.10 con Pillow 10.3, con y sin corpus
+  (`VIC2_GAME`).
+  - **Pendiente para la integración.** `ui/viewers/image_viewer.py` decodifica los DDS con Pillow. Con Pillow
+    10.0–10.1, un DDS X8R8G8B8 se vería con los colores corridos. Conviene pasar los DDS sin comprimir por
+    `core/gfx/dds.read_dds`.
 
 ---
 

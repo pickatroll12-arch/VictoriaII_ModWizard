@@ -5,14 +5,25 @@
 >   el usuario la fusionó en `main` (PR #7, #8 y #9) y Claude la revisó: 8 de 8 mutaciones detectadas,
 >   `find_unencodable` 12 veces más rápida y sin discrepancias en 28 000 textos aleatorios, y la batería completa
 >   en verde. Sus encargos siguen abajo como modelo.
-> - **Segunda tanda (G4–G7): en curso.** Cuatro piezas del núcleo para iteraciones futuras (mapa, interfaz y
->   banderas), en archivos nuevos que nadie más toca.
+> - **Segunda tanda (G4–G7): hecha por Claude.** La plataforma de Gemini se cayó y el usuario pidió a Claude que
+>   las asumiera. Están en `claude/keen-fermi-nw8itc`, cada una con sus pruebas, corpus y mutaciones:
+>   - G4 (`8c33ae6`): `core/tablecsv.py` y `core/map/definition.py`. Ida y vuelta exacta de `definition.csv`
+>     (3248 ids y 56 filas sin id); 12 mutaciones, todas muertas.
+>   - G5 (`e3bae3e`): `core/map/bmp.py`. Los 3 mapas de vanilla vuelven idénticos e iguales a Pillow; lee en
+>     41 ms y escribe en 57 ms (Pillow, 74 ms); 11 de 11 mutaciones.
+>   - G6 (`b412730` y `b973bb9`): `core/gfx/dds.py`. `colormap.dds` reescrito sale idéntico y
+>     `colormap_water.dds`, con la misma cabecera y el mismo tamaño; 10 de 10 mutaciones. Pillow 10.0 y 10.1 leen
+>     X8R8G8B8 como si fuera de 24 bits (corregido en 10.2); el lector propio, no.
+>   - G7 (`ac3df50`): `core/gfx/flags.py`. Las 1345 banderas de 93×64 de vanilla salen idénticas; 11 de 11
+>     mutaciones.
+>
+>   Si Gemini vuelve, sus próximas tareas serán una tercera tanda: estas cuatro ya no hay que hacerlas.
 
 Este documento reparte trabajo de **Victoria II Mod Studio** con otro asistente. Ahora mismo Claude Code está en la
 iteración 3 con dos agentes (A: índice de símbolos y validación, en `core/index`, `core/validate` y `core/rules`; B:
-localización editable e interfaz, en `core/locsync.py` y `ui/`). Las tareas de la segunda tanda son
-independientes entre sí y de lo que hacen ellos. Cada una dice qué crear, cómo probar y qué entregar. Léelas
-enteras antes de empezar: los requisitos de las pruebas son tan obligatorios como los del código.
+localización editable e interfaz, en `core/locsync.py` y `ui/`). Las tareas de la segunda tanda eran
+independientes entre sí y de lo que hacen ellos. Cada una dice qué crear, cómo probar y qué entregar; quedan como
+modelo de encargo, porque ya están hechas (ver el estado de arriba).
 
 ## Contexto mínimo
 
