@@ -28,14 +28,19 @@ def is_binary(data: bytes | None) -> bool:
     return bool(data) and b"\0" in data[:8192]
 
 
+def binary_summary(rel: VPath, before: int | None, after: int | None) -> str:
+    """La línea que resume un binario que cambia: tamaños en bytes (``None``: no existe)."""
+    size = lambda length: "-" if length is None else str(length)  # noqa: E731
+    return f"Binary files a/{rel} and b/{rel} differ ({size(before)} -> {size(after)} bytes)"
+
+
 def unified_diff(rel: VPath, before: bytes | None, after: bytes | None, *, encoding: str = "cp1252",
                  context: int = 3) -> str:
     """``difflib.unified_diff`` de los dos textos (``a/<rel>``, ``b/<rel>``). Binarios: una línea de resumen."""
     if is_binary(before) or is_binary(after):
         if before == after:
             return ""
-        size = lambda data: "-" if data is None else str(len(data))  # noqa: E731
-        return f"Binary files a/{rel} and b/{rel} differ ({size(before)} -> {size(after)} bytes)"
+        return binary_summary(rel, None if before is None else len(before), None if after is None else len(after))
     lines = list(difflib.unified_diff(_lines(before, encoding), _lines(after, encoding), f"a/{rel}", f"b/{rel}",
                                       n=context, lineterm=""))
     if len(lines) > MAX_DIFF_LINES:

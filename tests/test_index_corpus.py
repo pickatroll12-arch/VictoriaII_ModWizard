@@ -1,16 +1,19 @@
 """Criterios 1 y 2 de la iteración 3 con el corpus real (``VIC2_CORPUS``): recuentos y tiempos del índice.
 
-Las medidas de tiempo son con el recolector cíclico activo (más estricto que en la
-aplicación, donde ``ui/tasks`` lo para mientras corre la tarea). En una máquina
-cargada (otra batería a la vez) pueden fallar: repítelas solas antes de darlas por
-rotas.
+Las medidas de tiempo se toman con el recolector cíclico parado, como en la
+aplicación: el índice se construye en una tarea de ``ui/tasks``, que lo para mientras
+corre. Con él activo, el tiempo depende de cuántos objetos dejaron vivos las pruebas
+anteriores del mismo proceso (las de validación con corpus, millones): desde la caché
+pasaba de 0,4 s a 1,7 s y la prueba fallaba según el orden de la batería.
 """
 
+import gc
 import shutil
 import sys
 import tempfile
 import time
 import unittest
+from contextlib import contextmanager
 from dataclasses import replace
 from pathlib import Path
 
@@ -24,6 +27,18 @@ from vic2studio.core.vfs import VirtualFS  # noqa: E402
 
 COLD_LIMIT = 6.0
 WARM_LIMIT = 1.0
+
+
+@contextmanager
+def collector_paused():
+    """Como ``ui/tasks`` durante una tarea: sin recolector cíclico (ver el docstring del módulo)."""
+    enabled = gc.isenabled()
+    gc.disable()
+    try:
+        yield
+    finally:
+        if enabled:
+            gc.enable()
 
 
 def vanilla_snapshot(mod_root: Path):
@@ -41,9 +56,10 @@ class CorpusIndexTests(unittest.TestCase):
         cls.mod.mkdir()
         cls.cache = FactsCache(cls.base / "cache")
         cls.snapshot = vanilla_snapshot(cls.mod)
-        start = time.perf_counter()
-        cls.index = build_index(cls.snapshot, cls.cache)
-        cls.cold = time.perf_counter() - start
+        with collector_paused():
+            start = time.perf_counter()
+            cls.index = build_index(cls.snapshot, cls.cache)
+            cls.cold = time.perf_counter() - start
 
     @classmethod
     def tearDownClass(cls):
@@ -96,9 +112,10 @@ class CorpusIndexTests(unittest.TestCase):
     def test_criterion_2_cold_and_warm(self):
         self.assertLess(self.cold, COLD_LIMIT, f"en frío: {self.cold:.2f} s")
         seen = []
-        start = time.perf_counter()
-        warm = build_index(self.snapshot, self.cache, on_extract=lambda rel, name: seen.append(rel))
-        elapsed = time.perf_counter() - start
+        with collector_paused():
+            start = time.perf_counter()
+            warm = build_index(self.snapshot, self.cache, on_extract=lambda rel, name: seen.append(rel))
+            elapsed = time.perf_counter() - start
         self.assertEqual(seen, [], "todo desde la caché")
         self.assertLess(elapsed, WARM_LIMIT, f"desde la caché: {elapsed:.2f} s")
         self.assertEqual(warm.count(m.KIND_PROVINCE), 2703)

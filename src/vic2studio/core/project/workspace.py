@@ -35,6 +35,7 @@ import logging
 import os
 import threading
 import time
+import zlib
 from collections.abc import Callable, Iterable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -51,7 +52,7 @@ from ..vfs.paths import VPath
 from ..vfs.vfs import VirtualFS
 from . import journal
 from .codecs import codec_for, kind_for
-from .diffing import unified_diff
+from .diffing import binary_summary, is_binary, unified_diff
 from .documents import DocumentStore
 from .model import (
     NOT_WRITABLE_INVALID,
@@ -126,6 +127,67 @@ class _State:
     version: int
     kind: DocKind | None
     rel: VPath
+
+
+_UNREAD = object()
+
+
+class _Tombstone(DocHandle):
+    """Lápida de un archivo que no estaba abierto al borrarlo: no decodifica el modelo hasta que alguien lo pide.
+
+    Guarda los bytes del archivo comprimidos (``packed``), que son también su instantánea gracias a la ida y vuelta
+    exacta (I3). Así, mandar a la papelera miles de copias (``trash_identical_copies``: 8462 en el mod del usuario,
+    449 MB) ni analiza miles de archivos ni los tiene decodificados en memoria.
+    """
+
+    def __init__(self, rel: VPath, kind: DocKind, packed: bytes, length: int, **fields) -> None:
+        self.packed: bytes | None = packed
+        self._read: tuple[bytes | None, int | None] = (packed, length)   # lo leído del disco y su tamaño
+        super().__init__(rel, kind, _UNREAD, **fields)
+
+    @property
+    def unread(self) -> bool:
+        return self.__dict__["_model"] is _UNREAD
+
+    def head(self, size: int = 8192) -> bytes:
+        """Los primeros ``size`` bytes (de una lápida sin decodificar), sin descomprimir el resto."""
+        return zlib.decompressobj().decompress(self.packed, size)
+
+    def size(self) -> int:
+        """Tamaño en bytes (de una lápida sin decodificar); sin descomprimir si es lo leído del disco."""
+        packed, length = self._read
+        return length if self.packed is packed else len(decompress(self.packed))
+
+    @property
+    def model(self) -> object:
+        if self.__dict__["_model"] is _UNREAD:
+            model, diagnostics = codec_for(self.kind).load(decompress(self.packed), self.rel)
+            self.__dict__["_model"] = model
+            self.diagnostics = diagnostics
+        return self.__dict__["_model"]
+
+    @model.setter
+    def model(self, value: object) -> None:
+        self.__dict__["_model"] = value
+        if value is not _UNREAD:
+            self.packed = None
+            self._read = (None, None)
+
+    def unload(self, packed: bytes) -> None:
+        """Vuelve a lápida sin decodificar con la instantánea ``packed``."""
+        self.__dict__["_model"] = _UNREAD
+        self.packed = packed
+
+    def raw(self) -> bytes:
+        """Bytes del documento (sin decodificar si no hace falta)."""
+        return decompress(self.packed) if self.unread else codec_for(self.kind).snapshot(self.model)
+
+
+def _packed_snapshot(handle: DocHandle) -> bytes:
+    """Instantánea comprimida del modelo de ``handle`` (la de una lápida sin decodificar, tal cual)."""
+    if isinstance(handle, _Tombstone) and handle.unread:
+        return handle.packed
+    return compress(codec_for(handle.kind).snapshot(handle.model))
 
 
 class Txn:
@@ -370,7 +432,7 @@ class Workspace:
         if cached is not None and cached[0] == handle.version:
             data = cached[1]
         else:
-            data = compress(codec_for(handle.kind).snapshot(handle.model))
+            data = _packed_snapshot(handle)
             self._snap[handle.rel.key] = (handle.version, data)
         return _State(handle, data, handle.deleted, handle.version, handle.kind, handle.rel)
 
@@ -462,12 +524,16 @@ class Workspace:
 
     def delete(self, rel: str | VPath) -> None:
         """Lápida (dentro de una transacción): al guardar, el archivo del mod va a la papelera. Uno del juego no se
-        puede borrar (``PermissionError``)."""
+        puede borrar (``PermissionError``). Un archivo que no estaba abierto no se decodifica (``_Tombstone``)."""
         self._check()
         self._require_txn()
         rel = VPath.of(rel)
         self._require_writable_workspace(rel)
-        handle = self.open(rel)
+        handle = self._store.get(rel)
+        if handle is None:
+            handle = self._unread_tombstone(rel)
+        elif handle.deleted:
+            raise FileNotFoundError(str(rel))
         if handle.origin is not None and handle.origin.layer.kind is not LayerKind.MOD:
             raise PermissionError(f"{rel}: es del juego base (o de una dependencia) y no se puede borrar")
         self._begin_change(handle, handle.rel)
@@ -475,6 +541,36 @@ class Workspace:
             self._remove(handle)
         else:
             handle.deleted = True
+
+    def _unread_tombstone(self, rel: VPath) -> _Tombstone:
+        """Documento de ``rel`` (que no está abierto) listo para borrarse: sus bytes, sin decodificar ni expulsar
+        a nadie de la LRU (eso lo hace el cierre de la transacción, una vez)."""
+        entry = self._disk_entry(rel)
+        if entry is None:
+            raise FileNotFoundError(str(rel))
+        if entry.layer.kind is not LayerKind.MOD:
+            raise PermissionError(f"{rel}: es del juego base (o de una dependencia) y no se puede borrar")
+        data, fingerprint = self._read_entry(entry)
+        packed = compress(data)
+        kind = kind_for(entry.rel)
+        version = next(self._versions)
+        handle = _Tombstone(entry.rel, kind, packed, len(data), origin=entry, base=fingerprint, version=version,
+                            saved_version=version)
+        handle.read_only_reason = self._reason(kind, None, [])
+        self._store.add(handle, len(packed))
+        self._snap[handle.rel.key] = (version, packed)
+        return handle
+
+    def _same_on_disk(self, handle: DocHandle) -> bool:
+        """True si el archivo de ``handle`` sigue en el mod tal como se leyó (``base``)."""
+        entry = self._disk_entry(handle.rel)
+        if (entry is None or entry.layer.kind is not LayerKind.MOD or handle.origin is None or handle.base is None
+                or os.path.normcase(str(entry.path)) != os.path.normcase(str(handle.origin.path))):
+            return False
+        try:
+            return handle.base.matches(Fingerprint.of_path(entry.path), entry.path)
+        except OSError:
+            return False
 
     def _remove(self, handle: DocHandle) -> None:
         self._store.discard(handle.rel)
@@ -491,6 +587,13 @@ class Workspace:
         """
         key = rel.key
         live = self._store.get(rel)
+        if (data is not None and not deleted and isinstance(live, _Tombstone) and live.unread
+                and version == live.saved_version and self._same_on_disk(live)):
+            # Deshacer el borrado de un archivo que no estaba abierto: vuelve a no estarlo, sin decodificarlo
+            # (lo que hay en disco es justo ese estado guardado).
+            self._remove(live)
+            self._snap.pop(key, None)
+            return None
         if data is not None and deleted:
             entry = self._disk_entry(rel)
             if entry is None or entry.layer.kind is not LayerKind.MOD:
@@ -512,12 +615,15 @@ class Workspace:
         if live is None:
             self._ghosts.pop(key, None)
             self._store.add(target, len(data))
-        model, diagnostics = codec_for(target.kind).load(decompress(data), target.rel)
-        target.model = model
-        target.diagnostics = diagnostics
+        if deleted and isinstance(target, _Tombstone):
+            target.unload(data)    # rehacer un borrado no necesita el modelo
+        else:
+            model, diagnostics = codec_for(target.kind).load(decompress(data), target.rel)
+            target.model = model
+            target.diagnostics = diagnostics
+            target.read_only_reason = self._reason(target.kind, model, diagnostics)
         target.deleted = deleted
         target.version = version
-        target.read_only_reason = self._reason(target.kind, model, diagnostics)
         self._snap[key] = (version, data)
         return target
 
@@ -567,7 +673,7 @@ class Workspace:
                 if handle is None:
                     after, deleted, version, kind = None, False, 0, state.kind
                 else:
-                    after = compress(codec_for(handle.kind).snapshot(handle.model))
+                    after = _packed_snapshot(handle)
                     deleted, version, kind = handle.deleted, handle.version, handle.kind
                 if after == state.data and deleted == state.deleted:
                     if handle is not None:
@@ -708,7 +814,19 @@ class Workspace:
             return handle.origin.path
         return self._vfs.mod_target(handle.rel)
 
+    def _trash_diff(self, handle: DocHandle) -> str:
+        """Diff de mandar ``handle`` a la papelera; de una lápida sin decodificar, sin descomprimir un binario."""
+        if isinstance(handle, _Tombstone) and handle.unread:
+            if is_binary(handle.head()):
+                return binary_summary(handle.rel, handle.size(), None)
+            before = handle.raw()
+        else:
+            before = codec_for(handle.kind).snapshot(handle.model)
+        return unified_diff(handle.rel, before, None, encoding=self._encoding(handle))
+
     def _encoding(self, handle: DocHandle) -> str | None:
+        if isinstance(handle, _Tombstone) and handle.unread:
+            return None    # el diff la detecta de los bytes, como al leerlos: sin decodificar la lápida
         return getattr(handle.model, "encoding", None)
 
     def _plan(self, handles: list[DocHandle], *, with_diff: bool
@@ -725,10 +843,7 @@ class Workspace:
                 if not mod_file:
                     unchanged.append(handle)
                     continue
-                diff = ""
-                if with_diff:
-                    diff = unified_diff(handle.rel, codec.snapshot(handle.model), None,
-                                        encoding=self._encoding(handle))
+                diff = self._trash_diff(handle) if with_diff else ""
                 plans.append((handle, PlannedWrite(handle.rel, target, WriteAction.TRASH, None, handle.base, diff)))
                 continue
             if not codec.writable:
