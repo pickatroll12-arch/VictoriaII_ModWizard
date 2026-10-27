@@ -172,9 +172,19 @@ class KindLabelTests(unittest.TestCase):
 class BannerTests(PaletteCase):
     """El estandarte, con Buscar y Problemas de más, cabe a 1100 px en los dos idiomas (y a 1920, entero)."""
 
+    BUTTONS = ("search_button", "undo_button", "redo_button", "history_button", "problems_button", "save_button",
+               "language_combo")
+
+    def settle(self, window):
+        """Procesa eventos hasta que la disposición del estandarte se asienta (cambiar el estilo de Buscar pide otra
+        pasada del layout; con la máquina cargada, 30 ms fijos no bastaban)."""
+        widgets = [getattr(window, name) for name in self.BUTTONS]
+        _qt.wait_until(lambda: all(w.width() >= w.sizeHint().width() for w in widgets)
+                       and window._banner_box.geometry().right() <= window.banner.width(), 2000)
+
     def assert_fits(self, window):
-        for widget in (window.search_button, window.undo_button, window.redo_button, window.history_button,
-                       window.problems_button, window.save_button, window.language_combo):
+        self.settle(window)
+        for widget in (getattr(window, name) for name in self.BUTTONS):
             self.assertGreaterEqual(widget.width(), widget.sizeHint().width(), f"{widget.objectName()} recortado")
         self.assertLessEqual(window._banner_box.geometry().right(), window.banner.width())
         title = window.banner.title_label

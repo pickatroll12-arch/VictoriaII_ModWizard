@@ -14,9 +14,11 @@ from .model import (
     extractor,
     extractors_for,
     fold,
+    short_name,
 )
 
 __all__ = [
     "EXTRACTORS", "INDEX_FORMAT", "ExtractorSpec", "FactsCache", "FileFacts", "Symbol", "SymbolIndex", "SymbolRef",
     "build_index", "discover_extractors", "extract_bytes", "extract_entry", "extractor", "extractors_for", "fold",
+    "short_name",
 ]

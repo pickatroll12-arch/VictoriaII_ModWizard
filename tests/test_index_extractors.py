@@ -73,6 +73,11 @@ class MinigameIndexTests(unittest.TestCase):
         self.assertEqual(self.index.attrs(m.KIND_COUNTRY_FILE, "countries/aland.txt", "color"), [10, 20, 30])
         self.assertEqual(self.index.attrs(m.KIND_COUNTRY_FILE, "countries/aland.txt", "parties"),
                          ["AAA_conservative"])
+        self.assertEqual(m.short_name(party), "AAA_conservative", "el usuario lo conoce por el partido")
+        found = [(s.kind, s.name) for s in self.index.search("aland", kinds=[m.KIND_PARTY])]
+        self.assertEqual(found, [], "la ruta del archivo de país no cuenta para buscar un partido")
+        found = self.index.search("AAA_cons", kinds=[m.KIND_PARTY])
+        self.assertEqual([s.name for s in found], ["countries/aland.txt:AAA_conservative"])
 
     def test_country_history_fields_and_refs(self):
         history = self.index.get(m.KIND_COUNTRY_HISTORY, "AAA")

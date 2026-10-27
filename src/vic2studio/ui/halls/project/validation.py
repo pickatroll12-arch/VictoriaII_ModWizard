@@ -18,8 +18,9 @@ No escribe nada: arreglar es una transacción de la sesión, deshacible con Ctrl
 from __future__ import annotations
 
 import html
+from collections import Counter
 
-from PySide6.QtCore import QEvent, QSize, Qt, QTimer, Signal
+from PySide6.QtCore import QSize, Qt, QTimer, Signal
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -37,6 +38,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from ....core.clausewitz import Severity
 from ....i18n import N_, tr
 from ... import theme
 from ...pages.base import BasePage
@@ -222,6 +224,7 @@ class ValidationPage(BasePage):
     def build(self) -> None:
         self.exec_dialog = lambda dialog: dialog.exec()   # la ventana lo sustituye (y las pruebas)
         self._progress = (0, 0)
+        self._announced = False   # la barra de estado dice «Validando…» por esta página: al terminar se dice
         self.validate_button = QPushButton()
         self.validate_button.setObjectName("checksValidate")
         self.validate_button.setProperty("accent", True)
@@ -351,7 +354,25 @@ class ValidationPage(BasePage):
         started = self.session.validate()
         if started:
             self.request_status("checks.status_started")
+            self._announced = True
+            self._announce_end()   # una validación que terminó ya (o falló) al pedirla
         return started
+
+    def _announce_end(self) -> None:
+        """Cambia el «Validando…» de la barra de estado por el resultado cuando termina la validación que pidió
+        esta página (las de después de un arreglo no lo pisan: el estado dice qué se arregló)."""
+        state = self.session.validation_state()
+        if not self._announced or state in ("busy", "waiting"):
+            return
+        self._announced = False
+        if state == "failed":
+            self.request_status("checks.status_failed", error=self.session.validation_error() or "")
+        elif state == "ready" and self.session.report is not None:
+            # Del informe, no del modelo de la tabla: problemsChanged llega después de este cambio de estado.
+            own = Counter(p.severity for p in self.session.problems())
+            self.request_status("checks.status_done", errors=format_number(own[Severity.ERROR]),
+                                warnings=format_number(own[Severity.WARNING]), infos=format_number(own[Severity.INFO]),
+                                seconds=format_seconds(self.session.report.elapsed))
 
     def refresh(self) -> None:
         current = self.current_problem()
@@ -466,6 +487,7 @@ class ValidationPage(BasePage):
             show_in_stack(self.table_stack, self.view if self.model.rowCount() else self.clean)
         self._retranslate_running()
         self._retranslate_summary()
+        self._announce_end()
 
     def _retranslate_running(self) -> None:
         done, total = self._progress

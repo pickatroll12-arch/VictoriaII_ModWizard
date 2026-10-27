@@ -184,6 +184,25 @@ class FixTests(ValidationCase):
         window.undo()
         self.assertEqual(window.session.dirty_count(), 0, "Ctrl+Z deshace el arreglo en un paso")
 
+    def test_the_status_bar_says_when_the_validation_ends(self):
+        """«Validando el mod en segundo plano…» no se queda tras terminar; tras un arreglo, el estado dice el
+        arreglo (la revalidación no lo pisa)."""
+        window = self.open_checks()
+        self.validate()
+        self.assertTrue(_qt.wait_until(lambda: window.status_label.text() != tr("checks.status_started"), 3000))
+        self.assertRegex(window.status_label.text(),
+                         r"^Validación terminada en [\d,]+ s — errores: 1 · avisos: 0 · notas: 1$")
+        page = self.page()
+        self.select(page, "tag_not_registered")
+        self.dialogs.handlers[FixPlanDialog] = lambda dialog: dialog.apply_button.click()
+        page.fix_button.click()
+        applied = window.status_label.text()
+        self.assertTrue(applied.startswith("Arreglo aplicado"), applied)
+        self.assertTrue(_qt.wait_until(lambda: self.engines["validation"].validations == 2
+                                       and window.session.validation_state() == "ready", 5000))
+        _qt.process_events(30)
+        self.assertEqual(window.status_label.text(), applied)
+
     def test_a_cancelled_fix_changes_nothing(self):
         window = self.open_checks()
         page = self.validate()

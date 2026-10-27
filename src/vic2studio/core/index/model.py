@@ -188,6 +188,15 @@ def extractors_for(rel: VPath) -> list[ExtractorSpec]:
 _FOLD_RE = re.compile(r"[̀-ͯ]")
 
 
+def short_name(symbol: Symbol) -> str:
+    """El nombre con que el usuario conoce el símbolo, para mostrarlo y buscarlo: el de ``name`` sin lo que lo hace
+    único en el índice. Un partido es «archivo:partido» (el mismo partido puede estar en dos archivos de país, H12)
+    y se conoce por el partido; buscar «ang» no debe dar todos los partidos de ``warsangali.txt``."""
+    if symbol.kind == KIND_PARTY:
+        return symbol.attrs.get("party") or symbol.name
+    return symbol.name
+
+
 def fold(text: str) -> str:
     """Texto para buscar: sin mayúsculas ni acentos («Berlín» → «berlin»), para ``SymbolIndex.search``."""
     import unicodedata

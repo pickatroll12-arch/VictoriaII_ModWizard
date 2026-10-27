@@ -28,7 +28,7 @@ from PySide6.QtWidgets import (
 )
 
 from ...core.index import model as kinds
-from ...core.index.model import fold
+from ...core.index.model import fold, short_name
 from ...core.vfs import LayerKind
 from ...i18n import N_, tr, translator
 from .. import theme
@@ -246,7 +246,7 @@ class CommandPalette(QFrame):
             where = f"{symbol.rel}:{symbol.line}" if symbol.line else str(symbol.rel)
             layer = tr(LAYER_KEYS.get(symbol.layer, "palette.layer.game"))
             item = QListWidgetItem(make_icon(KIND_ICONS.get(symbol.kind, "info"), "ink_soft", "cream"),
-                                   tr("palette.result", name=shown, kind=kind_label(symbol.kind), id=symbol.name,
+                                   tr("palette.result", name=shown, kind=kind_label(symbol.kind), id=short_name(symbol),
                                       file=where, layer=layer))
             item.setToolTip(tr("palette.result_tooltip", name=shown, kind=kind_label(symbol.kind), file=where))
         item.setData(ITEM_ROLE, result)

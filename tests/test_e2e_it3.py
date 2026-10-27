@@ -170,6 +170,20 @@ class MinigameEndToEndTests(RealCoreWindowCase):
                                        and viewer.current_load().path == target, 5000))
         self.assertTrue(_qt.wait_until(lambda: viewer.code.current_line() == 2, 3000), "en su línea")
 
+    def test_ctrl_k_shows_a_party_by_its_name_not_by_its_index_id(self):
+        """Un partido es «archivo:partido» en el índice: la paleta enseña y busca por el partido."""
+        window = self.open_real()
+        palette = window.palette
+        palette.open("AAA_cons")
+        palette.search()
+        rows = [(r.symbol.kind, r.symbol.name) for r in palette.results()]
+        self.assertIn(("party", "countries/aland.txt:AAA_conservative"), rows)
+        row = rows.index(("party", "countries/aland.txt:AAA_conservative"))
+        self.assertNotIn("countries/aland.txt", palette.result_texts()[row].split("  ·  ")[1])
+        palette.open("countries/aland")
+        palette.search()
+        self.assertNotIn("party", [r.symbol.kind for r in palette.results()], "la ruta no encuentra partidos")
+
 
 def full_vsm() -> Path | None:
     mod = user_mod()

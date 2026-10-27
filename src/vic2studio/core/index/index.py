@@ -51,6 +51,7 @@ from .model import (
     Symbol,
     SymbolRef,
     fold,
+    short_name,
 )
 
 _PRIORITY = (LayerKind.MOD, LayerKind.DEPENDENCY, LayerKind.GAME)
@@ -464,7 +465,8 @@ class SymbolIndex:
         found: list[tuple[int, int, int, int, Symbol]] = []
         for priority, kind in enumerate(order):
             for position, symbol in enumerate(self.symbols(kind)):
-                rank = self._rank(self._folded(symbol.name), query)
+                shown = short_name(symbol)
+                rank = self._rank(self._folded(shown), query)
                 if loc is not None and kind not in _NOT_LOCALISED and rank != 0:
                     label = self._label(symbol, loc, lang)
                     if label is not None:
@@ -472,7 +474,7 @@ class SymbolIndex:
                         if other is not None and (rank is None or other < rank):
                             rank = other
                 if rank is not None:
-                    found.append((rank, priority, len(symbol.name), position, symbol))
+                    found.append((rank, priority, len(shown), position, symbol))
         found.sort(key=lambda item: item[:4])
         return [item[4] for item in found[:max(0, limit)]]
 

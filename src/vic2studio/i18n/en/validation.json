@@ -64,5 +64,7 @@
   "fixplan.nothing": "This fix would change nothing right now.",
   "fixplan.trash_note": "{file} will go to the project trash (.vic2studio/trash) when you save: nothing is really deleted.",
   "fixplan.unsafe": "This fix deletes or replaces content: review the plan before applying it.",
-  "fixplan.window_title": "Fix plan"
+  "fixplan.window_title": "Fix plan",
+  "checks.status_done": "Validation finished in {seconds} s — errors: {errors} · warnings: {warnings} · notes: {infos}",
+  "checks.status_failed": "The mod could not be validated: {error}"
 }

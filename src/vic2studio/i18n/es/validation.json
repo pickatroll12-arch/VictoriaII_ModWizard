@@ -64,5 +64,7 @@
   "fixplan.nothing": "Este arreglo no cambiaría nada ahora mismo.",
   "fixplan.trash_note": "{file} irá a la papelera del proyecto (.vic2studio/trash) al guardar: nada se borra de verdad.",
   "fixplan.unsafe": "Este arreglo borra o sustituye contenido: revisa el plan antes de aplicarlo.",
-  "fixplan.window_title": "Plan del arreglo"
+  "fixplan.window_title": "Plan del arreglo",
+  "checks.status_done": "Validación terminada en {seconds} s — errores: {errors} · avisos: {warnings} · notas: {infos}",
+  "checks.status_failed": "No se pudo validar el mod: {error}"
 }
