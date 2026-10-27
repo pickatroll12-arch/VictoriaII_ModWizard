@@ -185,9 +185,27 @@ def _default_map(reader: _Reader) -> dict:
             found["sea"] = frozenset(int(e.value.text) for e in value.entries
                                      if e.key is None and e.value.__class__ is Scalar and e.value.text.isdigit())
         elif key in DEFAULT_MAP_FILES and value.__class__ is Scalar:
-            files[key] = value.text.replace("\\", "/")
+            name = value.text.replace("\\", "/")
+            if map_file_ok(name):
+                files[key] = name
+            else:
+                _log.info("default.map nombra un archivo no válido en %s (%r): se usa %s", key, name, files[key])
     found["map_files"] = MappingProxyType(files)
     return found
+
+
+def map_file_ok(name: str) -> bool:
+    """True si ``name`` (un valor de ``default.map``) es un archivo válido dentro de ``map/``: sin ``..``, sin ruta
+    absoluta ni unidad (``VPath.of`` lo rechazaría y las reglas que lo leen fallarían)."""
+    from ..vfs.paths import InvalidPathError
+
+    if not name.strip():
+        return False
+    try:
+        rel = VPath.of(f"map/{name}")
+    except (InvalidPathError, ValueError, TypeError):
+        return False
+    return rel.key.startswith("MAP/") and len(rel.parts) >= 2
 
 
 def _issues(reader: _Reader) -> dict:

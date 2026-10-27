@@ -30,10 +30,23 @@ SEVERITY_ORDER = {Severity.ERROR: 0, Severity.WARNING: 1, Severity.INFO: 2}
 SOURCE_CLAUSEWITZ = "clausewitz"
 SOURCE_CSV = "csv"
 _POSITION_ARGS = frozenset({"line", "column", "offset"})
+# Argumentos que son rutas del juego o del mod (``other``: la otra copia; ``file``: un archivo o su nombre;
+# ``example``: una ruta de ejemplo). En la huella cuentan sin mayúsculas, como ``rel`` (Windows no las distingue).
+PATH_ARGS = frozenset({"other", "file", "example"})
 
 
 def _is_position(name: str) -> bool:
     return name in _POSITION_ARGS or name.endswith("_line") or name.endswith("_column")
+
+
+def _path_key(value: object) -> object:
+    """Una ruta como la compara el juego (``VPath.key``); lo que no es una ruta válida, en mayúsculas igualmente."""
+    if not isinstance(value, str):
+        return value
+    try:
+        return VPath.of(value).key
+    except (ValueError, TypeError):
+        return value.replace("\\", "/").upper()
 
 
 @dataclass(frozen=True)
@@ -86,8 +99,10 @@ class Problem:
     def fingerprint(self) -> tuple:
         """Identidad sin la posición: ``(code, rel.key, entity, field, args ordenados)``. La línea base compara
         huellas (un problema de vanilla sigue siendo el mismo aunque cambie de línea): por eso no cuentan los
-        argumentos de posición (``line``, ``column``, ``offset`` ni los que acaban en ``_line``/``_column``)."""
-        args = tuple(sorted((str(k), repr(v)) for k, v in self.args.items() if not _is_position(str(k))))
+        argumentos de posición (``line``, ``column``, ``offset`` ni los que acaban en ``_line``/``_column``), y
+        los que son rutas (``PATH_ARGS``) cuentan sin mayúsculas, igual que ``rel``."""
+        args = tuple(sorted((str(k), repr(_path_key(v) if k in PATH_ARGS else v)) for k, v in self.args.items()
+                            if not _is_position(str(k))))
         return (self.code, None if self.rel is None else self.rel.key, self.entity, self.field, args)
 
     def __getstate__(self) -> tuple:

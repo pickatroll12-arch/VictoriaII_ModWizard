@@ -3,8 +3,10 @@
 Todo sale del índice (sin volver a analizar archivos) y de ``GameRules``:
 
 - registro: ``tag_not_registered`` (un TAG con historia o usado en las historias de
-  provincia, guerras o diplomacia que no está en ``countries.txt``; arreglo
-  ``register_tag``), ``tag_after_dynamic_tags``, ``tag_invalid``, ``tag_taken``,
+  provincia, guerras, diplomacia o culturas que no está en ``countries.txt``;
+  arreglo ``register_tag``), ``flag_tag_not_registered`` (info: un TAG sin registrar
+  del que solo hay banderas, que el juego no usa), ``tag_after_dynamic_tags``,
+  ``tag_invalid``, ``tag_taken``,
   ``country_file_missing``, ``country_history_missing`` y
   ``country_history_duplicate``;
 - partidos (H12): ``ruling_party_not_of_country``, ``ruling_party_ideology_not_allowed``
@@ -25,19 +27,20 @@ from ...clausewitz import Severity
 from ...clausewitz.nodes import ClausewitzDate
 from ...index import model as m
 from ...index.extractors._support import path_name
-from ...rules.ids import DYNAMIC_TAG_RE, RESERVED_TAGS, tag_problem
+from ...rules.ids import DYNAMIC_TAG_RE, RESERVED_TAGS, flag_tag, tag_problem
 from ...vfs.paths import VPath
 from ...vfs.rules import tag_key
 from ..registry import make_problem, rule
 
-E, W = Severity.ERROR, Severity.WARNING
+E, W, INFO = Severity.ERROR, Severity.WARNING, Severity.INFO
 REGISTRY_REL = VPath.of("common/countries.txt")
 
-# Roles de las referencias a un TAG que cuentan como «se usa» para ``tag_not_registered``.
+# Roles de las referencias a un TAG que cuentan como «se usa» para ``tag_not_registered`` (``union`` y ``primary``:
+# el país de unión de un grupo de culturas y el de una cultura, en ``common/cultures.txt``).
 TAG_USE_ROLES = frozenset({"owner", "controller", "add_core", "remove_core", "add_attacker", "add_defender",
                            "rem_attacker", "rem_defender", "actor", "receiver", "country", "alliance_first",
                            "alliance_second", "vassal_first", "vassal_second", "substate_first", "substate_second",
-                           "union_first", "union_second"})
+                           "union_first", "union_second", "union", "primary"})
 
 # Tipo referenciado → (código, tipos que lo definen).
 UNKNOWN = {
@@ -130,19 +133,45 @@ def first_ref(index, rel: VPath, role: str, name: str | None = None):
 # --- registro de TAG ----------------------------------------------------------------------------------
 
 
-@rule("tag_not_registered", E, fixes=("register_tag",))
-def tags_not_registered(ctx):
-    index = ctx.index
+def unregistered_tags(index) -> tuple[dict[str, tuple], dict[str, list]]:
+    """``(usados, solo_banderas)`` de los TAG sin registrar. ``usados``: TAG → ``(rel, línea, columna)`` de su primer
+    uso, la historia de país o, si no, una referencia (provincias, guerras, diplomacia, ``union``/``primary`` de las
+    culturas). ``solo_banderas``: TAG → sus ``gfx/flags/<TAG>*.tga``, los que no tienen ningún uso."""
     registered = set(index.names(m.KIND_TAG))
-    first: dict[str, tuple] = {}
+    used: dict[str, tuple] = {}
     for symbol in index.symbols(m.KIND_COUNTRY_HISTORY):
         if symbol.name not in registered:
-            first.setdefault(symbol.name, (0, symbol.rel, symbol.line, None))
+            used.setdefault(symbol.name, (symbol.rel, symbol.line, None))
     for ref in index.refs(m.KIND_TAG):
-        if ref.role in TAG_USE_ROLES and ref.name not in registered and ref.name not in first:
-            first[ref.name] = (1, ref.rel, ref.line, ref.column)
+        if ref.role in TAG_USE_ROLES and ref.name not in registered and ref.name not in used:
+            used[ref.name] = (ref.rel, ref.line, ref.column)
+    flags: dict[str, list] = {}
+    for image in index.symbols(m.KIND_IMAGE):
+        tag = flag_tag(image.name)
+        if tag is not None and tag not in registered and tag not in used and tag not in RESERVED_TAGS:
+            flags.setdefault(tag, []).append(image)
+    return used, flags
+
+
+@rule("tag_not_registered", E, fixes=("register_tag",))
+def tags_not_registered(ctx):
+    """Un problema por TAG sin registrar que algo usa, en su primer uso (``unregistered_tags``)."""
+    used, _ = unregistered_tags(ctx.index)
     return [make_problem("tag_not_registered", rel, line, column, entity=(m.KIND_TAG, tag), tag=tag)
-            for tag, (_, rel, line, column) in sorted(first.items())]
+            for tag, (rel, line, column) in sorted(used.items())]
+
+
+@rule("flag_tag_not_registered", INFO)
+def flags_without_country(ctx):
+    """Un aviso informativo por TAG sin registrar del que solo hay banderas: el juego no las usa, pero no rompen
+    nada (el error sería registrarlo sin archivo de país, ver ``fixes.country_file_for``). En VSM, las 5 de CSR."""
+    _, flags = unregistered_tags(ctx.index)
+    problems = []
+    for tag, images in sorted(flags.items()):
+        first = min(images, key=lambda image: image.rel.key)
+        problems.append(make_problem("flag_tag_not_registered", first.rel, None, entity=(m.KIND_TAG, tag), tag=tag,
+                                     flags=len(images)))
+    return problems
 
 
 @rule("tag_after_dynamic_tags", E)

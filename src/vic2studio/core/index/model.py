@@ -121,7 +121,12 @@ class SymbolRef:
 
 @dataclass(frozen=True)
 class FileFacts:
-    """Lo que un extractor sacó de un archivo concreto de una capa (unidad de la caché y de ``apply``)."""
+    """Lo que un extractor sacó de un archivo concreto de una capa (unidad de la caché y de ``apply``).
+
+    ``root`` (ampliación compatible) es la raíz de la capa (``str(Layer.root)``): distingue dos dependencias, que
+    comparten ``LayerKind.DEPENDENCY``. None = la única capa de su tipo (el mod y el juego no la necesitan). No
+    cuenta al comparar.
+    """
 
     rel: VPath
     layer: LayerKind
@@ -130,6 +135,7 @@ class FileFacts:
     refs: tuple[SymbolRef, ...]
     extractor: str                       # nombre del extractor que los produjo
     version: int                         # su versión: si cambia, la caché de ese extractor no vale
+    root: str | None = field(default=None, compare=False)
 
 
 # --- registro de extractores ------------------------------------------------------------------------

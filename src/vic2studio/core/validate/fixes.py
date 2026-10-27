@@ -71,6 +71,7 @@ FIX_PLAN_CHANGED = "plan_changed"
 FIX_SYNTAX_ERRORS = "syntax_errors"
 FIX_DESCRIPTOR_CHANGED = "descriptor_changed"
 FIX_STILL_UTF8 = "still_utf8"
+FIX_NO_COUNTRY_FILE = "no_country_file"
 
 
 class FixError(ValueError):
@@ -276,25 +277,43 @@ def _tag_of(problem: Problem) -> str:
     return str(tag)
 
 
+def _effective_name(project: Project, rel: VPath) -> str | None:
+    """El nombre con sus mayúsculas de ``rel`` si existe en la vista efectiva (con los documentos sin guardar: uno
+    nuevo cuenta, una lápida deja ver lo de debajo); None si no existe. No lee nada."""
+    rel = VPath.of(rel)
+    handle = project.ws.peek(rel)
+    if handle is not None and not handle.deleted:
+        return handle.rel.name
+    if handle is not None:
+        entry = _below_mod(project.vfs.stack(rel), project.vfs.snapshot().hidden, rel)
+    else:
+        entry = project.vfs.resolve(rel)
+    return None if entry is None else entry.rel.name
+
+
 def country_file_for(project: Project, tag: str) -> str:
-    """Valor para ``countries.txt`` (``countries/<Archivo>.txt``): el archivo de país que corresponde al nombre de
-    la historia del TAG (``SIL - Silesia.txt`` → ``countries/Silesia.txt``) si existe; si no, uno nuevo con ese
-    nombre (``rules.names.country_file_name``)."""
+    """Valor para ``countries.txt`` (``countries/<Archivo>.txt``): el archivo de país que existe con el nombre de la
+    historia del TAG (``SIL - Silesia.txt`` → ``countries/Silesia.txt``) o con el del TAG (``countries/FFF.txt``).
+
+    Si no existe ninguno, ``FixError(no_country_file)``: el juego no carga un país cuyo archivo falta, y registrarlo
+    cambiaría ``tag_not_registered`` por ``country_file_missing`` (con las banderas de CSR en VSM pasaba). El archivo
+    lo crea el asistente de países (iteración 6) o el usuario."""
     from ..rules.names import country_file_name
 
-    histories = project.vfs.list("history/countries", f"{tag}*.txt")
-    name = None
-    for entry in histories:
+    names = []
+    for entry in project.vfs.list("history/countries", f"{tag}*.txt"):
         stem = entry.rel.name.rsplit(".", 1)[0]
         if stem[:3].upper() == tag.upper():
-            name = stem[3:].strip().lstrip("-").strip() or None
+            name = stem[3:].strip().lstrip("-").strip()
+            if name:
+                names.append(country_file_name(name))
             break
-    if name:
-        entry = project.vfs.resolve(f"common/countries/{name}.txt")
-        if entry is not None:
-            return f"countries/{entry.rel.name}"
-        return f"countries/{country_file_name(name)}"
-    return f"countries/{country_file_name(tag)}"
+    names.append(country_file_name(tag))
+    for name in names:
+        found = _effective_name(project, VPath.of(f"common/countries/{name}"))
+        if found is not None:
+            return f"countries/{found}"
+    raise FixError(FIX_NO_COUNTRY_FILE, tag=tag, file=f"common/countries/{names[0]}")
 
 
 def _register_tag(problem: Problem, project: Project) -> list[Edit]:

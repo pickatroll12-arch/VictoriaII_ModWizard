@@ -2,11 +2,18 @@
 
 Cifras medidas con el corpus de la release ``recursos-v1``:
 
-- Errores propios de VSM: exactamente los 7 del criterio 3.
-- ``loc_copy_degraded`` da 3 430 filas, no las 3 429 del criterio: son las claves
-  de ``text.csv`` cuya fila efectiva es la de vanilla con letras perdidas como «?»
-  (todas las que difieren: 3 430, como dice CONTINUAR §7; con las 79 claves
-  repetidas del archivo, 3 438 filas). La cifra de H15 contaba de otra forma.
+- Errores propios de VSM: exactamente los 7 del criterio 3. CSR, que solo tiene sus
+  5 banderas (``gfx/flags/CSR*.tga``, que vanilla no trae) sin registro, historia ni
+  textos, sale como ``flag_tag_not_registered`` (info): las banderas solas no rompen
+  nada, y registrarlo sin archivo de país sí (revisión adversarial de la iteración 3).
+- ``loc_copy_degraded`` da 3 427 claves, no las 3 429 del criterio: las claves de
+  ``text.csv`` cuya fila efectiva (la que gana en la localización) es una fila de
+  vanilla con letras perdidas como «?». Las filas degradadas son 3 438 (``lines``,
+  las que cambia el arreglo), de 3 430 claves distintas (las 79 repetidas del archivo
+  dan el resto); de esas, 3 no las gana ``text.csv`` sino un archivo que carga
+  antes con su propio texto (``GUNBOAT_WE_ACCEPT_SETUP`` y ``REMOVE_NO_DEMOTION``,
+  ``newtext.csv``; ``BOL_2305``, ``housedivided.csv``), así que en partida no se ven
+  rotas. La cifra de H15 contaba de otra forma.
 - Avisos propios que el criterio no nombra, clasificados: 6 ``semicolon_in_quotes``
   en ``00_VSM_decisions.csv`` (errores reales del usuario, CONTINUAR §7) y 35
   ``party_unknown_policy`` (7 partidos × 5 países con ``social_policy``).
@@ -37,7 +44,8 @@ from vic2studio.core.validate import (BaselineCache, Validator, apply_fix, build
 from vic2studio.core.validate.model import VERDICT_LOSES, VERDICT_MISSING, VERDICT_NOT_LOADED, VERDICT_WINS  # noqa: E402
 from vic2studio.core.vfs import LayerKind, VirtualFS  # noqa: E402
 
-DEGRADED_ROWS = 3430   # el criterio dice 3 429: ver el docstring
+DEGRADED_ROWS = 3427   # el criterio dice 3 429: ver el docstring
+DEGRADED_LINES = 3438
 
 
 def full_vsm() -> Path | None:
@@ -91,6 +99,8 @@ class VsmValidationTests(unittest.TestCase):
         ])
         self.assertTrue(all(p.args["name"] == "nv_tradition" for p in self.own(Severity.ERROR)
                             if p.code == "nationalvalue_unknown"))
+        [csr] = [p for p in self.own(Severity.INFO) if p.code == "flag_tag_not_registered"]
+        self.assertEqual((csr.args["tag"], csr.args["flags"], str(csr.rel)), ("CSR", 5, "gfx/flags/CSR.tga"))
 
     def test_criterion_3_warnings(self):
         warnings = self.own(Severity.WARNING)
@@ -105,7 +115,8 @@ class VsmValidationTests(unittest.TestCase):
         [election] = [p for p in warnings if p.code == "government_election_without_duration"]
         self.assertEqual(election.args["government"], "absolute_monarchy")
         [degraded] = [p for p in warnings if p.code == "loc_copy_degraded"]
-        self.assertEqual((str(degraded.rel), degraded.args["rows"]), ("localisation/text.csv", DEGRADED_ROWS))
+        self.assertEqual((str(degraded.rel), degraded.args["rows"], degraded.args["lines"]),
+                         ("localisation/text.csv", DEGRADED_ROWS, DEGRADED_LINES))
         self.assertEqual(by_code["semicolon_in_quotes"], 6)
         self.assertEqual({str(p.rel) for p in warnings if p.code == "semicolon_in_quotes"},
                          {"localisation/00_VSM_decisions.csv"})
@@ -134,7 +145,7 @@ class VsmValidationTests(unittest.TestCase):
         self.assertEqual(now, self.mod_stat)
 
     def test_criterion_5_explainers(self):
-        [sil] = [p for p in self.report.problems if p.code == "tag_not_registered"]
+        [sil] = [p for p in self.report.problems if p.code == "tag_not_registered" and p.args["tag"] == "SIL"]
         explanation = explain(sil, self.ctx)
         steps = [(str(s.rel), s.verdict) for s in explanation.steps]
         self.assertEqual(steps[0], ("common/countries.txt", VERDICT_MISSING))

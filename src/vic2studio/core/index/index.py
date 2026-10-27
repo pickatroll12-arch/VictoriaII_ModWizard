@@ -16,10 +16,18 @@ según las reglas de carga (§5.2):
 
 En la práctica las tres primeras son la misma regla por ruta: de cada ruta cuenta
 la capa ganadora (mod, si hay hechos del mod, también de un documento sin guardar;
-si no, la dependencia; si no, el juego, salvo que ``replace_path`` lo oculte), y
-entre rutas distintas la definición efectiva de un nombre es la primera por
-``(rel.key, línea)``: el orden de carga del juego en la localización y un orden
-estable en el resto.
+si no, la dependencia con más prioridad; si no, el juego, salvo que ``replace_path``
+lo oculte), y entre rutas distintas la definición efectiva de un nombre es la
+primera por ``(rel.key, línea)``: el orden de carga del juego en la localización y
+un orden estable en el resto.
+
+**Capas.** Los hechos se guardan por ruta y por capa concreta: el mod y el juego
+por su tipo, y cada dependencia por su raíz (``FileFacts.root``), porque todas
+comparten ``LayerKind.DEPENDENCY``. Entre dependencias gana la que va antes en
+``snapshot.layers`` (la última declarada), igual que en ``VfsSnapshot.resolve``:
+así el índice, ``GameRules`` y la ``LocalisationDB`` coinciden en quién gana. Unos
+hechos de dependencia sin ``root`` cuentan como una dependencia más, detrás de las
+de la instantánea.
 
 **Provincias de tierra y de mar.** ``definition.csv`` define todas como
 ``province``; las que ``default.map`` nombra en ``sea_starts`` (referencias con rol
@@ -128,6 +136,17 @@ class _Refs:
 
 _RANK = {layer: rank for rank, layer in enumerate(_PRIORITY)}
 
+# Una capa concreta: ``(LayerKind, raíz)``; la raíz solo distingue dependencias (None en el mod y el juego).
+Token = tuple
+
+
+def _token(kind: LayerKind, root: str | None) -> Token:
+    return (kind, root if kind is LayerKind.DEPENDENCY else None)
+
+
+def _facts_token(item: FileFacts) -> Token:
+    return _token(item.layer, getattr(item, "root", None))
+
 
 def _order(symbol: Symbol) -> tuple:
     """Por ruta y línea; a igualdad, la capa con más prioridad (mod) primero: un orden estable."""
@@ -149,17 +168,18 @@ class SymbolIndex:
         self.generation = 0
         self._snapshot = snapshot
         self._hidden: frozenset[str] = snapshot.hidden if snapshot is not None else frozenset()
-        self._slots: dict[tuple[str, LayerKind], _Slot] = {}
-        self._layers: dict[str, set[LayerKind]] = {}
+        self._ranks: dict[Token, tuple] = self._ranks_of(snapshot)
+        self._slots: dict[tuple[str, Token], _Slot] = {}
+        self._layers: dict[str, set[Token]] = {}
         self._effective: dict[str, object] = {}
-        self._def_sources: dict[str, set[tuple[str, LayerKind]]] = {}
-        self._ref_sources: dict[str, set[tuple[str, LayerKind]]] = {}
+        self._def_sources: dict[str, set[tuple[str, Token]]] = {}
+        self._ref_sources: dict[str, set[tuple[str, Token]]] = {}
         self._defs: dict[str, _Defs] = {}
         self._refs: dict[str, _Refs] = {}
         self._fold: dict[str, str] = {}
-        grouped: dict[tuple[str, LayerKind], list[FileFacts]] = {}
+        grouped: dict[tuple[str, Token], list[FileFacts]] = {}
         for item in facts:
-            grouped.setdefault((item.rel.key, item.layer), []).append(item)
+            grouped.setdefault((item.rel.key, _facts_token(item)), []).append(item)
         for (key, layer), items in grouped.items():
             self._put(key, layer, items)
         for key in self._layers:
@@ -167,8 +187,25 @@ class SymbolIndex:
 
     # --- mantenimiento interno ------------------------------------------------------------------
 
-    def _put(self, key: str, layer: LayerKind, items: list[FileFacts] | None) -> set[str]:
-        """Sustituye (o quita, con ``items=None``) los hechos de ``(key, layer)``; devuelve los tipos tocados."""
+    @staticmethod
+    def _ranks_of(snapshot) -> dict[Token, tuple]:
+        """Prioridad de cada capa de la instantánea: por tipo (mod, dependencias, juego) y, entre dependencias, por
+        su posición en ``snapshot.layers`` (la misma que usa ``VfsSnapshot.resolve``)."""
+        if snapshot is None:
+            return {}
+        ranks: dict[Token, tuple] = {}
+        for position, layer in enumerate(snapshot.layers):
+            ranks.setdefault(_token(layer.kind, str(layer.root)), (_RANK.get(layer.kind, 9), position, ""))
+        return ranks
+
+    def _layer_rank(self, token: Token) -> tuple:
+        found = self._ranks.get(token)
+        if found is not None:
+            return found
+        return (_RANK.get(token[0], 9), len(self._ranks), token[1] or "")   # capa que no está en la instantánea
+
+    def _put(self, key: str, layer: Token, items: list[FileFacts] | None) -> set[str]:
+        """Sustituye (o quita, con ``items=None``) los hechos de ``(key, capa)``; devuelve los tipos tocados."""
         touched: set[str] = set()
         old = self._slots.pop((key, layer), None)
         if old is not None:
@@ -205,16 +242,19 @@ class SymbolIndex:
             return None
         if self._snapshot is None:
             return _ALL
-        for layer in _PRIORITY:
-            if layer in layers:
-                if layer is LayerKind.GAME and key in self._hidden:
-                    continue
-                return layer
-        return None
+        hidden = key in self._hidden
+        best, best_rank = None, None
+        for layer in layers:
+            if hidden and layer[0] is LayerKind.GAME:
+                continue
+            rank = self._layer_rank(layer)
+            if best_rank is None or rank < best_rank:
+                best, best_rank = layer, rank
+        return best
 
-    def _counts(self, key: str, layer: LayerKind) -> bool:
+    def _counts(self, key: str, layer: Token) -> bool:
         winner = self._effective.get(key)
-        return winner is _ALL or winner is layer
+        return winner is _ALL or winner == layer
 
     def _kinds_of(self, key: str) -> set[str]:
         kinds: set[str] = set()
@@ -340,8 +380,25 @@ class SymbolIndex:
         return list(self._kind_defs(kind).effective.get(name, ()))
 
     def is_effective(self, symbol: Symbol) -> bool:
-        """True si ``symbol`` viene de la capa ganadora de su ruta. Ampliación."""
-        return self._counts(symbol.rel.key, symbol.layer)
+        """True si ``symbol`` viene de la capa ganadora de su ruta. Ampliación.
+
+        Un símbolo que dio este índice (``lookup``, ``get``, ``symbols``…) se reconoce por identidad, también entre
+        dos dependencias; uno de fuera (construido a mano), por su ruta y su tipo de capa."""
+        defs = self._kind_defs(symbol.kind)
+        if any(s is symbol for s in defs.effective.get(symbol.name, ())):
+            return True
+        if any(s is symbol for s in defs.losing.get(symbol.name, ())):
+            return False
+        key = symbol.rel.key
+        winner = self._effective.get(key)
+        if winner is _ALL:
+            return True
+        if winner is None or winner[0] is not symbol.layer:
+            return False
+        if symbol.layer is not LayerKind.DEPENDENCY:
+            return True
+        slot = self._slots.get((key, winner))
+        return slot is not None and any(s is symbol for item in slot.facts for s in item.defs)
 
     def exists(self, kind: str, name: str, *, ignore_case: bool = False) -> bool:
         defs = self._kind_defs(kind)
@@ -407,8 +464,8 @@ class SymbolIndex:
         found = []
         for key in sorted(self._layers):
             winner = self._effective.get(key)
-            for layer in self._layers[key]:
-                if winner is _ALL or winner is layer:
+            for layer in sorted(self._layers[key], key=self._layer_rank):
+                if winner is _ALL or winner == layer:
                     found.append(self._slots[(key, layer)].facts[0].rel)
                     break
         return found
@@ -507,30 +564,48 @@ class SymbolIndex:
 
     # --- mantenimiento ------------------------------------------------------------------------------
 
-    def apply(self, facts: Iterable[FileFacts], removed: Iterable[tuple[VPath, object]] = (), *,
-              snapshot=None) -> None:
-        """Sustituye los hechos de cada ``(rel, capa)`` de ``facts`` y quita los de ``removed`` (pares
-        ``(rel, LayerKind)``). ``snapshot`` actualiza el orden de capas (un archivo nuevo del mod puede ganar
-        ahora). Sube ``generation``."""
+    def _removed_tokens(self, item) -> tuple[str, list[Token]]:
+        """``(rel.key, capas)`` de una entrada de ``removed`` en ``apply``."""
+        if isinstance(item, (str, VPath)):
+            rel, layer = item, LayerKind.MOD
+        else:
+            rel, layer = item
+        key = VPath.of(rel).key
+        if isinstance(layer, LayerKind):
+            if layer is LayerKind.DEPENDENCY:     # sin raíz: todas las dependencias de esa ruta
+                return key, [t for t in self._layers.get(key, ()) if t[0] is LayerKind.DEPENDENCY]
+            return key, [_token(layer, None)]
+        return key, [_token(layer.kind, str(layer.root))]   # una ``Layer`` concreta
+
+    def apply(self, facts: Iterable[FileFacts], removed: Iterable[object] = (), *, snapshot=None) -> None:
+        """Sustituye los hechos de cada ``(rel, capa)`` de ``facts`` y quita los de ``removed``. Sube ``generation``.
+
+        Cada elemento de ``removed`` es una ruta suelta (``VPath`` o ``str``: el archivo del **mod**, como dice
+        wizard §7), un par ``(rel, LayerKind)`` (con ``DEPENDENCY``, todas las dependencias de esa ruta) o un par
+        ``(rel, Layer)`` (esa capa concreta). ``snapshot`` actualiza el orden de capas y lo que oculta
+        ``replace_path`` (un archivo nuevo del mod puede ganar ahora).
+        """
         touched_keys: set[str] = set()
         kinds: set[str] = set()
         if snapshot is not None:
             had_snapshot = self._snapshot is not None
-            old_hidden = self._hidden
+            old_hidden, old_ranks = self._hidden, self._ranks
             self._snapshot = snapshot
             self._hidden = snapshot.hidden
-            if had_snapshot:
+            self._ranks = self._ranks_of(snapshot)
+            if had_snapshot and old_ranks == self._ranks:
                 touched_keys.update(old_hidden ^ self._hidden)
             else:
-                touched_keys.update(self._layers)       # de «todos ganan» a capas: se recalcula todo
-        for rel, layer in removed:
-            key = VPath.of(rel).key
+                touched_keys.update(self._layers)       # otras capas u otro orden: se recalcula todo
+        for item in removed:
+            key, tokens = self._removed_tokens(item)
             kinds |= self._kinds_of(key)
-            kinds |= self._put(key, layer, None)
+            for layer in tokens:
+                kinds |= self._put(key, layer, None)
             touched_keys.add(key)
-        grouped: dict[tuple[str, LayerKind], list[FileFacts]] = {}
+        grouped: dict[tuple[str, Token], list[FileFacts]] = {}
         for item in facts:
-            grouped.setdefault((item.rel.key, item.layer), []).append(item)
+            grouped.setdefault((item.rel.key, _facts_token(item)), []).append(item)
         for (key, layer), items in grouped.items():
             kinds |= self._kinds_of(key)
             kinds |= self._put(key, layer, items)
@@ -555,6 +630,7 @@ class SymbolIndex:
         other.generation = self.generation
         other._snapshot = self._snapshot
         other._hidden = self._hidden
+        other._ranks = self._ranks
         other._slots = dict(self._slots)
         other._layers = {key: set(layers) for key, layers in self._layers.items()}
         other._effective = dict(self._effective)
@@ -567,11 +643,11 @@ class SymbolIndex:
 
     def facts(self) -> list[FileFacts]:
         """Todos los hechos que contiene (para la caché y las pruebas)."""
-        return [item for key in sorted(self._slots, key=lambda k: (k[0], k[1].value))
+        return [item for key in sorted(self._slots, key=lambda k: (k[0], k[1][0].value, k[1][1] or ""))
                 for item in self._slots[key].facts]
 
     def facts_of(self, rel: VPath) -> list[FileFacts]:
-        """Hechos de ``rel`` en todas las capas (ganador primero). Ampliación."""
+        """Hechos de ``rel`` en todas las capas (por prioridad: mod, dependencias en su orden, juego). Ampliación."""
         key = VPath.of(rel).key
-        layers = sorted(self._layers.get(key, ()), key=_PRIORITY.index)
+        layers = sorted(self._layers.get(key, ()), key=self._layer_rank)
         return [item for layer in layers for item in self._slots[(key, layer)].facts]

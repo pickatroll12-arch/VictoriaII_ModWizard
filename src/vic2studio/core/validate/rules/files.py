@@ -1,11 +1,15 @@
 """Familia «files»: archivos del mod idénticos al juego y rutas que Windows no admite (wizard §11, H15, §24.4).
 
-Solo mira la capa del mod: en la línea base (solo el juego) no da nada.
+Solo mira la capa del mod: en la línea base (sin el mod) no da nada.
 
-- ``mod_shadow_identical`` (info): un archivo del mod idéntico byte a byte al del
-  juego que sustituye. No cuenta en las carpetas ocultas por ``replace_path`` (ahí
-  la copia sí hace falta) ni con un documento sin guardar. Arreglo: mandar las
-  copias idénticas a la papelera.
+- ``mod_shadow_identical`` (info): un archivo del mod idéntico byte a byte al que
+  cargaría el juego sin él (el de la dependencia con más prioridad o, si no hay, el
+  del juego): borrarlo no cambia lo que se carga. Una copia idéntica a la del juego
+  con una dependencia en medio que trae otra versión sí hace falta. No cuenta en las
+  carpetas ocultas por ``replace_path`` (decisión del usuario, wizard §24.4) ni con
+  un documento sin guardar. Arreglo: mandar las copias idénticas a la papelera.
+  Comparar es caro (942 MB en VSM): ``ValidationContext.identical`` recuerda el
+  resultado entre validaciones.
 - ``case_collision`` (error): dos archivos del mod que solo difieren en mayúsculas.
 - ``windows_reserved_name`` (error): un componente de la ruta que Windows rechaza.
 - ``path_too_long`` (aviso): la ruta absoluta pasa de ``MAX_PATH_WARNING``.
@@ -15,7 +19,7 @@ from __future__ import annotations
 
 from ...cancel import raise_if_cancelled
 from ...clausewitz import Severity
-from ...vfs.model import LayerKind
+from ...vfs.model import LayerKind, winner
 from ...vfs.paths import DESCRIPTOR_REL, long_path_problem, windows_name_problems
 from ..registry import SCOPE_FILE, make_problem, rule
 
@@ -30,16 +34,23 @@ def mod_entries(ctx):
                 yield key, stack, entry
 
 
+def without_mod(stack, hidden: bool):
+    """La entrada que cargaría el juego si el mod no tuviera ese archivo (None si ninguna)."""
+    return winner([e for e in stack if e.layer.kind is not LayerKind.MOD], hidden)
+
+
 def identical_copies(ctx) -> list:
-    """``(entrada del mod, entrada del juego)`` de cada copia idéntica que se puede mandar a la papelera."""
+    """``(entrada del mod, entrada que ganaría sin ella)`` de cada copia idéntica que se puede mandar a la papelera
+    (la segunda es del juego o de una dependencia)."""
     found = []
+    hidden = ctx.snapshot.hidden
     for key, stack, entry in mod_entries(ctx):
         raise_if_cancelled(ctx.cancelled)
-        if ctx.unsaved(entry.rel) or key in ctx.snapshot.hidden:
+        if ctx.unsaved(entry.rel) or key in hidden:
             continue
-        game = next((e for e in stack if e.layer.kind is LayerKind.GAME), None)
-        if game is not None and ctx.identical(entry, game):
-            found.append((entry, game))
+        below = without_mod(stack, key in hidden)
+        if below is not None and ctx.identical(entry, below):
+            found.append((entry, below))
     return found
 
 

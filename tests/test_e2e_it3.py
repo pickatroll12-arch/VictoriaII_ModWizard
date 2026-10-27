@@ -21,7 +21,8 @@ import _qt  # noqa: E402  (antes de PySide6.QtWidgets: plataforma offscreen y av
 from _corpus import copy_user_mod, user_mod, vanilla_root  # noqa: E402
 from PySide6.QtCore import Qt  # noqa: E402
 from PySide6.QtTest import QTest  # noqa: E402
-from test_ui_validation import ValidationCase  # noqa: E402
+from _minigame import GAME_FILES  # noqa: E402
+from test_ui_validation import MOD, ValidationCase  # noqa: E402
 
 APP = _qt.application()
 
@@ -33,6 +34,8 @@ from vic2studio.ui.dialogs.fix_plan import FixPlanDialog  # noqa: E402
 from vic2studio.ui.session import Session  # noqa: E402
 
 REAL = {"ready": {}}          # Session(): los motores reales del núcleo
+# La historia de SIL y su archivo de país, como en VSM: sin él, «Registrar SIL» se niega (no_country_file).
+SIL_MOD = {**MOD, "common/countries/Silesia.txt": GAME_FILES["common/countries/Aland.txt"]}
 INDEX_MS = 20000
 VSM_MS = 120000
 
@@ -43,6 +46,7 @@ def added_lines(diff: str) -> list[str]:
 
 class RealCoreWindowCase(ValidationCase):
     def open_real(self, **options):
+        options.setdefault("mod_files", SIL_MOD)
         window = self.open_checks(engines=REAL, **options)
         session = window.session
         self.assertTrue(_qt.wait_until(lambda: session.index_state() == "ready" and not window.is_busy(),
@@ -57,9 +61,18 @@ class RealCoreWindowCase(ValidationCase):
         self.assertTrue(_qt.wait_until(lambda: session.validation_state() == "ready" and not self.window.is_busy(),
                                        timeout), f"la validación no terminó: {session.validation_error()}")
 
-    def apply_from_dialog(self, page, code: str, *, confirm: bool = False) -> str:
-        """[Arreglar] del problema ``code`` como el usuario: revisa el plan y acepta. Devuelve el diff del plan."""
-        self.select(page, code)
+    def select_where(self, page, code: str, **args):
+        """Como ``select``, pero el primer problema de ``code`` con esos argumentos."""
+        for row, item in enumerate(page.model.problems()):
+            if item.code == code and all(item.args.get(k) == v for k, v in args.items()):
+                page.view.setCurrentIndex(page.model.index(row, 0))
+                return item
+        self.fail(f"no está el problema {code} {args}")
+
+    def apply_from_dialog(self, page, code: str, *, confirm: bool = False, **args) -> str:
+        """[Arreglar] del problema ``code`` (y ``args``) como el usuario: revisa el plan y acepta. Devuelve el diff
+        del plan."""
+        self.select_where(page, code, **args)
         seen = []
 
         def review(dialog: FixPlanDialog):
@@ -248,11 +261,11 @@ class VsmEndToEndTests(RealCoreWindowCase):
             ("unclosed_block", "decisions/somaliland_shago.txt"),
             ("unclosed_block", "decisions/zulu_expancionshago.txt"),
         ], "criterio 3: los errores propios, sin heredados")
-        diff = self.apply_from_dialog(page, "tag_not_registered")
+        diff = self.apply_from_dialog(page, "tag_not_registered", tag="SIL")
         self.assertEqual(added_lines(diff), ['+SIL = "countries/Silesia.txt"'])
         self.wait_validated(VSM_MS)
         codes = self.codes(page)
-        self.assertNotIn("tag_not_registered", codes, "criterio 5: revalidar quita el error")
+        self.assertNotIn("tag_not_registered", codes, "criterio 5: revalidar quita el error de SIL")
         self.assertIn("graphical_culture_unknown", codes, "y destapa los de los archivos de SIL")
         (write,) = session.changeset().writes
         self.assertEqual((str(write.rel), write.action), ("common/countries.txt", WriteAction.MODIFY))

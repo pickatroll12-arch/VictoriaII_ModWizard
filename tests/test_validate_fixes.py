@@ -114,7 +114,8 @@ class RegisterTagTests(FixTestCase):
         broken = GAME_FILES[COUNTRIES].replace('dynamic_tags = yes', 'oops = {\r\ndynamic_tags = yes', 1)
         self.assertNotEqual(broken, GAME_FILES[COUNTRIES])
         game, project = self.open(mod_files={**ESLAND, COUNTRIES: broken})
-        [problem] = problems(project, {"tag_not_registered"})
+        # D01 también sale: con el bloque sin cerrar queda dentro de «oops», y cultures.txt lo usa.
+        [problem] = [p for p in problems(project, {"tag_not_registered"}) if p.entity == ("tag", "EEE")]
         with self.assertRaises(FixError) as raised:
             plan_fix("register_tag", problem, project)
         self.assertEqual(raised.exception.code, "syntax_errors")
@@ -154,13 +155,54 @@ class RegisterTagTests(FixTestCase):
         self.assertEqual(raised.exception.code, "read_only")
         self.assertEqual(holder.ws.documents(), [], "no abrió nada")
 
-    def test_modifies_the_mod_copy_and_falls_back_to_a_new_file_name(self):
-        files = {COUNTRIES: GAME_FILES[COUNTRIES], "history/countries/FFF.txt": "capital = 1\r\n"}
+    def test_modifies_the_mod_copy_and_falls_back_to_the_tag_file_name(self):
+        files = {COUNTRIES: GAME_FILES[COUNTRIES], "history/countries/FFF.txt": "capital = 1\r\n",
+                 "common/countries/fff.txt": GAME_FILES["common/countries/Aland.txt"]}
         game, project = self.open(mod_files=files)
         [problem] = problems(project, {"tag_not_registered"})
         [change] = plan_fix("register_tag", problem, project).changes
         self.assertEqual(change.action, ACTION_MODIFY)
-        self.assertIn('+FFF = "countries/FFF.txt"', change.diff, "sin nombre en la historia, el del TAG")
+        self.assertIn('+FFF = "countries/fff.txt"', change.diff, "sin nombre en la historia, el del TAG, como está")
+
+    def test_refused_without_a_country_file(self):
+        """Revisión it3: CSR de VSM solo tiene banderas; registrarlo con un archivo de país que no existe cambiaba
+        tag_not_registered por country_file_missing (y el juego no carga ese país)."""
+        files = {"history/countries/FFF - Fenland.txt": "capital = 1\r\n"}
+        game, project = self.open(mod_files=files)
+        [problem] = problems(project, {"tag_not_registered"})
+        before = state(project)
+        for call in (lambda: plan_fix("register_tag", problem, project),
+                     lambda: apply_fix("register_tag", problem, project)):
+            with self.assertRaises(FixError) as raised:
+                call()
+            self.assertEqual(raised.exception.code, "no_country_file")
+            self.assertIn("common/countries/Fenland.txt", raised.exception.message("es"))
+            self.assertIn("FFF", raised.exception.message("en"))
+        self.assertEqual(state(project), before, "no cambia nada")
+        # Un archivo de país nuevo sin guardar ya cuenta (la vista efectiva, I7); en la papelera, ya no.
+        with project.edit("undo.edit"):
+            handle = project.ws.open("common/countries/Fenland.txt", create=True)
+            project.ws.replace_text(handle, GAME_FILES["common/countries/Aland.txt"].encode("cp1252"))
+        [change] = plan_fix("register_tag", problem, project).changes
+        self.assertIn('+FFF = "countries/Fenland.txt"', change.diff)
+        with project.edit("undo.delete"):
+            project.ws.delete("common/countries/Fenland.txt")
+        with self.assertRaises(FixError):
+            plan_fix("register_tag", problem, project)
+
+    def test_refused_when_the_country_file_is_in_the_trash(self):
+        """La lápida de un archivo de país del mod (sin nada debajo en el juego) es «no existe»."""
+        files = {"history/countries/FFF - Fenland.txt": "capital = 1\r\n",
+                 "common/countries/Fenland.txt": GAME_FILES["common/countries/Aland.txt"]}
+        game, project = self.open(mod_files=files)
+        [problem] = problems(project, {"tag_not_registered"})
+        self.assertIn('+FFF = "countries/Fenland.txt"', plan_fix("register_tag", problem, project).changes[0].diff)
+        with project.edit("undo.delete"):
+            project.ws.delete("common/countries/Fenland.txt")
+        self.assertTrue(project.ws.peek("common/countries/Fenland.txt").deleted)
+        with self.assertRaises(FixError) as raised:
+            plan_fix("register_tag", problem, project)
+        self.assertEqual(raised.exception.code, "no_country_file")
 
 
 class ConvertTests(FixTestCase):
