@@ -17,6 +17,7 @@ from _corpus import user_mod, vanilla_root  # noqa: E402
 from _fake_index import real_core_ready  # noqa: E402
 from PySide6.QtCore import Qt  # noqa: E402
 from PySide6.QtTest import QTest  # noqa: E402
+from test_locsync import copy_user_mod  # noqa: E402
 from test_ui_loc_edit import TextsWindowCase  # noqa: E402
 
 APP = _qt.application()
@@ -215,7 +216,7 @@ class CorpusCriterion7Tests(PaletteCase):
         self.window = window
         files = window.page("project")
         files.set_game_path(vanilla_root())
-        files.set_mod_path(user_mod())
+        files.set_mod_path(copy_user_mod(self))   # nunca el VSM real del corpus
         session = window.session
         self.assertTrue(_qt.wait_until(lambda: session.index is not None and session.texts_ready(), 60000))
         for text, kind, name in (("549", "province", "549"), ("Berlín", "province", "549"), ("PRU", "tag", "PRU"),

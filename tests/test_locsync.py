@@ -40,6 +40,29 @@ VSM_HEADER = "key;English;French;German;Polish;Spanish;Italian;Swedish;Czech;Hug
 VSM_STYLE = CRLF.join([VSM_HEADER, "AAA;Aland;;;;;;;;;;;;", "AAA_ADJ;Alandish;;;;Alandés;;;;;;;;", ""])
 
 
+def copy_user_mod(test: unittest.TestCase, *parts: str) -> Path:
+    """Copia temporal de la carpeta VSM del corpus (sin ``.vic2studio``), con su ``VSM.mod`` al lado.
+
+    Las pruebas nunca abren el mod real: abrir un proyecto deja ahí su cerrojo y, si algo se interrumpe con
+    cambios sin guardar, una recuperación que otras pruebas encontrarían. ``parts``: solo esas subcarpetas.
+    """
+    source = user_mod()
+    base = Path(tempfile.mkdtemp(prefix="vic2studio-vsm-"))
+    test.addCleanup(shutil.rmtree, base, True)
+    target = base / source.name
+    ignore = shutil.ignore_patterns(".vic2studio")
+    if parts:
+        target.mkdir()
+        for part in parts:
+            shutil.copytree(source / part, target / part, ignore=ignore)
+    else:
+        shutil.copytree(source, target, ignore=ignore)
+    descriptor = source.parent / f"{source.name}.mod"
+    if descriptor.is_file():
+        shutil.copy2(descriptor, base / descriptor.name)
+    return target
+
+
 class LocSyncCase(unittest.TestCase):
     def setUp(self):
         isolate_appdirs(self)
@@ -370,7 +393,7 @@ class CorpusCriterion6Tests(unittest.TestCase):
 
     def setUp(self):
         isolate_appdirs(self)
-        self.project = Project.open(vanilla_root(), user_mod())
+        self.project = Project.open(vanilla_root(), copy_user_mod(self, "localisation"))
         self.addCleanup(self.project.close, discard=True)
         settings = self.project.settings
         self.loc = LocSync(self.project.ws, self.project.vfs, prefix=settings.prefix, languages=settings.languages)
