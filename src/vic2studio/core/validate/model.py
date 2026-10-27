@@ -26,6 +26,14 @@ if TYPE_CHECKING:
     from ..project import Project
 
 SEVERITY_ORDER = {Severity.ERROR: 0, Severity.WARNING: 1, Severity.INFO: 2}
+# ``Problem.args["source"]`` de los diagnósticos de la familia «syntax»: su mensaje es el del parser o el lint.
+SOURCE_CLAUSEWITZ = "clausewitz"
+SOURCE_CSV = "csv"
+_POSITION_ARGS = frozenset({"line", "column", "offset"})
+
+
+def _is_position(name: str) -> bool:
+    return name in _POSITION_ARGS or name.endswith("_line") or name.endswith("_column")
 
 
 @dataclass(frozen=True)
@@ -50,14 +58,36 @@ class Problem:
     fixes: tuple[str, ...] = ()
 
     def message(self, lang: str = "en") -> str:
-        from ..texts import text
+        """Texto de ``issue.<código>`` con ``args``.
 
-        return text(f"issue.{self.code}", lang, rel=self.rel or "", **dict(self.args))
+        Los diagnósticos de la familia «syntax» (``args["source"]`` es ``clausewitz`` o ``csv``) usan el
+        mensaje original del parser o del lint, con sus variantes. Con ``args["key"] is None`` se prefiere
+        ``issue.<código>_anonymous`` si existe (la convención del parser).
+        """
+        from ..texts import load_texts, text
+
+        args = dict(self.args)
+        source = args.pop("source", None)
+        if source == SOURCE_CLAUSEWITZ:
+            from ..clausewitz.diagnostics import Diagnostic
+
+            return Diagnostic(self.code, self.severity, self.line or 1, self.column or 1, 0, args).message(lang)
+        if source == SOURCE_CSV:
+            from ..csvloc.diagnostics import CsvDiagnostic
+            from ..csvloc.diagnostics import Severity as CsvSeverity
+
+            return CsvDiagnostic(self.code, CsvSeverity(self.severity.value), self.line, self.column,
+                                 args).message(lang)
+        key = f"issue.{self.code}"
+        if "key" in args and args["key"] is None and f"{key}_anonymous" in load_texts("en"):
+            key += "_anonymous"
+        return text(key, lang, rel=self.rel or "", **args)
 
     def fingerprint(self) -> tuple:
         """Identidad sin la posición: ``(code, rel.key, entity, field, args ordenados)``. La línea base compara
-        huellas (un problema de vanilla sigue siendo el mismo aunque cambie de línea)."""
-        args = tuple(sorted((str(k), repr(v)) for k, v in self.args.items()))
+        huellas (un problema de vanilla sigue siendo el mismo aunque cambie de línea): por eso no cuentan los
+        argumentos de posición (``line``, ``column``, ``offset`` ni los que acaban en ``_line``/``_column``)."""
+        args = tuple(sorted((str(k), repr(v)) for k, v in self.args.items() if not _is_position(str(k))))
         return (self.code, None if self.rel is None else self.rel.key, self.entity, self.field, args)
 
     def __getstate__(self) -> tuple:
@@ -182,12 +212,21 @@ class Explanation:
     args: Mapping = dc_field(default_factory=lambda: MappingProxyType({}))
     fixes: tuple[str, ...] = ()          # claves de FIXES
 
+    def _args(self, lang: str) -> dict:
+        """``args`` con lo que depende del idioma: ``column`` (columna de un CSV) da ``language``, su nombre."""
+        args = dict(self.args)
+        if isinstance(args.get("column"), int):
+            from ..csvloc.diagnostics import column_name
+
+            args.setdefault("language", column_name(args["column"], lang))
+        return args
+
     def title(self, lang: str = "en") -> str:
         from ..texts import text
 
-        return text(self.title_key, lang, **dict(self.args))
+        return text(self.title_key, lang, **self._args(lang))
 
     def outcome(self, lang: str = "en") -> str:
         from ..texts import text
 
-        return text(self.outcome_key, lang, **dict(self.args))
+        return text(self.outcome_key, lang, **self._args(lang))

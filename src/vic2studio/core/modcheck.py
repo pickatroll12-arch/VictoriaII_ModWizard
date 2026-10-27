@@ -386,6 +386,50 @@ def check_file(path: str | os.PathLike, root: str | os.PathLike | None = None, *
     return issues + after
 
 
+def check_data(data: bytes, relative: str, *, path: str | os.PathLike | None = None,
+               cancelled: CancelCheck = None) -> list[Issue]:
+    """``check_file`` sobre bytes ya leídos (lo que da la VFS o un documento sin guardar, wizard §11).
+
+    Mismos diagnósticos que ``check_file`` y con la misma detección de
+    codificación (``parse_file``), sin leer disco: es la familia «syntax» del
+    validador. ``relative`` decide el tipo (``.csv`` es localización; lo demás,
+    Clausewitz) y es la ruta de los ``Issue``; ``path`` (opcional) es la ruta real.
+    No revisa los campos de un descriptor (eso es ``check_descriptor``). Solo lanza
+    ``core.cancel.Cancelled``; un fallo interno da un ``Issue`` ``check_failed``.
+    """
+    from .clausewitz import parser as _parser
+    from .csvloc.serialization import parse_csv
+    from .encoding import decode_bytes, match_bom, split_bom, split_extra_boms
+
+    real = Path(path) if path is not None else Path(relative)
+    kind = KIND_CSV if Path(relative).suffix.lower() in CSV_SUFFIXES else KIND_CLAUSEWITZ
+    try:
+        decoded = decode_bytes(data)
+        if kind == KIND_CSV:
+            diagnostics = parse_csv(decoded.text, encoding=decoded.encoding, cancelled=cancelled).diagnostics
+        else:
+            text, name = split_bom(decoded.text, match_bom(data, decoded.encoding))
+            text, _ = split_extra_boms(text, name)
+            result = _parser.parse(text, cancelled=cancelled)
+            diagnostics = result.diagnostics
+            encoding_diagnostic = _parser._encoding_diagnostic(text, name)
+            if encoding_diagnostic is not None:
+                diagnostics.insert(0, encoding_diagnostic)
+                diagnostics.sort(key=lambda d: d.offset)
+    except Cancelled:
+        raise
+    except Exception as exc:  # noqa: BLE001 - un fallo interno no debe abortar la validación
+        return [Issue(real, relative, kind, CHECK_FAILED, Severity.ERROR, None, None, None,
+                      {"error": f"{type(exc).__name__}: {exc}"})]
+    issues: list[Issue] = []
+    for start in range(0, len(diagnostics), CANCEL_EVERY):
+        raise_if_cancelled(cancelled)
+        issues.extend(Issue(real, relative, kind, d.code, Severity(d.severity.value), d.line, d.column, d,
+                            dict(d.args))
+                      for d in diagnostics[start:start + CANCEL_EVERY])
+    return issues
+
+
 def check_mod(root: str | os.PathLike, *, extra_files: Iterable[str | os.PathLike] = (),
               progress: Callable[[int, int, str], None] | None = None,
               cancelled: CancelCheck = None) -> ModCheckReport:

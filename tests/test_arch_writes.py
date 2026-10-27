@@ -67,6 +67,10 @@ WRAPPERS = {
 WRITERS_ALLOWED = {
     "core/project/journal.py": "el único que escribe dentro del mod: guardado, papelera, originals/ y recovery/",
     "core/project/lock.py": "el bloqueo, fuera del mod (core.appdirs.locks_dir)",
+    "core/index/cache.py": "la caché de hechos del índice, fuera del mod (core.appdirs.cache_dir()/index); no escribe "
+                           "si esa carpeta cae dentro de la capa",
+    "core/validate/baseline.py": "la caché de la línea base, fuera del mod (core.appdirs.cache_dir()/baseline); no "
+                                 "escribe si cae dentro del juego o del mod",
     "core/clausewitz/serializer.py": "es el envoltorio write_file",
     "core/csvloc/serialization.py": "es el envoltorio write_csv_file",
 }

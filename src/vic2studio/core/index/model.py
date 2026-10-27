@@ -19,6 +19,7 @@ from types import MappingProxyType
 
 from ..vfs.model import Fingerprint, LayerKind
 from ..vfs.paths import VPath
+from ..vfs.rules import _compile
 
 # Formato de la caché de hechos: subirlo invalida todas las cachés (cada extractor tiene además su versión).
 INDEX_FORMAT = 1
@@ -74,6 +75,16 @@ KIND_LOC_KEY = "loc_key"                 # localisation/*.csv (el ganador por or
 KIND_COUNTRY_FLAG = "country_flag"       # definidos por uso (set_country_flag): nunca «inexistentes»
 KIND_GLOBAL_FLAG = "global_flag"
 KIND_PROVINCE_FLAG = "province_flag"
+# Ampliación de la iteración 3 (compatible): archivos que se nombran desde otros.
+KIND_COUNTRY_FILE = "country_file"       # common/countries/*.txt; name = "countries/<Archivo>.txt" (como en
+                                         # countries.txt); attrs: color, graphical_culture, parties
+KIND_FILE = "file"                       # solo en referencias: un archivo por su ruta (``oob``); name = ruta en
+                                         # minúsculas con «/»
+KIND_TECH_FOLDER = "tech_folder"         # common/technology.txt → folders; attrs: areas
+KIND_POP_BLOCK = "pop_block"             # history/pops/<fecha>/*.txt; name = "<fecha>:<provincia>" (H10)
+
+# Rol de las referencias de ``default.map: sea_starts`` (kind ``province``): las provincias de mar.
+ROLE_SEA_STARTS = "sea_starts"
 
 
 @dataclass(frozen=True)
@@ -83,7 +94,8 @@ class Symbol:
     ``line`` empieza en 1 (None si el archivo no tiene líneas, p. ej. una imagen).
     ``attrs`` guarda los datos que necesitan los validadores y los selectores sin
     abrir el archivo (ver los comentarios de ``KIND_*``); debe ser serializable en
-    JSON (str, int, float, bool, None, listas y diccionarios de ellos).
+    JSON (str, int, float, bool, None, listas y diccionarios de ellos). No cuenta
+    en el ``hash`` (un ``Symbol`` se puede meter en un conjunto).
     """
 
     kind: str
@@ -91,7 +103,7 @@ class Symbol:
     rel: VPath
     line: int | None
     layer: LayerKind
-    attrs: Mapping[str, object] = field(default_factory=lambda: MappingProxyType({}))
+    attrs: Mapping[str, object] = field(default_factory=lambda: MappingProxyType({}), hash=False)
 
 
 @dataclass(frozen=True)
@@ -132,25 +144,27 @@ class ExtractorSpec:
     pattern: str                         # glob relativo sin mayúsculas, como LoadRule.pattern
     version: int
     fn: ExtractorFn
+    needs_data: bool = True              # False: solo mira la ruta (imágenes); el constructor no lee el archivo
 
     def matches(self, rel: VPath) -> bool:
-        from ..vfs.rules import _compile
-
-        return _compile(self.pattern).fullmatch(VPath.of(rel)) is not None
+        return _compile(self.pattern).fullmatch(rel if isinstance(rel, VPath) else VPath.of(rel)) is not None
 
 
 EXTRACTORS: list[ExtractorSpec] = []
 
 
-def extractor(pattern: str, *, version: int) -> Callable[[ExtractorFn], ExtractorFn]:
+def extractor(pattern: str, *, version: int, needs_data: bool = True) -> Callable[[ExtractorFn], ExtractorFn]:
     """Decorador: registra ``fn`` para los archivos que encajan con ``pattern``. Subir ``version`` invalida
-    solo la caché de este extractor (criterio 2 de la iteración 3). Un archivo puede tener varios."""
+    solo la caché de este extractor (criterio 2 de la iteración 3). Un archivo puede tener varios.
+
+    ``needs_data=False``: el extractor solo usa la ruta (recibe ``b""``) y el constructor no lee el archivo.
+    """
 
     def register(fn: ExtractorFn) -> ExtractorFn:
         name = f"{fn.__module__.rsplit('.', 1)[-1]}.{fn.__name__}"
         if any(spec.name == name for spec in EXTRACTORS):
             raise ValueError(f"extractor repetido: {name}")
-        EXTRACTORS.append(ExtractorSpec(name, pattern, version, fn))
+        EXTRACTORS.append(ExtractorSpec(name, pattern, version, fn, needs_data))
         return fn
 
     return register
@@ -167,7 +181,8 @@ def discover_extractors() -> list[ExtractorSpec]:
 
 def extractors_for(rel: VPath) -> list[ExtractorSpec]:
     """Los extractores registrados que procesan ``rel`` (tras ``discover_extractors``)."""
-    return [spec for spec in EXTRACTORS if spec.matches(rel)]
+    rel = rel if isinstance(rel, VPath) else VPath.of(rel)
+    return [spec for spec in EXTRACTORS if _compile(spec.pattern).fullmatch(rel) is not None]
 
 
 _FOLD_RE = re.compile(r"[̀-ͯ]")
