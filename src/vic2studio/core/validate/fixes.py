@@ -418,8 +418,10 @@ def _restore_rows(problem: Problem, project: Project) -> list[Edit]:
     return [Edit(state.rel, state, restored)]
 
 
-_byte_fix("restore_vanilla_loc_rows", lambda p: {**_file_args(p), "rows": p.args.get("rows", 0)}, True,
-          _restore_rows)
+# La etiqueta cuenta las filas que cambia el arreglo (``lines``: todas las degradadas, también las de una clave
+# repetida), no las claves que se ven rotas (``rows``): en VSM, 3 438 frente a 3 427.
+_byte_fix("restore_vanilla_loc_rows",
+          lambda p: {**_file_args(p), "rows": p.args.get("lines", p.args.get("rows", 0))}, True, _restore_rows)
 
 
 # --- trash_identical_copies (decisión del usuario §24.4) ----------------------------------------------

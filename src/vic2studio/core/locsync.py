@@ -56,6 +56,7 @@ from types import MappingProxyType
 
 from .cancel import CancelCheck, raise_if_cancelled
 from .csvloc.db import LocalisationDB, load_order_key
+from .csvloc.degraded import is_degraded
 from .csvloc.lint import is_header_row
 from .csvloc.model import (
     LANGUAGE_CODES,
@@ -149,39 +150,11 @@ def read_localisation(entries: Iterable[FileEntry], *, cancelled: CancelCheck = 
 def is_degraded_copy(mod_fields: Sequence[str], game_fields: Sequence[str]) -> bool:
     """True si la fila del mod solo difiere de la del juego por «?» donde había un carácter no ASCII (H15).
 
-    Cada «?» del mod puede ser un «?» del juego, o un carácter no ASCII del juego más, a veces, el siguiente
-    (la conversión rota se comió también un espacio o un «;»).
+    Es ``csvloc.degraded.is_degraded`` sobre los campos unidos con «;»: la misma regla que ``loc_copy_degraded``
+    (cada «?» es un «?» del juego, o un carácter no ASCII más hasta ``DEGRADED_TAIL`` caracteres que la conversión
+    rota se comió, un espacio o un «;»), para que el filtro «degradadas» y el aviso cuenten lo mismo.
     """
-    a, b = ";".join(mod_fields), ";".join(game_fields)
-    if a == b or "?" not in a or len(a) > len(b):
-        return False
-    parts = a.split("?")
-    last = len(parts) - 1
-    pending, seen = [(0, 0)], set()
-    while pending:
-        state = pending.pop()
-        if state in seen:
-            continue
-        seen.add(state)
-        k, j = state
-        piece = parts[k]
-        if not b.startswith(piece, j):
-            continue
-        j += len(piece)
-        if k == last:
-            if j == len(b):
-                return True
-            continue
-        if j >= len(b):
-            continue
-        char = b[j]
-        if char == "?":
-            pending.append((k + 1, j + 1))
-        elif ord(char) > 127:
-            pending.append((k + 1, j + 1))
-            if j + 1 < len(b):
-                pending.append((k + 1, j + 2))
-    return False
+    return is_degraded(";".join(mod_fields), ";".join(game_fields))
 
 
 # --- vista efectiva ------------------------------------------------------------------------------------------

@@ -280,6 +280,24 @@ class RestoreRowsTests(FixTestCase):
         self.assertEqual(FIXES["restore_vanilla_loc_rows"].label(problem, "es"),
                          "Recuperar las filas de vanilla de «minigame_names.csv» (3)")
 
+    def test_the_label_counts_the_rows_it_changes_not_the_keys(self):
+        """Revisión it3: una clave degradada repetida se ve rota una vez (rows) pero el arreglo cambia sus dos filas
+        (lines); en VSM, 3 427 claves y 3 438 filas. La etiqueta dice lo que hará."""
+        rel = "localisation/minigame_names.csv"
+        original = GAME_FILES[rel]
+        [row] = [line for line in original.split("\r\n") if line.startswith("AAA_ADJ;")]
+        broken = row.replace("alandés", "aland?")
+        degraded = original.replace(row, broken) + broken + "\r\n"     # solo AAA_ADJ (alander también dice alandés)
+        # La repetición se compara con la misma repetición del juego (como las 79 claves repetidas del text.csv).
+        game, project = self.open(game_files={rel: original + row + "\r\n"}, mod_files={rel: degraded})
+        [problem] = problems(project, {"loc_copy_degraded"})
+        self.assertEqual((problem.args["rows"], problem.args["lines"]), (1, 2))
+        spec = FIXES["restore_vanilla_loc_rows"]
+        self.assertEqual(spec.label(problem, "es"), "Recuperar las filas de vanilla de «minigame_names.csv» (2)")
+        self.assertEqual(spec.label(problem, "en"), "Restore the vanilla rows of “minigame_names.csv” (2)")
+        [change] = plan_fix("restore_vanilla_loc_rows", problem, project).changes
+        self.assertEqual(change.lines, (2, 2), "cambia las dos filas")
+
 
 class TrashCopiesTests(FixTestCase):
     def test_trashes_identical_copies_outside_replace_path_folders(self):

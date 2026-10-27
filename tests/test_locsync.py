@@ -350,6 +350,19 @@ class DegradedCopyTests(unittest.TestCase):
                         "y a veces el «;» de la columna siguiente")
         self.assertTrue(is_degraded_copy(["a?b?c"], ["aébñc"]))
 
+    def test_the_same_rule_as_the_loc_copy_degraded_warning(self):
+        """Revisión it3: el filtro contaba hasta 1 carácter comido tras la letra y la regla hasta 2; con la misma
+        función (``csvloc.degraded``), la tabla y el aviso no se contradicen."""
+        from vic2studio.core.validate.rules import localisation as loc_rules
+
+        self.assertTrue(is_degraded_copy(["Gr?Stadt"], ["Grü; Stadt"]), "ü y 2 más («; »)")
+        self.assertFalse(is_degraded_copy(["Gr?tadt"], ["Grü; Stadt"]), "3 comidos ya no")
+        pairs = [(["Capacit?"], ["Capacité"]), (["Gr?Stadt"], ["Grü; Stadt"]), (["Gr?tadt"], ["Grü; Stadt"]),
+                 (["a?b?c"], ["aébñc"]), (["Why?"], ["Why?"]), (["x?;y"], ["xé;;y"])]
+        for mod, game in pairs:
+            with self.subTest(mod=mod):
+                self.assertIs(is_degraded_copy(mod, game), loc_rules.is_degraded(";".join(mod), ";".join(game)))
+
     def test_anything_else_is_not_degraded(self):
         self.assertFalse(is_degraded_copy(["Same"], ["Same"]))
         self.assertFalse(is_degraded_copy(["Other"], ["Otra"]))
@@ -433,8 +446,8 @@ class CorpusCriterion6Tests(unittest.TestCase):
     def test_vsm_flags_and_its_own_csv_files(self):
         entries = self.loc.entries()
         degraded = sum(e.degraded for e in entries)
-        # Medido sobre el corpus: 3 427 claves efectivas degradadas (H15 habla de 3 429 filas que difieren).
-        self.assertGreater(degraded, 3400)
+        # Las mismas 3 427 claves efectivas degradadas que cuenta loc_copy_degraded (rows; test_validate_corpus).
+        self.assertEqual(degraded, 3427)
         studio = [e for e in entries if e.created_by_studio]
         self.assertTrue(studio and all(e.rel.name.upper().startswith("00_VSM_") for e in studio))
         with self.project.edit(LABEL, name="x"):
