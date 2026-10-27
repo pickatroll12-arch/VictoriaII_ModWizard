@@ -5,13 +5,16 @@ aplicación de escritorio (Windows + Linux) para crear y editar mods de
 Victoria II (motor Clausewitz de Paradox, con *A House Divided* y *Heart of
 Darkness*) de forma visual.
 
-Estado: **iteración 1**, cerrada salvo dos tareas: la segunda revisión
-adversarial de la última ronda de la interfaz, que está en curso, y T5, el
-informe final al usuario (§6.1). Este documento describe el código que hay hoy
-en el repositorio. El diseño de las
-iteraciones 2 a 10 está en [`docs/diseno/wizard.md`](docs/diseno/wizard.md)
-(«wizard» en adelante), que sustituye a lo que aquí estaba planificado: §2.2–2.4,
-§3 y §6 remiten a él. Lo marcado *(planificado)* no existe todavía en el código.
+Estado: **iteración 2 integrada** (cimientos: VFS, proyecto transaccional con
+diario, deshacer por instantáneas, descriptor `.mod` y armazón de 7 salas;
+commits `97f0386`, `f3ff809`, `d3ed5de`, `563a709` y `59e8847`). La iteración 1
+está cerrada. De la 2 quedan los criterios de aceptación que necesitan el corpus
+completo del usuario y el cierre de su revisión (§6.1). Este documento describe
+el código que hay hoy en el repositorio. El diseño de las iteraciones 2 a 10
+está en [`docs/diseno/wizard.md`](docs/diseno/wizard.md) («wizard» en adelante);
+lo de la iteración 2 sigue sobre todo wizard §3–§6, §13, §14.1 y §22. Lo marcado
+*(planificado)* no existe todavía en el código, y donde el código se aparta de
+wizard se dice.
 
 Índice:
 
@@ -85,7 +88,12 @@ QtCore: `app.main` avisa con un `QMessageBox` antes de abrir la ventana y sale
 con 1 (§8.1), y `tests/_qt.py` lanza `RuntimeError` al importarse (§7.1).
 `VIC2STUDIO_ALLOW_BROKEN_PYSIDE=1` (cualquier valor que no sea vacío ni `0`)
 desactiva la comprobación, para probar una PySide6 posterior que quizá lo
-corrija. Las cifras de §7 se midieron con
+corrija. Con PySide6 6.5 o 6.6 hace falta además numpy < 2 (lo dicen
+`requirements.txt` y el README): sus ruedas de shiboken6 se compilaron con
+NumPy 1.x y, con numpy 2, cada importación de PySide6 escribe una traza falsa en
+la salida de error. La batería completa pasa con Python 3.13.17 y PySide6
+6.12.0, con Python 3.10.20 y PySide6 6.11.3 y con PySide6 6.5.0, el mínimo
+declarado (§7.1). Las cifras de §7 se midieron con
 Python 3.13.17, PySide6 6.12.0, numpy 2.5.3 y Pillow 12.3.0. El código evita lo
 que no existe en los mínimos: por ejemplo, `ui/tasks.wait_for_tasks` pasa el
 plazo como entero a `QThreadPool.waitForDone`, porque la sobrecarga con
@@ -174,98 +182,266 @@ Otros archivos del mapa:
 flowchart TB
     subgraph UI["ui — Qt (PySide6)"]
         app["app.py · __main__.py · settings.py · compat.py"]
-        mw["ui/main_window.py"]
-        pages["ui/pages/* (5 páginas)"]
+        mw["ui/main_window.py (7 salas, acciones globales)"]
+        shell["ui/shell/* (HallPage, SectionRail, PendingChangesPanel, HistoryDock)"]
+        halls["ui/halls/* (registry + 7 salas)"]
+        dialogs["ui/dialogs/* (revisión, conflicto, recuperación, nuevo mod)"]
+        pages["ui/pages/* (Archivos, Archivos CSV, tarjeta «en desarrollo»)"]
         viewers["ui/viewers/* (visores y validación)"]
+        session["ui/session.py (Session: único puente con Qt)"]
         tasks["ui/tasks.py (tareas en segundo plano)"]
         widgets["ui/widgets/* · ui/theme.py · ui/style.qss"]
-        i18n["i18n/ (Translator, es.json, en.json)"]
+        i18n["i18n/ (Translator: catálogos y fragmentos)"]
     end
     subgraph CORE["core — Python puro, sin Qt"]
-        cancel["cancel (cancelación cooperativa)"]
-        enc["encoding · fileio"]
-        cw["clausewitz (CST + JSON + CLI)"]
-        csv["csvloc (localización CSV + CLI)"]
+        project["project/ (Project, Workspace, undo, journal, recovery, lock…)"]
+        vfs["vfs/ (paths, rules, guard, vfs)"]
         modfile["modfile (descriptor .mod)"]
         modcheck["modcheck (validar un mod)"]
+        cw["clausewitz (CST + JSON + CLI)"]
+        csv["csvloc (localización CSV + CLI)"]
+        enc["encoding · fileio"]
+        appdirs["appdirs (datos y caché)"]
+        texts["texts (textos del núcleo)"]
+        cancel["cancel (cancelación cooperativa)"]
     end
-    planned["planificado (wizard §4): core/project · vfs · index · schema · validate · map … y ui/session.py"]
-    app --> mw --> pages
+    planned["planificado (wizard §4): core/index · schema · validate · locsync · map …"]
+    app --> mw
+    mw --> shell
+    mw --> halls
+    mw --> dialogs
+    mw --> session
+    shell --> halls
+    halls --> pages
+    halls --> session
     pages --> viewers
-    pages --> tasks
+    pages --> vfs
     viewers --> tasks
+    session --> tasks
     tasks --> cancel
-    pages --> modfile
+    session --> project
+    session --> modfile
     viewers --> cw
     viewers --> csv
     viewers --> modcheck
+    i18n --> texts
+    project --> vfs
+    project --> modfile
+    project --> cw
+    project --> csv
+    project --> enc
+    project --> appdirs
+    project -.-> texts
+    project --> cancel
+    vfs --> modfile
+    vfs --> modcheck
+    vfs --> enc
+    vfs --> cancel
+    modfile -.-> project
+    modfile -.-> vfs
+    modfile -.-> appdirs
+    modfile -.-> modcheck
     modcheck --> modfile
     modcheck --> cw
     modcheck --> csv
+    modcheck --> cancel
     modfile --> cw
     modfile --> enc
     cw --> enc
     csv --> enc
     cw --> cancel
     csv --> cancel
-    modcheck --> cancel
     planned -.-> CORE
 ```
 
-Dentro de core el diagrama tiene todas las dependencias, las mismas que
-enumeran las reglas que siguen; en la interfaz muestra solo las principales
-(por ejemplo, `ui/pages/project_page.py` importa también `csvloc`, `encoding` y
-`modcheck`, y los visores, `cancel`).
+Dentro de core el diagrama tiene todas las dependencias entre subpaquetes, las
+mismas que enumeran las reglas que siguen; las flechas de trazos dentro de core
+son importaciones dentro de funciones (las de `modfile` evitan un ciclo al
+importar: `project`, `vfs` y `modcheck` importan `modfile`). En la interfaz
+muestra solo las principales: por ejemplo, las salas
+importan también `encoding`, `modcheck` y `modfile`, la ventana, `core/vfs` y
+`core/project`, y los diálogos, `core/project` y `modfile`.
 
 Reglas de dependencia:
 
 - **core** no importa PySide6 nunca. Se puede usar desde la línea de comandos,
-  desde pruebas sin pantalla y desde otros programas. Sus diagnósticos y casi
+  desde pruebas sin pantalla y desde otros programas. Lo comprueba
+  `tests/test_arch_writes.py` (`test_core_imports_without_pyside6`): un
+  subproceso importa todos los módulos de `vic2studio.core` (al menos 35) y falla
+  si quedó cargado PySide6 o shiboken6. Sus diagnósticos y casi
   todos sus errores traen sus propias tablas de mensajes `es`/`en`
   (`Diagnostic.message(lang)`, `EditError.message(lang)`,
   `CsvDiagnostic.message(lang)`, `InvalidFieldError.message(lang)`,
   `Issue.message(lang)`, `FileChangedError.message(lang)`,
-  `DescriptorFieldError.message(lang)`), así que no dependen del traductor de
-  Qt: la UI les pasa el idioma activo (`ui/viewers/common.core_language`). Las
-  excepciones son `encoding.UnencodableTextError`, los `ValueError` de
-  `csvloc.from_json` y el `LookupError` de `normalize_encoding`, que solo
-  tienen texto en español; quien los muestra usa sus campos (`encoding` y
-  `problems` en el primero), como hace la CLI de localización. Hoy no hay una
-  prueba automática de esta regla (§7.5).
-- Dentro de **core**: `encoding` y `cancel` no dependen de nada (`encoding`
-  nombra `fileio.FileStamp` solo en las anotaciones de tipos); `fileio` usa
-  `encoding`; `clausewitz` y `csvloc` usan `encoding`, `fileio` y `cancel`;
-  `modfile` usa `encoding`, `fileio` y `clausewitz`; y `modcheck` usa
+  `DescriptorFieldError.message(lang)`, `WriteOutsideModError.message(lang)`,
+  `InvalidPathError.message(lang)` y `SaveProblem.message(lang)`), así que no
+  dependen del traductor de Qt: la UI les pasa el idioma activo
+  (`ui/viewers/common.core_language`). Los textos nuevos del núcleo ya no van en
+  tablas `MESSAGES` sino en JSON: `core/**/texts/*.<idioma>.json`, que lee
+  `core/texts.py` sin Qt (`load_texts(lang)`, que lanza `ValueError` ante una
+  clave repetida o un archivo mal formado, y `text(key, lang, **fmt)`, que cae al
+  inglés y, si tampoco está, a la propia clave). Hoy solo hay
+  `core/project/texts/project.{es,en}.json`, 17 claves: los códigos de
+  `SaveProblem`, las notas del diálogo de recuperación y las etiquetas `undo.*`
+  de los pasos que crea el núcleo. Las tablas `MESSAGES` de los módulos de la
+  iteración 1 siguen como estaban. Solo tienen texto en español
+  `encoding.UnencodableTextError`, los `ValueError` de `csvloc.from_json`, el
+  `LookupError` de `normalize_encoding` y, del proyecto, `WrongThreadError`;
+  `ReadOnlyDocumentError` solo lleva la ruta y el código del motivo. Quien los
+  muestra usa sus campos (`encoding` y `problems` en el primero, como hace la
+  CLI de localización; `rel` y `reason` en `ReadOnlyDocumentError`).
+  `DescriptorProblemsError` y `DescriptorWriteError`
+  llevan en `str()` el primer problema en español, y cada uno de sus problemas
+  tiene `message(lang)`.
+- Dentro de **core**: `encoding`, `cancel`, `appdirs` y `texts` no dependen de
+  ningún otro módulo de `vic2studio` (`encoding` nombra `fileio.FileStamp` solo en las
+  anotaciones de tipos); `fileio` usa `encoding`; `clausewitz` y `csvloc` usan
+  `encoding`, `fileio` y `cancel`; `modfile` usa `encoding`, `fileio` y
+  `clausewitz` y, dentro de las funciones que escriben o revisan
+  (`create_mod_skeleton`, `write_descriptor`, `descriptor_problems`), `appdirs`,
+  `modcheck`, `project.journal`, `project.model` y `vfs`; `modcheck` usa
   `cancel`, `clausewitz`, `csvloc` y `modfile` (los diagnósticos de
-  codificación le llegan de `parse_file` y de `read_csv_file`). Todos los recorridos
-  largos aceptan `cancelled=` de `cancel` (§2.5). El contrato de cada
-  subpaquete es lo que exporta su `__init__.py`.
-- **ui** presenta y no escribe nada en el juego ni en el mod: sus únicas
-  escrituras son las preferencias (`QSettings`, §8.5) y los PNG de los glifos
-  del tema, en una carpeta temporal
-  (`tempfile.mkdtemp(prefix="vic2studio-theme-")`). Lee a través de core
-  (`parse_file`, `read_csv_file`, `find_descriptor`, `check_mod`), salvo dos
-  lecturas directas: las imágenes, con Pillow (`image_viewer.load_image`), y los
-  primeros 2 MiB de un archivo sin visor propio para su ficha
-  (`project_page.gather_facts`, que los decodifica con `decode_bytes`, con
-  `partial=True` si el archivo es más largo).
+  codificación le llegan de `parse_file` y de `read_csv_file`); `vfs` usa
+  `cancel`, `fileio` (solo `BACKUP_SUFFIX`), `modcheck` (`GAME_EXECUTABLES`) y
+  `modfile`; y `project` usa `vfs`, `clausewitz`, `csvloc`, `encoding`, `fileio`,
+  `modfile`, `appdirs`, `cancel` y, para `SaveProblem.message`, `texts`. Todos
+  los recorridos largos aceptan `cancelled=` de `cancel` (§2.5). El contrato de
+  cada subpaquete es lo que exporta su `__init__.py`.
+- **Quién escribe en disco** (wizard §4; `tests/test_arch_writes.py`, con un
+  recorrido AST de `src/`):
+  - las primitivas de escritura cruda (`open` para escribir, `Path.write_*`,
+    `unlink`, `rename`, `replace`, `mkdir` y `touch`, `os.replace`, `remove`,
+    `rename`, `mkdir`… y `os.open` con banderas de escritura, `shutil.copy*`,
+    `move` y `rmtree` y `tempfile.*`) solo aparecen en `core/fileio.py`;
+  - la API de escritura de `fileio` (`atomic_write_bytes`, `write_text`,
+    `stage_bytes`, `commit_staged`, `discard_staged`, `copy_file`, `move_file`,
+    `remove_file`, `make_dirs`, `remove_empty_dirs` y `create_exclusive`; no
+    cuenta `fsync_dir`, que no modifica nada) y sus envoltorios
+    `serializer.write_file` y `csvloc.write_csv_file` solo se llaman desde
+    `core/project/journal.py`, el único que escribe dentro del mod, desde
+    `core/project/lock.py`, que escribe el bloqueo fuera del mod
+    (`appdirs.locks_dir()`), y desde los propios envoltorios;
+  - en `journal.py`, cada llamada a `fileio` está en una función `_guarded_*`
+    que pasa la ruta por `WriteGuard.check` (§3.5), y la prueba lo verifica;
+  - las excepciones están declaradas y justificadas en la propia prueba:
+    `ui/theme.py` (glifos PNG en una carpeta de `tempfile.mkdtemp`) y
+    `core/csvloc/cli.py` (`tojson -o` y `fromjson` escriben donde dice el
+    usuario). No hay excepciones temporales, y una excepción que ya no hace falta
+    también hace fallar la prueba. Quedan fuera del recorrido, a propósito,
+    `tools/`, lo que escribe Qt (`QSettings` y el `QImage.save` de los glifos) y
+    la salida estándar de las CLI.
+
+  Así, todo lo que se escribe en el mod o en su `.mod` pasa por el diario
+  (`journal.SaveTransaction`, §2.1) y por el `WriteGuard`: el guardado del
+  `Workspace`, la papelera, `originals/`, el autoguardado de `recovery/`, la
+  recuperación de un guardado cortado, «Nuevo mod»
+  (`modfile.create_mod_skeleton`) y `modfile.write_descriptor`, que lleva su
+  diario a la carpeta de datos de la aplicación.
+- **ui** no escribe nada por su cuenta en el juego ni en el mod: sus escrituras
+  propias son las preferencias (`QSettings`, §8.5) y los PNG de los glifos del
+  tema, en una carpeta temporal
+  (`tempfile.mkdtemp(prefix="vic2studio-theme-")`). En el mod escribe solo a
+  través de `Session`: `save`, el autoguardado (`write_recovery`),
+  `close_project` (la recuperación final o, con «Descartar», su borrado),
+  `restore_session` y `discard_recovery` llegan a `Project` y a su `Workspace`, y
+  de ahí al diario. La única escritura que no pasa por `Project` es «Nuevo mod»:
+  `Session.create_mod` llama a `core.modfile.create_mod_skeleton`, que crea el mod
+  con su propio diario y su propio `WriteGuard`. Las secciones que editan
+  (Descriptor .mod y Cambios pendientes) usan el `Workspace` de
+  `session.project` (`open`, `touch`, `replace_text`, `revert`), siempre dentro
+  de `Session.edit`: eso solo cambia la memoria, y el disco se toca al guardar.
+  Para **leer**, en cambio, varias piezas siguen yendo al disco sin pasar por el
+  `Workspace`: «Archivos» y «Archivos CSV» (la `ProjectPage` y la
+  `LocalisationPage` de la iteración 1) leen con rutas absolutas a través de core
+  (`parse_file`, `read_csv_file`, `find_descriptor`, `check_mod`) y, directamente,
+  las imágenes con Pillow (`image_viewer.load_image`) y los primeros 2 MiB de un
+  archivo sin visor propio para su ficha (`project_page.gather_facts`, que los
+  decodifica con `decode_bytes`, con `partial=True` si el archivo es más largo);
+  Inicio lee los `.mod` de `<juego>/mod` con `read_descriptor`; Descriptor .mod
+  recorre la carpeta del juego para proponer `replace_path` y contar sus
+  archivos; y el diálogo «Nuevo mod» y las insignias de capa (`LayerResolver`)
+  miran el disco. wizard §4 dice que ningún widget abre archivos; hoy eso se
+  cumple para las escrituras, no para las lecturas (§6.3).
 - Ningún trabajo largo corre en el hilo de la interfaz: los visores y la
-  validación usan `ui/tasks.py` (§2.5), y el análisis del archivo anterior se
-  suelta por trozos en un hilo propio. Excepciones conocidas (§6.3):
-  `gather_facts` y la maquetación y destrucción del documento de la pestaña
-  Código con un archivo enorme.
+  validación usan `ui/tasks.py` (§2.5), el análisis del archivo anterior se
+  suelta por trozos en un hilo propio, y `Session` abre los proyectos
+  (`Project.open`: descriptor, VFS, escaneo, bloqueo y recuperación) y crea los
+  mods nuevos en segundo plano. El `Workspace` es de un solo hilo (I12):
+  `Project.open` lo construye en el hilo de la tarea, `Session` lo cede al hilo
+  de la interfaz con `bind_to_current_thread` y, desde entonces, usarlo desde
+  otro hilo lanza `WrongThreadError`. Excepciones conocidas (§6.3):
+  `gather_facts`, la maquetación y destrucción del documento de la pestaña
+  Código con un archivo enorme y el guardado, que renderiza en el hilo de la
+  interfaz.
 - **i18n** pertenece a la capa de UI: `Translator(QObject)` emite
-  `languageChanged(str)` y cada página implementa `retranslate()`.
-- No hay capa `services/`: el estado de la aplicación vivirá en
-  `core/project/` y el único puente con Qt será `ui/session.py` (wizard D2 y §4).
+  `languageChanged(str)` y cada página, sección, panel y diálogo implementa
+  `retranslate()`. `load_catalog(code)` reúne `i18n/<code>.json`, los fragmentos
+  `i18n/<code>/*.json` (hoy `project.json` y `shell.json`) y los textos del
+  núcleo (`core.texts`), y lanza `ValueError` si una clave se repite entre dos
+  archivos cualesquiera (§8.4).
+- No hay capa `services/`: el estado de la aplicación vive en `core/project/`
+  y el único puente con Qt es `ui/session.py` (wizard D2 y §4): solo `Session`
+  convierte los eventos del `Workspace` en señales de Qt.
 
 ### 2.1 Flujo de datos
 
+Hay dos caminos. El del **proyecto** (`Session` → `Project` → `Workspace`) es
+el que edita y guarda; el de los **visores** de «Archivos» y «Archivos CSV» es
+el de la iteración 1, de solo lectura y sobre el disco.
+
 ```text
- carpeta del juego             carpeta del mod
-          \                     /
-           +--- VFS (planif.) -+      hoy la UI trabaja con rutas absolutas (explorador, «Validar mod»)
-                     |
+ <juego>/ (capa GAME)       dependencias (capa DEPENDENCY)       <juego>/mod/<Carpeta>/ (capa MOD)
+ sin <juego>/mod/           mods que nombra «dependencies»       + <Carpeta>.mod  =  "@descriptor.mod"
+          \                              |                                  /
+           +---- VirtualFS.scan: os.scandir de cada capa, sin leer contenidos (I4) -----------+
+                                         |
+          resolve(rel): ganador (mod > dependencias > juego; replace_path oculta los del juego)
+          stack(rel) · list(carpeta, patrón) · mod_target(rel) · Fingerprint(size, mtime_ns, sha256)
+                                         |
+          Workspace.open(rel): bytes del ganador → códec.load → DocHandle (uno por rel.key)
+          ClausewitzCodec (ParseResult) · LocalisationCodec (LocalisationFile) · JsonCodec · BinaryCodec
+          origin = capa leída, base = huella; read_only_reason: locked, binary, parse_errors, unreadable_encoding
+                                         |
+          Session.edit(etiqueta) → Project.edit → Workspace.transaction
+          touch(handle) antes de mutar: instantánea zlib (una por documento y transacción), versión nueva
+          al cerrar: UndoStep(etiqueta, formato, before/after) → UndoStack (§2.4)
+          eventos DocChanged / DocReplaced / DirtyChanged… → Session → documentsChanged, dirtyChanged, undoChanged
+                                         |
+          Guardar: Workspace.save → por documento sucio, códec.render
+          (render_checked: relectura y comparación del árbol; render_csv_checked; encode_text)
+          UnencodableTextError (línea y columna) o SourceMismatchError → SaveProblem: no se toca el disco (I9)
+          acción: MODIFY (archivo del mod; expected = base) · COPY_FROM_GAME (mod_target, misma ruta y
+          mayúsculas; el destino no debe existir) · CREATE · TRASH (lápida); igual que el disco: no se escribe
+                                         |
+          journal.SaveTransaction.prepare(): WriteGuard, nombres de Windows, longitud de ruta, mayúsculas,
+          huella esperada de cada destino (conflicto externo) y espacio libre; bloqueantes primero
+                                         |
+          commit(): staging → temporales .<nombre>.<txid>.tmp + fsync → prepared → <destino>.bak y,
+          la primera vez, originals/<rel> → backed_up → committing → os.replace en orden (hasta 3 reintentos
+          ante PermissionError) y TRASH a trash/<txid>/<rel> → committed → se borra el diario
+          un fallo antes de committed: se revierte en el propio proceso (o queda el diario para recover)
+                                         |
+          al terminar: VirtualFS.refresh, saved_version = version, base = huella nueva;
+          sin nada sucio, se borra el autoguardado de la sesión
+                                         |
+          si el proceso murió a medias: Project.open → recover_all(journal/) → recover():
+          cleaned (staging o prepared) · rolled_forward · rolled_back; idempotente → RecoveryDialog
+
+ autoguardado: Workspace.write_recovery → journal.write_recovery → <mod>/.vic2studio/recovery/<sesión>/
+ (NNNN.dat + index.json, a través del WriteGuard); cada 60 s, cada 20 transacciones y al cerrar sin «Descartar»
+```
+
+La carpeta de proyecto (`.vic2studio/`, §3.6) solo aparece cuando hay algo que
+guardar en ella: abrir el proyecto y guardar sin cambios no la crea (criterio 4
+de wizard §22, `test_noop_save`), y el diario la borra al cerrar cada guardado si
+queda vacía (con `originals/` dentro, ya no lo está). El autoguardado sí la crea
+antes del primer guardado si hay cambios sin guardar.
+
+Los visores siguen el camino de la iteración 1, sin `Workspace`: muestran el
+disco, no los cambios sin guardar (§6.3).
+
+```text
+ ruta absoluta (explorador de «Archivos», «Validar mod», «Archivos CSV»)
           +----------+-----------+
           v                      v
    clausewitz.parse_file    csvloc.read_csv_file
@@ -284,21 +460,12 @@ Reglas de dependencia:
           |                      |
           v                      v
    visores en una tarea de fondo (TaskRunner): estructura, código, diagnósticos, JSON, tabla CSV
-                     |
-                     v
-   edición por API (hoy solo desde código y pruebas; la UI es de solo lectura):
-   Block.set / insert / move / remove_entry …      LocalisationFile.set / add_row / rename_key …
-                     |
-                     v
-   to_source / LocalisationFile.to_source (sin pérdidas: solo cambia lo editado)
-                     |
-                     v
-   write_file(verify=True): relee el texto y compara el árbol; write_csv_file
-   encode_text: UnencodableTextError con línea y columna; huella esperada: FileChangedError
-                     |
-                     v
-   fileio.atomic_write_bytes: temporal en la misma carpeta + fsync + os.replace, copia .bak
 ```
+
+`write_file(verify=True)` y `write_csv_file` (§4.1, §4.3) siguen existiendo
+para la API y las CLI, pero la aplicación ya no los usa para guardar: el
+`Workspace` usa `render_checked` y `render_csv_checked`, que se extrajeron de
+ellos y dan los mismos bytes (`test_project_codecs`), y escribe con el diario.
 
 ### 2.2 Modelo de dominio *(planificado)*
 
@@ -310,6 +477,13 @@ de esquemas (`core/schema` + `core/schemas`, wizard §10): `Record` es una vista
 sobre el `Block` real que lee y escribe con la API de §4.1 (wizard §10.5), y la
 historia fechada (`1861.1.1 = { … }`) la resuelve `HistoryView` para una fecha
 de trabajo (wizard §10.6).
+
+Lo que ya existe es la capa de debajo: cada documento abierto es un `DocHandle`
+del `Workspace` cuyo `model` es el objeto vivo de su códec (`ParseResult`,
+`LocalisationFile` o `bytes`, §2.4), y la única sección que edita un CST, la del
+descriptor, lo hace directamente sobre él (`modfile.apply_descriptor`). Los
+atributos `rules`, `index`, `loc`, `entities` y `validator` de `Project` existen
+y valen `None` hasta su iteración.
 
 ### 2.3 Índice de símbolos *(planificado)*
 
@@ -324,23 +498,99 @@ terminar la tarea del índice, porque es el único módulo que congela; el índi
 no tendría que llamar a `gc.freeze()`. La tabla de tipos (TAG, partidos,
 provincias, culturas, claves de localización…) y sus fuentes está en wizard §7.
 
-### 2.4 Deshacer/rehacer *(planificado)*
+### 2.4 Documentos, transacciones y deshacer (`core/project`)
 
-Lo diseña wizard §6.2–6.5: cada acción es una transacción con nombre sobre el
-`Workspace`; deshacer y rehacer usan instantáneas de texto por documento
-(wizard D3 y §6.3), exactas porque `to_source` reproduce el texto original; las
-vistas re-resuelven su `RecordRef` cuando cambia la versión del documento.
-Guardar es una transacción multiarchivo con diario y recuperación tras un corte
-(wizard §6.5), y se conservan las copias `.bak` (wizard D4). Nada se escribe en
-disco hasta guardar.
+Sigue wizard §6.1–6.3 y D3. Nada se escribe en el mod al editar: los cambios
+viven en memoria hasta guardar (§2.1), salvo el autoguardado de recuperación.
 
-La API actual ya permite deshacer sin instantáneas algunas ediciones:
+**Documentos.** `Workspace.open(rel, *, kind=None, create=False)` da el
+documento efectivo de `rel` (el ganador de la VFS o lo que ya hay en memoria),
+una sola instancia por `rel.key`: un `DocHandle` con `rel`, `kind`, `model`,
+`origin` (la `FileEntry` leída; `None` si es nuevo), `base` (la `Fingerprint`
+al leer o guardar), `version` y `saved_version` («sucio» es
+`version != saved_version`), `diagnostics`, `read_only_reason` y `deleted` (una
+lápida que el guardado manda a la papelera); `copies_from_game` dice si al
+guardarlo se copiará al mod. Los códecs (`core/project/codecs.py`) pasan de
+bytes al modelo y al revés sin pérdidas: `ClausewitzCodec` (`parse_bytes`, que
+hace lo mismo que `parse_file` sobre bytes ya leídos; `render` es
+`render_checked` y `snapshot`, `render_checked(verify=False)`),
+`LocalisationCodec` (`parse_csv` y `render_csv_checked`), `JsonCodec` (para
+`.vic2studio/project.json`; `render` comprueba que sea JSON válido) y
+`BinaryCodec` (`writable=False`). TABLE, LUA, BMP e IMAGE se abren como binario
+de solo lectura hasta que su iteración registre su códec (`register_codec`).
+`kind_for(rel)` toma el tipo de la regla de carga (§3.3); los archivos nuevos
+van en cp1252 con CRLF. `read_only_reason` vale `"locked"` (otra instancia tiene
+el proyecto), `"binary"` (sin códec de escritura), `"parse_errors"` (errores de
+sintaxis: solo se admite sustituir el texto entero, D17) o
+`"unreadable_encoding"` (un script en UTF-16; también solo texto).
+`DocumentStore` expulsa (LRU, `lru_bytes` = 300 MiB de bytes leídos) los
+documentos limpios que no nombran la pila de deshacer ni la transacción abierta.
+
+**Transacciones.** Toda mutación va dentro de
+`Workspace.transaction(label, *, merge_key=None, **fmt)` (`Project.edit`,
+`Session.edit`); fuera de una, mutar lanza `RuntimeError`. Antes de tocar un
+modelo se llama a `touch(handle)`: la primera vez en la transacción guarda la
+instantánea (`codec.snapshot` comprimido con zlib, nivel 1) y da al documento una
+versión nueva. `replace_model` y `replace_text` (texto libre; recalculan
+`read_only_reason`), `create`, `delete` (un archivo del juego no se puede borrar)
+y `revert` (vuelve al disco con la etiqueta `undo.revert_file`) se registran
+igual. Al cerrar la transacción exterior se calcula el `after` de cada documento:
+si sus bytes no cambiaron, recupera su versión y no se apila nada (tocar sin
+cambiar no ensucia); si un documento no se puede codificar, la transacción se
+revierte y lanza `UnencodableTextError` al editar, no al guardar (I9). Las
+transacciones anidadas se funden en la exterior, y si una lanza, sus documentos
+vuelven a la instantánea y no se apila nada.
+
+**Deshacer** (`core/project/undo.py`). Una sola pila global
+(`UndoStack(limit=500, max_bytes=256 MiB)` de instantáneas comprimidas): un paso
+(`UndoStep(label, fmt, snapshots, patches, merge_key)`) puede tocar varios
+archivos y se deshace de una vez. Deshacer y rehacer sustituyen el modelo por
+`codec.load(before)` o `codec.load(after)`: es exacto gracias a la ida y vuelta
+byte a byte, y no hay que programar la inversa de cada mutación. También
+restauran la versión, así que deshacer hasta el punto guardado deja el documento
+limpio, y se puede deshacer después de guardar. Dos pasos con el mismo
+`merge_key` en menos de `MERGE_SECONDS` (1 s) se funden (el formulario del
+descriptor usa `descriptor.<campo>`); un paso nuevo vacía rehacer, y pasados los
+límites se descartan los más viejos. Las instantáneas se quedan en memoria:
+`SNAPSHOT_TO_DISK` (8 MiB) y `Snapshot.before_path` existen, pero no se usan
+todavía, porque escribirlas en el mod al editar rompería I4 (docstring de
+`undo.py`; wizard §6.3 las manda a disco). `RasterPatch` está declarado para el
+mapa (iteración 5). El historial no se guarda en disco.
+
+**Etiquetas e historial.** La etiqueta de un paso es una clave del catálogo con
+su formato. Las de los pasos que crea el propio núcleo (`undo.revert_file`,
+`undo.project_settings`, `undo.restore_session`) están en los textos del núcleo
+(`core/project/texts`); las demás, en el catálogo de quien abre la transacción
+(`descriptor.undo_edit`, `pending.undo_revert`). `test_texts` recorre
+`core/project` con `ast` y exige texto, con los mismos huecos, para cada
+`transaction(LABEL_...)`. `Workspace.history()` y `redo_history()` dan
+`(clave, formato)` de cada paso, el más reciente primero; los usan el panel
+«Historial» y la ayuda del botón Deshacer (§8.1).
+
+**Eventos.** `Workspace.subscribe(fn)` entrega `DocChanged(rel, version)`,
+`DocReplaced(rel)` (el modelo se sustituyó entero: deshacer, rehacer, recarga,
+texto libre), `DocCreated`, `DocDeleted`, `DirtyChanged(count)`, `Saved(rels)` y
+`UndoApplied(label, fmt, redo, rels)`. `Session` los acumula mientras dura cada
+operación (`edit`, `save`, `undo`…) y emite una vez al terminar
+`documentsChanged(set[VPath])`, `dirtyChanged(int)` y `undoChanged()`; los que
+llegan fuera de una operación salen en la siguiente vuelta del bucle de eventos.
+Hoy las vistas vuelven a pedir su `DocHandle` al recibir `documentsChanged`; el
+contrato con `RecordRef` de wizard §6.3 llega con los esquemas (iteración 4).
+
+**Cambios externos.** `check_external_changes()` (la ventana lo llama al volver
+a estar activa) compara la huella de cada documento abierto con el disco: los
+limpios que cambiaron se recargan solos (`DocReplaced`) y los sucios quedan como
+conflicto. `accept_external` («Conservar mis cambios») adopta la huella actual
+como base, así que el siguiente guardado sobrescribe el cambio externo, con su
+`.bak`; `reload` («Recargar del disco») descarta la memoria y no se deshace; y
+`external_diff` («Comparar») da el diff entre el disco y la memoria.
+
+La API del CST sigue teniendo inversas exactas para parte de las ediciones:
 `remove_entry` devuelve el índice que necesita `insert_entry`, y devolver a una
 entrada su valor, su clave o su operador leídos da el texto original exacto
-(§4.1, §7.3). Los cambios de comentarios y `close()` no tienen esa inversa.
-De todos modos, wizard D3 usa instantáneas de texto para todo el deshacer y
-descarta los comandos con mementos, que dependen de partes privadas del CST y
-de la trivia de los vecinos.
+(§4.1, §7.3). El deshacer de la aplicación no las usa: wizard D3 descarta los
+comandos con mementos, que dependen de partes privadas del CST y de la trivia
+de los vecinos.
 
 ### 2.5 Tareas en segundo plano y cancelación
 
@@ -349,11 +599,14 @@ de la trivia de los vecinos.
 consultan cada cierto trabajo y lanzan `Cancelled` (con
 `raise_if_cancelled(cancelled)`). Lo aceptan `tokenize`, `parse` y `parse_file`;
 `parse_csv`, `read_csv_file`, `lint_file`, `LocalisationFile.lint` y
-`LocalisationDB.from_dirs`; y `collect_files`, `check_file` y `check_mod`. La
+`LocalisationDB.from_dirs`; `collect_files`, `check_file` y `check_mod`; y, desde
+la iteración 2, `VirtualFS.scan` y `Project.open`. La
 regla de wizard §4 pide a toda función larga `cancelled=` y también
-`progress=`; hoy solo informan de progreso las dos que recorren carpetas,
-`collect_files` y `check_mod`, y en las demás `progress=` está pendiente. Las
-funciones nuevas que puedan tardar deben aceptar los dos.
+`progress=`; hoy informan de progreso las que recorren carpetas:
+`collect_files`, `check_mod` y `VirtualFS.scan` (`progress(hechos, total)`, por
+entradas de primer nivel de las capas; `Project.open` se lo pasa). En las demás
+`progress=` está pendiente, y `Session` abre los proyectos con `progress=None`.
+Las funciones nuevas que puedan tardar deben aceptar los dos.
 
 **Ejecución en la UI** (`ui/tasks.py`):
 
@@ -362,7 +615,14 @@ funciones nuevas que puedan tardar deben aceptar los dos.
   llegue tarde de una generación vieja se descarta. `cancel()` solo avisa: la
   tarea para cuando consulta `TaskContext.cancelled`, y una tarea cancelada que
   aún esperaba en la cola no llega a empezar. Las señales `finished(result)`,
-  `failed(TaskFailure)` y `progress(valor)` llegan en el hilo de la interfaz.
+  `failed(TaskFailure)` y `progress(valor)` llegan en el hilo de la interfaz;
+  `discarded(result)` entrega el resultado de una tarea ya superada que terminó
+  de todos modos, para que quien sepa desmontarlo lo suelte fuera de ese hilo
+  (el visor de scripts lo hace; si nadie la escucha, se suelta allí mismo).
+  `Session` usa un `TaskRunner` por apertura de proyecto (una apertura nueva o un
+  cierre cancelan la anterior con un `threading.Event`, y un proyecto que llega
+  tarde se cierra para soltar su bloqueo) y otro para «Nuevo mod», los dos en
+  `POOL_PREVIEW`.
 - La función de la tarea recibe un `TaskContext`: `cancelled()` se pasa tal cual
   como `cancelled=` al núcleo, y `report(valor, *, force=False)` notifica
   progreso como mucho cada `PROGRESS_INTERVAL` (0,04 s). Nunca toca widgets.
@@ -407,51 +667,216 @@ funciones nuevas que puedan tardar deben aceptar los dos.
 
 ## 3. Herencia Vanilla + Mod (VFS)
 
-*(planificado para la iteración 2; el diseño completo está en wizard §5.)* Hoy
-no hay VFS: la interfaz trabaja con rutas absolutas y el núcleo escribe donde se
-le indique (§6.3).
+Implementada en la iteración 2 (`core/vfs`, wizard §5): `paths.py` (rutas
+relativas y nombres de Windows), `model.py` (capas, huellas, entradas e
+instantánea), `rules.py` (reglas de carga), `guard.py` (protección de escritura
+e inspección de carpetas) y `vfs.py` (`VirtualFS`). En caso de duda sobre el
+diseño manda wizard; sobre el comportamiento, el código y sus pruebas
+(`test_vfs_paths`, `test_vfs_resolution`, `test_vfs_guard`).
 
 ### 3.1 Principios
-
-Resumen de wizard §3 y §5; en caso de duda manda wizard.
 
 - **El juego base es intocable y la protección es «solo el mod».** El mod vive
   dentro de `<juego>/mod/` (wizard H24), así que no basta con rechazar rutas
   bajo la carpeta del juego: `WriteGuard.check` compara rutas reales
   (`realpath`) y solo admite el subárbol del mod, su `.mod` y, si el mod es de
-  solo lectura, la carpeta de proyecto; un enlace que salga de esas raíces
-  también se rechaza (wizard §5.1).
-- **Copia al guardar** (wizard D5): editar un archivo del juego solo marca el
-  documento; la copia al mod se hace al guardar, a la misma ruta y con la misma
-  mayúscula (`VirtualFS.mod_target`). `fileio.atomic_write_bytes` ya crea las
-  carpetas intermedias.
+  solo lectura, la carpeta de proyecto que lo sustituye; un enlace que salga de
+  esas raíces también se rechaza (§3.5).
+- **Copia al guardar** (wizard D5): editar un archivo del juego solo ensucia el
+  documento; la copia al mod se hace al guardar (`COPY_FROM_GAME`), a la misma
+  ruta y con la mayúscula de las carpetas que el mod ya tenga
+  (`VirtualFS.mod_target`), y solo si los bytes cambiaron (I4).
 - **Rutas al estilo Windows**: `VPath` conserva las mayúsculas y compara y
   ordena por `VPath.key` (`upper()`, el mismo criterio que
-  `csvloc.db.load_order_key`); `VirtualFS.case_collisions` lista los archivos
-  que solo se diferencian en mayúsculas.
-- Leer nunca escribe; los ajustes, el diario, la papelera y las copias de
-  `originals/` del proyecto van a `<mod>/.vic2studio/` (wizard D16 y §5.4).
+  `csvloc.db.load_order_key`); `VirtualFS.case_collisions` lista los archivos de
+  una misma capa que solo se diferencian en mayúsculas.
+- **Leer no escribe** (I4): `scan` solo hace `os.scandir`, y abrir, explorar o
+  guardar sin cambios no crea nada en el mod (`test_workspace_readonly`,
+  `test_noop_save`). Los ajustes, el diario, la papelera, `originals/` y el
+  autoguardado van a `<mod>/.vic2studio/` (wizard D16; aquí, §3.6).
 
-### 3.2 Resolución de un archivo
+### 3.2 Capas, rutas y resolución
 
-La define la tabla de reglas de carga de wizard §5.2 (`LoadMode`: `WHOLE_FILE`,
-`UNION_BY_PATH`, `KEYED_UNION`, `REFERENCED`, `LOCALISATION`, `MAP_BUNDLE` y
-`ASSET`): no todas las carpetas se heredan igual. La localización
-(`LOCALISATION`) sigue ya hoy las reglas de `csvloc.LocalisationDB` (§4.3): el
-juego no sustituye por ruta sino que carga todos los CSV y, ante claves
-repetidas, gana la primera cargada.
+`VirtualFS(game_root, mod_root, *, descriptor=None, replace_paths=(),
+replace_recursive=True, dependencies=(), extra_roots=())` reúne tres tipos de
+capa (`LayerKind`: `MOD`, `DEPENDENCY` y `GAME`; `Layer(kind, root, label)`), en
+orden de prioridad: el mod, las dependencias (la última declarada primero) y el
+juego. `game_root=None` deja solo el mod (pruebas, mods sueltos).
+`VirtualFS.from_descriptor(game_root, descriptor)` sitúa el mod en
+`<juego>/<path>` y resuelve sus `dependencies` por `name` entre los
+`<juego>/mod/*.mod` (`resolve_dependencies`, sin distinguir mayúsculas); las que
+no encuentra quedan en `missing_dependencies`.
 
-### 3.3 `replace_path`
+- **Escaneo.** `scan(*, progress=None, cancelled=None)` recorre cada capa con
+  `os.scandir`, de forma iterativa y sin seguir dos veces la misma carpeta real,
+  y guarda por archivo una `FileEntry(rel, layer, path, fingerprint)` con
+  `Fingerprint(size, mtime_ns, sha256=None)`: el sha se calcula solo si hace
+  falta, y `Fingerprint.matches` da por igual un archivo con el mismo tamaño y
+  `mtime` o, si la huella tiene sha, con el mismo tamaño y el mismo sha aunque
+  cambiara el `mtime`. Se saltan `.vic2studio/` y `.git/`
+  de primer nivel, los `.bak` y `.tmp` y, en la capa del juego, `<juego>/mod/`
+  (ahí viven los mods, este incluido). Si se cancela, la VFS se queda como estaba.
+- **Consulta.** `resolve(rel)` da el ganador (lo que cargaría el juego);
+  `stack(rel)`, todas las capas que tienen esa ruta, ganador primero (también las
+  ocultas por `replace_path`); `entry(rel, kind)`, la de una capa aunque no gane;
+  `list(carpeta, patrón="*.txt", *, recursive=None)`, los ganadores ordenados por
+  clave (con `recursive=None` decide la regla de carga de esa carpeta);
+  `read_bytes`, `same_as_game` (copia idéntica a la del juego, H15),
+  `hidden_by_replace_path`, `refresh(rels=None)` (vuelve a mirar el disco y
+  devuelve las rutas cuya huella o ganador cambió) y `snapshot()`, una
+  `VfsSnapshot` inmutable para los hilos de fondo (I12; la interfaz aún no la
+  usa). La resolución es siempre por ruta, sin distinguir mayúsculas: el modo de
+  la regla de carga todavía no cambia qué archivo gana (§3.3).
+- **Rutas.** `VPath.of(raw)` normaliza (`\` → `/`, sin `//` ni `./`) y lanza
+  `InvalidPathError` (código `invalid_path`, `message(lang)`) con `..`, unidad,
+  ruta absoluta, NUL, ruta vacía o un primer componente que empiece por `@`;
+  ofrece `key`, `name`, `parent`, `suffix` (en minúsculas), `parts`, `join` e
+  `is_under`. `windows_name_problems(nombre)` da los motivos por los que Windows
+  rechazaría un componente (`windows_device`, también con extensión o espacio:
+  `CON.tga`, `CON .x`; `windows_forbidden_character`, `<>:"|?*` y caracteres de
+  control; `windows_trailing_dot_or_space`; `windows_empty_name`), y
+  `long_path_problem(ruta)` avisa (`path_too_long`) por encima de
+  `MAX_PATH_WARNING` (240 caracteres, para dejar sitio a los temporales).
+- **El descriptor como archivo del mod.** `DESCRIPTOR_REL` (`"@descriptor.mod"`,
+  construida sin `VPath.of`, que rechaza el `@` en las rutas que vienen de fuera)
+  nombra el `.mod`, que vive fuera de la carpeta del mod: `resolve`, `stack`,
+  `read_bytes` y `mod_target` lo tratan como un archivo de la capa `MOD` cuya
+  ruta real es `descriptor_path`, y `list` nunca lo devuelve. Así, editar el
+  descriptor es una transacción más del `Workspace` y se guarda con el diario.
+  Sin `.mod`, `Project.open` apunta la VFS (y su `WriteGuard`) al sitio donde se
+  creará, junto a la carpeta del mod: `<juego>/mod/<Carpeta>.mod` (wizard §14.1).
+  Con `.mod`, `Project.open` usa el que encuentra `find_descriptor` (o el que se
+  le pasa) y toma de él `replace_path` y `dependencies`.
+
+### 3.3 Reglas de carga (`core/vfs/rules.py`)
+
+`LoadMode` tiene los siete modos de wizard §5.2 (`WHOLE_FILE`, `UNION_BY_PATH`,
+`KEYED_UNION`, `REFERENCED`, `LOCALISATION`, `MAP_BUNDLE` y `ASSET`).
+`LoadRule(pattern, mode, doc_kind, recursive=False, key_of=None, new_file=None,
+verified=True)` usa un glob sin mayúsculas (`**/` es cero o más carpetas) y
+`verified=False` marca una regla [verificar en juego]. `LOAD_RULES` va de la más
+específica a la menos y `rule_for(rel)` da la primera que encaja (nunca falla):
+
+| Patrón | Modo | Documento |
+|---|---|---|
+| `@descriptor.mod` | `WHOLE_FILE` | CLAUSEWITZ |
+| `common/countries/*.txt` | `REFERENCED` | CLAUSEWITZ |
+| `common/defines.lua` | `WHOLE_FILE` | LUA |
+| `common/*.txt`, `interface/*.gui` | `WHOLE_FILE` | CLAUSEWITZ |
+| `history/countries/*.txt` | `KEYED_UNION` (`tag_key`: los 3 primeros caracteres) | CLAUSEWITZ |
+| `history/provinces/**/*.txt` | `KEYED_UNION` recursivo (`leading_int_key`: el entero inicial, H9) | CLAUSEWITZ |
+| `history/pops/**/*.txt` | `UNION_BY_PATH` recursivo | CLAUSEWITZ |
+| `history/units/**/*.txt` | `REFERENCED` recursivo | CLAUSEWITZ |
+| `history/wars/*.txt`, `history/diplomacy/*.txt`, `events/*.txt`, `decisions/*.txt`, `units/*.txt`, `news/*.txt`, `poptypes/*.txt` | `UNION_BY_PATH` | CLAUSEWITZ |
+| `technologies/*.txt`, `inventions/*.txt` | `REFERENCED`, [verificar en juego] | CLAUSEWITZ |
+| `interface/*.gfx` | `UNION_BY_PATH`, [verificar en juego] | CLAUSEWITZ |
+| `localisation/*.csv` | `LOCALISATION` | LOCALISATION |
+| `map/default.map`, `map/*.txt`, `map/*.csv`, `map/*.bmp`, `map/**/*.dds`, `map/**/*` | `MAP_BUNDLE` | CLAUSEWITZ, TABLE, BMP, IMAGE o BINARY |
+| `gfx/**/*.tga`, `*.dds`, `*.png`, `gfx/**/*` | `ASSET` | IMAGE o BINARY |
+| `**/*.txt` (y `.gui`, `.gfx`, `.sfx`, `.asset`, `.map`), `**/*.lua`, `**/*` | comodines, [verificar en juego] | CLAUSEWITZ, LUA o BINARY |
+
+Varias reglas traen además la plantilla de nombre de un archivo nuevo
+(`new_file`: `events/{prefix}_studio.txt`, `localisation/00_{prefix}_{area}.csv`…).
+`DocKind` (CLAUSEWITZ, LOCALISATION, TABLE, LUA, BMP, IMAGE, JSON y BINARY) vive
+en `core/vfs/model.py` porque lo declaran las reglas. Hoy de cada regla se usan
+`doc_kind` (`codecs.kind_for`: qué códec abre el documento; los `.json` de
+`.vic2studio/` son JSON) y `recursive` (`list`); `mode`, `key_of`, `new_file` y
+`verified` están declarados para las iteraciones siguientes (conflictos de
+`KEYED_UNION`, archivos nuevos, validación). La localización (`LOCALISATION`)
+sigue resolviéndose fuera de la VFS, con las reglas de `csvloc.LocalisationDB`
+(§4.3): el juego no sustituye por ruta sino que carga todos los CSV y, ante
+claves repetidas, gana la primera cargada (`LocalisationDB.from_entries`, que
+wizard §21 prevé para alimentarla desde la VFS, no existe todavía).
+
+### 3.4 `replace_path` y dependencias
 
 Cada `replace_path = "history/provinces"` del descriptor indica al juego que no
 cargue los archivos de vanilla de esa carpeta. `VirtualFS(...,
-replace_recursive=True)` los oculta (siguen accesibles con `stack()` para
-comparar); si afecta también a las subcarpetas es [verificar en juego], así que
-la opción es explícita y las pruebas cubrirán los dos valores. No oculta los
-archivos del propio mod (wizard §5.3). Hoy `ModDescriptor.replaces(carpeta)` y
-`ModDescriptor.normalized_replace_paths` ya comparan esas rutas (§4.4).
+replace_paths=..., replace_recursive=True)` los oculta: `resolve` y `list` no los
+dan, pero siguen en `stack()` para comparar y `hidden_by_replace_path` los
+señala. Con `replace_recursive=False` las subcarpetas siguen cargándose; cuál de
+los dos hace el juego es [verificar en juego], así que la opción es explícita y
+las pruebas cubren los dos valores. Solo se ocultan los archivos de la capa del
+juego: los del propio mod (wizard §5.3) y los de las dependencias se siguen
+cargando. Las carpetas se comparan como claves (`paths.folder_key`: `/`, sin
+barras sobrantes, en mayúsculas). `ModDescriptor.replaces(carpeta)` y
+`ModDescriptor.normalized_replace_paths` comparan esas rutas en el descriptor
+(§4.4), y `modfile.descriptor_problems` avisa con `replace_path_empty` si el mod
+deja vacía una carpeta reemplazada.
 
-### 3.4 Descriptor `.mod`
+### 3.5 `WriteGuard` (`core/vfs/guard.py`)
+
+`WriteGuard(mod_root, *, extra_files=(), extra_roots=())` es la única puerta
+para escribir (I1). `check(destino)` devuelve la ruta real si está bajo
+`realpath(mod_root)` o bajo una de `extra_roots`, o si es uno de `extra_files` o
+uno de sus compañeros de guardado en la misma carpeta (su `.bak` y sus
+temporales `.<nombre>.<token>.tmp`); si no, lanza `WriteOutsideModError` (un
+`PermissionError`, código `write_outside_mod`, `message(lang)`); `allows` dice
+lo mismo sin lanzar. Un componente `..` se rechaza siempre (tras un enlace no
+lleva a donde aparenta), también escrito con `\`, igual que una ruta vacía o
+con NUL. El destino puede no existir todavía: `realpath` resuelve la parte que
+existe, así que un enlace simbólico que sale del mod se rechaza aunque su ruta
+aparente esté dentro. Las rutas se comparan con
+`os.path.normcase(os.path.realpath(...))`: en Windows sin distinguir mayúsculas;
+en Linux una carpeta que solo difiere en mayúsculas es otra y se rechaza.
+
+Cada `VirtualFS` crea el suyo con el descriptor como archivo extra y las
+`extra_roots` que recibe: `Project.open` le pasa la carpeta de proyecto separada
+cuando el mod es de solo lectura (§3.6). El
+diario pasa por él cada ruta que toca: destino, temporal, `.bak`, `originals/`,
+papelera, diario y autoguardado. Fuera del `Project` hay dos guards más:
+`create_mod_skeleton` usa uno sobre la carpeta del mod nuevo y su `.mod`, y
+`write_descriptor`, uno que solo admite ese `.mod` y la carpeta de datos donde
+deja su diario.
+
+`guard.py` reúne también la inspección de carpetas que antes estaba en
+`ui/pages/project_page.py` (la página la importa de aquí): `inspect_folder`
+(→ `FolderReport`: carpetas del juego presentes de `EXPECTED_FOLDERS`,
+ejecutable, número de entradas y descriptor), `evaluate_game`, `evaluate_mod`
+(el mod nunca puede ser el juego, contenerlo ni estar dentro de él salvo en
+`<juego>/mod/`), `same_folder`, `is_under` (antes `_is_under`) y `folder_key`
+(clave de una carpeta absoluta por su ruta real; no confundir con
+`paths.folder_key`, la de una carpeta relativa). Devuelven claves del catálogo
+de la interfaz, marcadas con un `N_` local porque el núcleo no importa
+`vic2studio.i18n`.
+
+### 3.6 Carpeta de proyecto, datos y caché
+
+`<mod>/.vic2studio/` (`journal.project_dir`) guarda:
+
+```text
+.vic2studio/
+  project.json          ProjectSettings (prefix, languages, copy_en_to, id_ranges, working_date, mode, backup_bak)
+  journal/<txid>.json   diario de un guardado en curso; journal/<txid>/NNNN.bak con backup_bak = false
+  originals/<rel>       estado de un archivo del mod antes de la primera escritura del Studio (nunca se sobrescribe)
+  trash/<txid>/<rel>    lo «borrado» y lo que la recuperación no sabe ubicar (<rel>.recovered): nada desaparece (I6)
+  recovery/<sesión>/    autoguardado de los documentos sucios: NNNN.dat + index.json
+```
+
+`project.json` es un documento más del `Workspace` (`SETTINGS_REL`, tipo
+JSON): leerlo no lo crea, `Project.set_settings` lo cambia en una transacción
+(`undo.project_settings`) que se deshace y se guarda con el resto, un campo
+inválido toma su valor por defecto y las claves desconocidas se conservan. Por
+defecto, `prefix` es el nombre de la carpeta del mod en mayúsculas, solo letras y
+cifras (`VSM`), `languages` es `("en", "es")`, el rango de eventos es el primer
+bloque de 10 000 ids desde 200 000 000, la fecha de trabajo es `1836.1.1`, el
+modo es `"simple"` y `backup_bak` es `true` (decisiones 1, 3 y 7 de wizard §24).
+La interfaz aún no ofrece cambiarlos. Si la carpeta del mod no admite escritura
+(`os.access`), la carpeta de proyecto pasa a
+`<data_dir>/projects/<sha1(realpath(mod))>/` (`appdirs.detached_project_dir`).
+
+Fuera del mod (`core/appdirs.py`, sin Qt y sin crear nada: crea quien escribe, a
+través de `fileio`): `data_dir()` y `cache_dir()` son `VIC2STUDIO_DATA_DIR` y
+`VIC2STUDIO_CACHE_DIR` si están definidas; si no, en Linux `$XDG_DATA_HOME` (o
+`~/.local/share`) y `$XDG_CACHE_HOME` (o `~/.cache`) con `vic2studio`, y en
+Windows `%LOCALAPPDATA%\Vic2Studio\{data,cache}`. En la carpeta de datos van
+el bloqueo entre instancias (`locks/<sha1>.lock`, `core/project/lock.py`: JSON
+con pid, equipo, hora, versión y mod, creado en exclusiva con
+`fileio.create_exclusive`), las carpetas de proyecto de los mods de solo lectura
+y el diario de `write_descriptor`. La caché aún no la usa nadie (índice,
+iteración 3).
+
+### 3.7 Descriptor `.mod`
 
 Vive en `<juego>/mod/<Nombre>.mod`, junto a la carpeta del mod. Ejemplo real
 (`VSM.mod`, el descriptor del mod del usuario, también en
@@ -472,9 +897,15 @@ user_dir = "VSM"
 | `dependencies` | Bloque con los nombres de otros mods de los que depende. |
 | `archive` | Archivo comprimido con el mod, si lo usa en vez de `path`. |
 
-`core/modfile.py` ya lee, busca y escribe descriptores conservando el resto del
-archivo (§4.4). El generador con asistente (capacidad 1) llega en la
-iteración 2 (wizard §14.1).
+`core/modfile.py` lee, busca, genera y escribe descriptores conservando el resto
+del archivo (§4.4). La capacidad 1 (wizard §14.1) llega con la iteración 2,
+salvo la validación `replace_path_hides_referenced`, que espera al índice: el
+formulario Proyecto › Descriptor .mod edita el CST del `.mod`
+como un documento más del `Workspace` (`DESCRIPTOR_REL`) y «Nuevo mod» crea la
+carpeta y el descriptor en una sola transacción del diario (§8.1). La prueba de
+oro de wizard §14.1 pasa: `render_descriptor(DescriptorSpec("Shago Mod", "VSM",
+"VSM"))` da los bytes de `tests/fixtures/shago_mod_min/VSM.mod`
+(`test_modfile_write`).
 
 ---
 
@@ -822,18 +1253,36 @@ para el texto generado; los CSV nuevos usan CRLF, como todos los del corpus;
   con `expected`, si el archivo ya no tiene esa huella (o no existe) lanza
   `FileChangedError` (un `OSError` con `code = "file_changed"` y
   `message(lang)`) antes de tocar nada; crea las carpetas intermedias; con
-  `backup` copia el original a `<nombre>.bak` (`shutil.copy2`); escribe en un
+  `backup` copia el original a `<nombre>.bak` (`copy_file`); escribe en un
   temporal `.<nombre>.<hex>.tmp` de la misma carpeta (creado en exclusiva, con
   `0o666` menos la umask; si el destino existe, toma sus permisos), hace
   `fsync` y `os.replace`. Si algo falla, borra el temporal: un fallo a mitad de
   guardado nunca deja un archivo a medias. Devuelve la ruta de la copia, si se
-  hizo.
+  hizo. Desde la iteración 2 va encima de `stage_bytes` y `commit_staged`, con
+  la misma firma.
 - `write_text(path, text, encoding, *, backup=False, expected=None)` codifica
   con `encode_text` y llama a la anterior.
+- **Primitivas del guardado con diario** (wizard §6.5; son las únicas
+  escrituras crudas del proyecto, §2): `stage_bytes(destino, datos, *,
+  token=None)` escribe el temporal con `fsync` sin tocar el destino (con `token`,
+  el txid del diario, el nombre es predecible y, si ya existe, lanza
+  `FileExistsError`); `commit_staged(temporal, destino)` hace `os.replace`
+  conservando los permisos del destino y, ante un `PermissionError` (un antivirus
+  o un editor con el archivo abierto en Windows), lo reintenta hasta
+  `REPLACE_RETRIES` (3) veces cada `REPLACE_RETRY_DELAY` (0,1 s);
+  `discard_staged`; `fsync_dir` (no hace nada en Windows ni donde no se puede);
+  `copy_file` (`copy2` a un temporal, `fsync` y renombrado: un corte deja la copia
+  anterior o la nueva); `move_file` (`os.replace` o, entre unidades, copia y
+  borrado); `remove_file`, `make_dirs`, `remove_empty_dirs(carpeta, *, stop_at)`
+  y `create_exclusive(ruta, datos)` (`O_EXCL`, para el bloqueo entre
+  instancias).
 - Las copias `.bak` (por ejemplo `text.csv.bak`) no terminan en `.txt` ni en
   `.csv`, así que el juego no las carga. Cuándo se hacen depende de quién
-  guarda: `write_file` solo en el primer guardado de la sesión (§4.1),
-  `write_csv_file` en cada guardado (§4.3).
+  guarda: el guardado de la aplicación (el diario) copia el destino a su `.bak`
+  en cada guardado y, la primera vez, a `.vic2studio/originals/` (wizard D4,
+  §2.1); `write_file` solo en el primer guardado de la sesión (§4.1) y
+  `write_csv_file` en cada guardado (§4.3), pero esos dos ya solo los usan la API
+  y la CLI de localización.
 
 ### 4.3 Localización CSV (`vic2studio.core.csvloc`)
 
@@ -994,7 +1443,51 @@ resumen `3 archivo(s): 0 error(es), 6 aviso(s), 128 info` y código de salida 0.
   desconocidas, formato y codificación, salvo UTF-16, que pasa a cp1252) o crea
   uno canónico en cp1252 con CRLF. Un valor con comillas o saltos de línea lanza
   `DescriptorFieldError` (`descriptor_quote` o `descriptor_newline`) sin tocar
-  nada.
+  nada. Sin cambios no escribe. Desde la iteración 2 escribe con el diario: un
+  `WriteGuard` que solo admite ese archivo y un diario (con su `originals/`) en
+  `appdirs.detached_project_dir`, nunca junto al juego. La aplicación ya no lo
+  usa: el descriptor se edita en el `Workspace`.
+
+**Generador** (wizard §14.1, iteración 2):
+
+- `DescriptorSpec(name, folder, user_dir="", replace_paths=(), dependencies=())`
+  es lo que edita el formulario; `path` es siempre `mod/<folder>`.
+  `DescriptorSpec.from_descriptor` y `spec.fields(file)` pasan de un
+  `ModDescriptor` a un `DescriptorSpec` y al revés.
+- `render_descriptor(spec, existing=None) -> bytes`: sin `existing`, el
+  descriptor canónico en cp1252 con CRLF (prueba de oro: el `VSM.mod` de la
+  muestra); con un `ParseResult` existente, solo cambian los campos que difieren
+  y `existing` no se modifica. `apply_descriptor(document, spec)` hace lo mismo
+  sobre el CST vivo que edita el formulario y dice si cambió algo.
+- `descriptor_problems(spec, game_root, *, creating=False, descriptor_file=None,
+  mod_root=None, template=None)` devuelve `modcheck.Issue`: los de
+  `check_descriptor`, los valores que no se pueden escribir y los códigos nuevos
+  `descriptor_name_duplicate` (aviso: otro `.mod` de `<juego>/mod` con el mismo
+  `name`), `descriptor_user_dir_empty` (info), `windows_reserved_name` (error,
+  con la misma regla que el guardado, `windows_name_problems`),
+  `descriptor_folder_taken` (error, al crear) y `replace_path_empty` (error). Sus
+  textos están en `modcheck.MESSAGES`. `replace_path_hides_referenced` tiene
+  código y texto, pero necesita el índice (iteración 3) y aún no se emite.
+- `sanitize_folder(nombre, *, taken=frozenset())` propone carpetas en ASCII
+  («Dark Age Mod» → `DAM`, `Dark_Age_Mod`), sin nombres que Windows rechace ni
+  los ocupados (`taken_folders(game_root)`), con un número si hace falta
+  (`DAM2`).
+- `create_mod_skeleton(game_root, spec, *, template=None)` («Nuevo mod») crea
+  `<juego>/mod/<folder>/` con `common/`, `history/` y `localisation/`
+  (`SKELETON_FOLDERS`, vacías: la herencia hace innecesario copiar vanilla) y
+  `<juego>/mod/<folder>.mod`, más, si se da, el contenido de una plantilla
+  (`template_files`: todo salvo `.vic2studio`, `.git`, `.bak`, temporales y los
+  `.mod` de su raíz), en una sola transacción del diario. Lanza
+  `DescriptorProblemsError` (un `ValueError`) si `descriptor_problems(...,
+  creating=True)` tiene errores y `DescriptorWriteError` (un `OSError`) si el
+  diario encuentra un problema bloqueante; en los dos casos sin escribir nada.
+  Sobre lo que deja si el guardado falla a medias, ver §6.3.
+- Diferencias con la API de wizard §14.1: `create_mod_skeleton` no recibe un
+  proyecto ni un guard (crea los suyos), `descriptor_problems` devuelve `Issue`
+  en vez de `Problem` (la iteración 3 los convierte) y los códigos
+  `descriptor_path_mismatch` y `descriptor_folder_missing` de wizard son los
+  `descriptor_bad_path`/`descriptor_other_folder` y `descriptor_missing_folder`
+  de `check_descriptor`.
 
 **Validación** (`core/modcheck.py`, sin Qt): `check_mod(root, *, extra_files=(),
 progress=None, cancelled=None)` recorre las carpetas que lee el juego
@@ -1046,18 +1539,21 @@ detalle de implementación: el contrato es lo que exportan sus `__init__.py`.
 VictoriaII_ModWizard/
 ├── .gitignore
 ├── ARCHITECTURE.md                      este documento
-├── CONTINUAR_EN_CLAUDE_CODE.md          traspaso de la iteración 1: estado, corpus y tareas T1–T5
+├── CONTINUAR_EN_CLAUDE_CODE.md          traspaso para una sesión nueva: estado, decisiones, entorno, corpus y próximas tareas
 ├── README.md                            qué es, cómo ejecutar, probar y usar las CLI
 ├── THIRD_PARTY_NOTICES.md               avisos de terceros
-├── pyproject.toml                       metadatos y empaquetado (setuptools, layout src, gui-script vic2studio)
-├── requirements.txt                     dependencias de ejecución (las mismas que pyproject.toml)
+├── pyproject.toml                       metadatos y empaquetado (setuptools, layout src, gui-script vic2studio, package-data con fragmentos y textos del núcleo)
+├── requirements.txt                     dependencias de ejecución (las mismas que pyproject.toml; numpy < 2 con PySide6 6.5/6.6)
 ├── docs/
-│   ├── capturas/                        10 PNG ES/EN de la muestra (01_validar_mod_es_1100x700 … 10_map_roadmap_en_1920x1080)
+│   ├── capturas/                        10 PNG ES/EN de la interfaz de la iteración 1 sobre la muestra (T5: 01_validar_mod_es_1100x700 … 10_map_roadmap_en_1920x1080)
 │   ├── diseno/
 │   │   ├── wizard.md                    diseño de las iteraciones 2 a 10
 │   │   └── prototipos/mapforge/         README y 61 scripts de estudio del taller de mapas (wizard §18); no se instalan ni se prueban
 │   ├── handoff/
-│   │   └── workflow_iteracion1.js       flujo de trabajo de la iteración 1 (fases, componentes y verificadores)
+│   │   ├── workflow_iteracion1.js       flujo de trabajo de la iteración 1 (fases, componentes y verificadores)
+│   │   ├── workflow_t4_segunda_revision_interfaz.js   segunda revisión adversarial de la última ronda de la interfaz
+│   │   ├── workflow_iteracion2_implementacion.js      iteración 2: agentes A (núcleo) y B (descriptor e interfaz) contra el contrato
+│   │   └── workflow_iteracion2_revision.js            revisión adversarial de la iteración 2: un revisor y un verificador por componente
 │   └── requisitos/
 │       └── prompt_maestro_creador_de_mods_victoria_ii.md   requisitos originales del proyecto
 ├── packaging/
@@ -1067,7 +1563,7 @@ VictoriaII_ModWizard/
 │   └── linux/
 │       └── vic2studio.desktop           lanzador de escritorio (freedesktop)
 ├── tools/
-│   └── screenshot.py                    capturas PNG offscreen por idioma, página y estado (§8.6)
+│   └── screenshot.py                    capturas PNG offscreen por idioma, sala, sección, diálogo y estado (§8.6)
 ├── src/vic2studio/
 │   ├── __init__.py                      __version__, APP_NAME, ORG_NAME
 │   ├── __main__.py                      python -m vic2studio → app.main()
@@ -1076,48 +1572,100 @@ VictoriaII_ModWizard/
 │   ├── settings.py                      preferencias QSettings (INI); VIC2STUDIO_SETTINGS_DIR las desvía
 │   ├── core/                            Python puro, sin Qt
 │   │   ├── __init__.py
+│   │   ├── appdirs.py                   data_dir(), cache_dir(), locks_dir(), detached_project_dir(), mod_key(); VIC2STUDIO_DATA_DIR / VIC2STUDIO_CACHE_DIR
 │   │   ├── cancel.py                    CancelCheck, Cancelled, raise_if_cancelled
 │   │   ├── encoding.py                  detección sin pérdidas (cp1252, UTF-8, UTF-16), BOM, saltos de línea
-│   │   ├── fileio.py                    lectura con huella, escritura atómica, copias .bak, FileChangedError
-│   │   ├── modfile.py                   descriptor .mod: leer, buscar y escribir
-│   │   ├── modcheck.py                  validación sintáctica de un mod completo
+│   │   ├── fileio.py                    lectura con huella, escritura atómica, primitivas del diario, .bak, FileChangedError; única escritura cruda
+│   │   ├── modfile.py                   descriptor .mod: leer, buscar, DescriptorSpec, render_descriptor, descriptor_problems, sanitize_folder, create_mod_skeleton, write_descriptor
+│   │   ├── modcheck.py                  validación sintáctica de un mod completo (y textos de los códigos de descriptor_problems)
+│   │   ├── texts.py                     textos del núcleo: load_texts(lang), text(key, lang, **fmt)
 │   │   ├── clausewitz/                  parser .txt
-│   │   │   ├── __init__.py              API pública (parse, to_source, to_json, write_file, …)
+│   │   │   ├── __init__.py              API pública (parse, to_source, to_json, render_checked, write_file, …)
 │   │   │   ├── __main__.py              CLI check / tojson
 │   │   │   ├── lexer.py                 tokens con posición y trivia
 │   │   │   ├── parser.py                parser iterativo tolerante a errores → ParseResult
 │   │   │   ├── nodes.py                 CST (Document, Block, Entry, Scalar, ClausewitzDate) y API de edición
-│   │   │   ├── serializer.py            to_source, format_canonical, write_file
+│   │   │   ├── serializer.py            to_source, format_canonical, render_checked, write_file
 │   │   │   ├── json_bridge.py           to_json, from_json, iter_json, simplify, walk
 │   │   │   └── diagnostics.py           Diagnostic, Severity, EditError y mensajes es/en
-│   │   └── csvloc/                      localización CSV
-│   │       ├── __init__.py              API pública (parse_csv, read_csv_file, LocalisationDB, …)
-│   │       ├── __main__.py              python -m vic2studio.core.csvloc
-│   │       ├── cli.py                   CLI check / tojson / fromjson
-│   │       ├── model.py                 LocRow, LocalisationFile, columnas de idioma
-│   │       ├── serialization.py         lectura, escritura y JSON
-│   │       ├── lint.py                  validación de un archivo
-│   │       ├── db.py                    LocalisationDB: precedencia mod/vanilla
-│   │       └── diagnostics.py           CsvDiagnostic, Severity y mensajes es/en
+│   │   ├── csvloc/                      localización CSV
+│   │   │   ├── __init__.py              API pública (parse_csv, read_csv_file, render_csv_checked, LocalisationDB, …)
+│   │   │   ├── __main__.py              python -m vic2studio.core.csvloc
+│   │   │   ├── cli.py                   CLI check / tojson / fromjson
+│   │   │   ├── model.py                 LocRow, LocalisationFile, columnas de idioma
+│   │   │   ├── serialization.py         lectura, render_csv_checked, escritura y JSON
+│   │   │   ├── lint.py                  validación de un archivo
+│   │   │   ├── db.py                    LocalisationDB: precedencia mod/vanilla
+│   │   │   └── diagnostics.py           CsvDiagnostic, Severity y mensajes es/en
+│   │   ├── vfs/                         herencia juego + dependencias + mod (§3)
+│   │   │   ├── __init__.py              API pública (VirtualFS, VPath, WriteGuard, LOAD_RULES, DESCRIPTOR_REL, …)
+│   │   │   ├── paths.py                 VPath, InvalidPathError, DESCRIPTOR_REL, windows_name_problems, long_path_problem
+│   │   │   ├── model.py                 DocKind, LayerKind, Layer, Fingerprint, FileEntry, VfsSnapshot
+│   │   │   ├── rules.py                 LoadMode, LoadRule, LOAD_RULES, rule_for, tag_key, leading_int_key
+│   │   │   ├── guard.py                 WriteGuard, WriteOutsideModError; inspect_folder, evaluate_game, evaluate_mod, same_folder, is_under
+│   │   │   └── vfs.py                   VirtualFS (scan, resolve, stack, list, mod_target, refresh, snapshot), resolve_dependencies
+│   │   └── project/                     proyecto transaccional (§2.1, §2.4)
+│   │       ├── __init__.py              API pública (Project, Workspace, Txn, eventos, ChangeSet, SaveReport, …)
+│   │       ├── model.py                 DocHandle, PlannedWrite, ChangeSet, SaveProblem/SaveReport/SaveResult, Snapshot, UndoStep, eventos, JournalState, RecoveryResult, ProjectSettings
+│   │       ├── codecs.py                ClausewitzCodec, LocalisationCodec, JsonCodec, BinaryCodec; parse_bytes, kind_for, register_codec
+│   │       ├── documents.py             DocumentStore: documentos abiertos con expulsión LRU
+│   │       ├── undo.py                  UndoStack: instantáneas zlib, fusión por merge_key, límites
+│   │       ├── workspace.py             Workspace: open, transaction, touch, deshacer, changeset, save, cambios externos, autoguardado
+│   │       ├── journal.py               SaveTransaction (prepare, commit), papelera, originals/, autoguardado; único que escribe en el mod
+│   │       ├── recovery.py              pending_journals, recover, recover_all, orphan_sessions, load_session
+│   │       ├── lock.py                  ProjectLock: bloqueo entre instancias en appdirs.locks_dir()
+│   │       ├── settings.py              project.json ⇄ ProjectSettings (default_settings, settings_from_json, render_settings)
+│   │       ├── diffing.py               unified_diff y changed_lines para «Cambios pendientes»
+│   │       ├── project.py               Project: open, edit, save, set_settings, restore_session, discard_session, close
+│   │       └── texts/
+│   │           ├── project.es.json      17 textos del núcleo: códigos de SaveProblem, notas de recuperación, etiquetas undo.*
+│   │           └── project.en.json      los mismos, en inglés
 │   ├── i18n/
-│   │   ├── __init__.py                  Translator, translator(), tr(), N_(), set_language(), …
-│   │   ├── es.json                      textos en español (346 claves planas "nav.project", …)
-│   │   └── en.json                      textos en inglés (las mismas claves)
+│   │   ├── __init__.py                  Translator, load_catalog (rechaza claves repetidas), tr(), N_(), set_language(), …
+│   │   ├── es.json                      textos en español (330 claves planas "nav.project", …)
+│   │   ├── en.json                      textos en inglés (las mismas claves)
+│   │   ├── es/                          fragmentos por área: project.json (154 claves) y shell.json (186)
+│   │   └── en/                          los mismos fragmentos, en inglés
 │   └── ui/
 │       ├── __init__.py
-│       ├── main_window.py               MainWindow: estandarte, idioma, navegación, páginas, estado
+│       ├── main_window.py               MainWindow: estandarte, 7 salas, acciones globales (Guardar, Deshacer, Historial, F7), estado, closeEvent
+│       ├── session.py                   Session: único puente con Qt (abrir en segundo plano, editar, guardar, deshacer, recuperación, «Nuevo mod»)
 │       ├── tasks.py                     TaskRunner, TaskContext, grupos de hilos, recolector, liberación en segundo plano (§2.5)
 │       ├── theme.py                     paleta, apply_theme(), texturas procedurales, fuentes
 │       ├── style.qss                    hoja de estilo Qt
+│       ├── shell/
+│       │   ├── __init__.py              HallPage, SectionRail, RailButton, PendingChangesPanel, HistoryDock
+│       │   ├── hall.py                  HallPage: índice de secciones y sección a la vista
+│       │   ├── section_rail.py          SectionRail: columna de madera o franja en ventanas estrechas, contadores e iteración
+│       │   ├── pending_changes.py       PendingChangesPanel: lista de escrituras de un ChangeSet y su diff coloreado
+│       │   └── history_dock.py          HistoryDock: panel acoplable «Historial»
+│       ├── halls/
+│       │   ├── __init__.py
+│       │   ├── registry.py              HallSpec, SectionSpec, discover_halls (pkgutil), HALL_KEYS
+│       │   ├── project/
+│       │   │   ├── __init__.py          sala Proyecto (Ctrl+1): Inicio, Descriptor .mod, Archivos, Validación, Cambios pendientes
+│       │   │   ├── home.py              Inicio: juego base, mods de <juego>/mod, «¿Qué quieres hacer?», hoja de ruta
+│       │   │   ├── descriptor.py        Descriptor .mod: formulario sobre DescriptorSpec, problemas y texto resultante
+│       │   │   ├── files.py             Archivos: la ProjectPage con insignias de capa
+│       │   │   └── pending.py           Cambios pendientes: ChangeSet con diff, Guardar y Descartar un archivo
+│       │   ├── map/__init__.py          sala Mapa (Ctrl+2), planificada (iteraciones 5 y 9)
+│       │   ├── nations/__init__.py      sala Naciones (Ctrl+3), planificada (iteraciones 4 y 6)
+│       │   ├── war/__init__.py          sala Guerra (Ctrl+4), planificada (iteraciones 4 y 6)
+│       │   ├── events/__init__.py       sala Eventos (Ctrl+5), planificada (iteración 7)
+│       │   ├── interface/__init__.py    sala Interfaz (Ctrl+6), planificada (iteración 8)
+│       │   └── localisation/__init__.py sala Textos (Ctrl+7): Archivos CSV; el resto, iteración 3
+│       ├── dialogs/
+│       │   ├── __init__.py              API de los diálogos (KEEP, RELOAD, RESTORE, DISCARD, needs_review…)
+│       │   ├── save_review.py           SaveReviewDialog: revisión antes de guardar (D13)
+│       │   ├── conflict.py              ConflictDialog: Conservar mis cambios, Recargar del disco, Comparar
+│       │   ├── recovery.py              RecoveryDialog: guardados recuperados y autoguardados huérfanos
+│       │   └── new_mod.py               NewModDialog: «Nuevo mod»
 │       ├── pages/
-│       │   ├── __init__.py              PAGE_CLASSES: las cinco páginas en el orden de la navegación
+│       │   ├── __init__.py              PAGE_CLASSES y PAGE_KEYS: compatibilidad con la navegación de la iteración 1
 │       │   ├── base.py                  BasePage: key, título, subtítulo, icono, retranslate(), shutdown()
-│       │   ├── planned.py               página de módulo planificado (funcionalidades y hoja de ruta)
-│       │   ├── project_page.py          1 · Proyecto y Archivos: rutas, explorador, vista previa, validación
-│       │   ├── map_page.py              2 · Editor de Mapa (planificado, iteración 5)
-│       │   ├── countries_page.py        3 · Creador de Países (planificado, iteración 6)
-│       │   ├── events_page.py           4 · Estudio de Eventos (planificado, iteración 7)
-│       │   └── localisation_page.py     5 · Localización (CSV, solo lectura)
+│       │   ├── planned.py               PlannedSectionPage (tarjeta «en desarrollo») y RoadmapCard (hoja de ruta de Inicio)
+│       │   ├── project_page.py          ProjectPage, la sección Archivos: rutas, explorador, vista previa, validación
+│       │   └── localisation_page.py     LocalisationPage, la sección Archivos CSV (solo lectura)
 │       ├── viewers/
 │       │   ├── __init__.py              API de los visores
 │       │   ├── clausewitz_viewer.py     estructura, código fuente, diagnósticos y JSON de un script
@@ -1133,13 +1681,23 @@ VictoriaII_ModWizard/
 │           ├── cards.py                 insignias, estados vacíos, cintas, hoja de ruta (RoadmapStrip, en filas si no cabe)
 │           ├── flow.py                  disposición en filas que salta de línea
 │           ├── icons.py                 iconos vectoriales dibujados con QPainter
+│           ├── icons_extra/             iconos nuevos de la iteración 2, un archivo por dueño (wizard §20)
+│           │   ├── __init__.py          load(): los registra junto a los de icons.py
+│           │   ├── halls.py             salas y secciones (espadas, ventana, corona, barco, casco, calendario…)
+│           │   └── shell.py             armazón: Inicio, guardar, deshacer, rehacer, historial y capas
+│           ├── layer_badge.py           insignias de capa J / M / M⊃J del explorador (LayerResolver, LayerBadgeDelegate)
 │           ├── navigation.py            placas de navegación con icono, nombre y atajo
 │           ├── ornaments.py             marcos de bronce, remaches, medallones, emblema, filetes
 │           └── surfaces.py              paneles de madera/terciopelo, marco ornamentado, tarjetas
 └── tests/
-    ├── _corpus.py                       localiza el corpus (VIC2_CORPUS) y crea la plantilla sintética
-    ├── _qt.py                           entorno Qt: PySide6 incompatible, offscreen, preferencias aisladas, avisos, dispose
+    ├── _corpus.py                       localiza el corpus (VIC2_CORPUS, vanilla_root() con VIC2_GAME) y crea la plantilla sintética
+    ├── _qt.py                           entorno Qt: PySide6 incompatible, offscreen, preferencias, datos y caché aislados, XDG_RUNTIME_DIR, avisos, dispose
+    ├── _layers.py                       capas de juego, dependencias y mod desde diccionarios de bytes; isolate_appdirs
+    ├── _minigame.py                     minijuego sintético (versión de la iteración 2): CB, países, localización, historias, eventos y decisiones
+    ├── _fake_project.py                 Project falso para las pruebas de interfaz: la API del real, rápido y con fallos a la carta
     ├── fixtures/shago_mod_min/          muestra mínima del mod del usuario: VSM.mod y 19 archivos de VSM/ (los 6 de países, sintéticos)
+    ├── test_appdirs.py                  carpetas de datos y caché fuera de cualquier mod
+    ├── test_arch_writes.py              reglas de arquitectura: quién escribe (AST), core sin PySide6, sintaxis 3.10 (criterio 9)
     ├── test_clausewitz_cli.py           CLI check / tojson
     ├── test_clausewitz_corpus.py        ida y vuelta, invariante JSON y errores conocidos del corpus
     ├── test_clausewitz_edit.py          API de edición, valores, errores, guardado, mover, deshacer y formato
@@ -1155,15 +1713,44 @@ VictoriaII_ModWizard/
     ├── test_csvloc_lint.py              diagnósticos del CSV
     ├── test_csvloc_parse.py             lectura, BOM, saltos de línea, cancelación y JSON
     ├── test_encoding.py                 detección, escritura atómica y huellas, ida y vuelta del corpus
+    ├── test_external_change.py          cambios externos: conflicto, Conservar, Recargar y Comparar
+    ├── test_fileio_journal.py           primitivas del diario en fileio
     ├── test_i18n.py                     catálogos es/en y cambio de idioma
+    ├── test_journal_commit.py           guardado con diario: pasos, copias, papelera, comprobaciones previas y «Nuevo mod»
+    ├── test_journal_crash.py            fallo inyectado y corte simulado en cada paso de un guardado de 3 archivos (criterio 6)
+    ├── test_journal_kill.py             os._exit en un subproceso en cada paso (criterio 6)
+    ├── test_lexer_cr.py                 saltos de línea solo CR con comentario (criterio 2)
+    ├── test_lock.py                     bloqueo entre instancias: segunda instancia en solo lectura, pid muerto caducado
     ├── test_modcheck.py                 descriptor .mod y validación del mod
+    ├── test_modfile_write.py            generador del descriptor: oro, edición sin pérdidas, problemas, carpetas, «Nuevo mod» (criterio 8)
+    ├── test_noop_save.py                abrir y guardar sin cambios no escribe ni crea .vic2studio/ (criterio 4)
+    ├── test_project_codecs.py           códecs: ida y vuelta, render comprobado igual que write_file y write_csv_file
+    ├── test_project_diffing.py          diffs de «Cambios pendientes» y almacén LRU
+    ├── test_project_open.py             Project.open: descriptor, VFS, escaneo, bloqueo, recuperación y ajustes
+    ├── test_project_settings.py         project.json ⇄ ProjectSettings
+    ├── test_project_workspace.py        Workspace: transacciones, deshacer exacto, guardado con diario (criterios 3 y 7)
+    ├── test_recovery_autosave.py        autoguardado de recuperación, sesiones huérfanas y su restauración
     ├── test_tasks.py                    entrega, cancelación, espera, recolector, latidos y cierre
+    ├── test_texts.py                    textos del núcleo: paridad, códigos de SaveProblem y etiquetas undo.*
+    ├── test_ui_counts.py                recuentos con 1 en singular
+    ├── test_ui_descriptor.py            sección Descriptor .mod contra el Project falso
     ├── test_ui_integration.py           vista previa, validación, localización y capturas en la ventana
     ├── test_ui_localisation.py          página y editor de localización
+    ├── test_ui_new_mod.py               diálogo «Nuevo mod» con un creador falso
     ├── test_ui_pages.py                 página Proyecto: explorador, descriptor, carpeta del mod, imágenes, validación
+    ├── test_ui_real_project.py          la ventana contra el Project real: test_ui_shell y test_ui_descriptor otra vez, y el ciclo de vida
     ├── test_ui_roadmap.py               hoja de ruta: iteraciones de wizard §22 en ES y EN y reparto en filas
-    ├── test_ui_smoke.py                 ventana principal, navegación, idioma, preferencias, tema y arranque
-    └── test_ui_viewer.py                visor Clausewitz: índice, código, diagnósticos, archivos grandes y latidos
+    ├── test_ui_session.py               Session contra el Project falso: abrir, editar, guardar, deshacer, recuperación, «Nuevo mod»
+    ├── test_ui_shell.py                 armazón: registro de salas, fragmentos, insignias, cambios pendientes y la ventana con un proyecto
+    ├── test_ui_smoke.py                 ventana principal: 7 salas y secciones, navegación, idioma, preferencias, tema y arranque
+    ├── test_ui_viewer.py                visor Clausewitz: índice, código, diagnósticos, archivos grandes y latidos
+    ├── test_undo_property.py            propiedad: secuencias aleatorias de edición, deshacer y rehacer todo
+    ├── test_undo_stack.py               UndoStack: instantáneas, fusión por merge_key y límites
+    ├── test_vfs_guard.py                WriteGuard: enlaces, .., \, mayúsculas, mod dentro del juego, descriptor (criterio 5)
+    ├── test_vfs_paths.py                VPath, nombres de Windows y reglas de carga
+    ├── test_vfs_resolution.py           resolución: WHOLE_FILE, UNION, KEYED, replace_path, mayúsculas, dependencias
+    ├── test_workspace_readonly.py       abrir y consultar el proyecto no escribe (I4)
+    └── test_workspace_thread.py         el Workspace solo se usa desde su hilo (I12)
 ```
 
 `theme.py` carga además fuentes `.ttf`/`.otf` libres de
@@ -1177,18 +1764,19 @@ contendrá recursos del juego.
 
 ### 6.1 Iteraciones
 
-**Iteración 1 (esta).** Hecho: `core.encoding`/`fileio`, el parser Clausewitz y
-el CSV con JSON y CLI, `core.modfile` y `core.modcheck`, la cancelación
-cooperativa (`core/cancel.py`), las tareas en segundo plano, la ventana
-principal con estética Vic2, selector ES/EN en tiempo real y navegación entre
-los 5 módulos, la página Proyecto (explorador, visores, «Validar mod»), la
-página Localización (solo lectura), las capturas offscreen y el empaquetado
-preparado. El arreglo de los saltos de línea solo CR que wizard §22 pone en la
-iteración 2 ya está hecho (pruebas
+**Iteración 1.** Cerrada el 27-10-2026. Hecho: `core.encoding`/`fileio`, el
+parser Clausewitz y el CSV con JSON y CLI, `core.modfile` y `core.modcheck`, la
+cancelación cooperativa (`core/cancel.py`), las tareas en segundo plano, la
+ventana principal con estética Vic2, selector ES/EN en tiempo real y navegación
+entre 5 módulos (en la iteración 2 pasó a ser la de 7 salas), la página Proyecto
+(explorador, visores, «Validar mod»), la página Localización (solo lectura), las
+capturas offscreen y el empaquetado preparado. El arreglo de los saltos de línea
+solo CR que wizard §22 pone en la iteración 2 se hizo aquí (pruebas
 `test_clausewitz_parser.LineBreakTests.test_cr_only_files` y
 `test_encoding.EncodingTests.test_cr_only_newlines`, que se pueden ejecutar
-por nombre con `python3 -m unittest` desde `tests/`), así que allí solo queda
-comprobar la regresión. La última ronda de T4 añadió:
+por nombre con `python3 -m unittest` desde `tests/`), y la iteración 2 solo
+añadió la prueba de regresión del criterio 2 (`test_lexer_cr`). La última ronda
+de T4 añadió:
 
 - la API pública de las posiciones finales del CST (`Block.close_position` y
   `Entry.value_end`, que se apoya en `lexer.end_position`, interna del
@@ -1204,9 +1792,40 @@ comprobar la regresión. La última ronda de T4 añadió:
   la insignia roja «Ilegible para el juego».
 
 Después llegaron el aviso al arrancar con PySide6 6.12 en Python 3.10 y 3.11
-(§1.3), la hoja de ruta de las páginas con la numeración de wizard §22 (§8.1) y
-la muestra con los archivos de país sintéticos (§7.2). Quedan la segunda
-revisión adversarial de la última ronda de la interfaz, en curso, y T5.
+(§1.3), la hoja de ruta con la numeración de wizard §22 (§8.1), la muestra con
+los archivos de país sintéticos (§7.2), la segunda revisión adversarial de la
+última ronda de la interfaz (`9040839`, y su grupo de compatibilidad en
+`563a709`) y T5, las capturas de `docs/capturas/` (`3230442`).
+
+**Iteración 2 (cimientos).** Integrada: commit de contrato (`4f5b46d`), núcleo
+del agente A (`97f0386`), descriptor, `Session` y armazón de 7 salas del agente B
+(`f3ff809`), retirada de los puentes temporales (`d3ed5de`), compatibilidad con
+PySide6 6.5.0 (`563a709`) y la interfaz contra el `Project` real de punta a punta
+(`59e8847`), que destapó cinco fallos de integración, ya corregidos con su
+prueba de regresión. Entrega: la VFS (§3), el proyecto transaccional con
+documentos, códecs, deshacer, guardado con diario, recuperación, bloqueo,
+cambios externos, autoguardado y `project.json` (§2.1, §2.4), la regla de
+escrituras (§2), `core/appdirs.py` y `core/texts.py`, el generador del `.mod`
+(capacidad 1, §3.7 y §4.4), `ui/session.py`, `ui/shell`, `ui/halls`,
+`ui/dialogs` y las insignias de capa, la ventana de 7 salas (§8.1), la i18n por
+fragmentos y `tools/screenshot.py` con `--hall`, `--section` y `--no-game-art`.
+Estado de los criterios de aceptación de wizard §22:
+
+| Criterio | Estado | Pruebas |
+|---|---|---|
+| 1. La batería pasa sin corpus, con la muestra y con `VIC2_CORPUS` completo | Sin corpus y con la muestra, sí (978 pruebas, 4 omitidas, §7.1). Con el corpus completo, **pendiente**: el usuario aún no lo ha subido | toda la batería |
+| 2. `a = 1 # c\rb = 2\r` da 2 entradas y `detect_newline` da `"\r"` | Sí | `test_lexer_cr` |
+| 3. Cambiar `months` de un CB copia `cb_types.txt` con 1 línea de diff; sobre la copia de VSM, la modifica; el juego no cambia | Con el minijuego (mod vacío y mod con su copia), sí. Sobre vanilla + VSM, **pendiente del corpus**: la prueba existe y solo se ha comprobado con un corpus sintético | `test_project_workspace.test_acceptance_criterion_3_*` |
+| 4. Abrir y guardar sin cambios no escribe ni crea `.vic2studio/` | Sí | `test_noop_save` |
+| 5. `WriteGuard` rechaza el juego, `..` y enlaces que salen; admite el mod y su `.mod` | Sí | `test_vfs_guard` |
+| 6. Un fallo en cada paso de un guardado de 3 archivos (y `os._exit`) deja todo antes o todo después; recuperar dos veces da lo mismo | Sí | `test_journal_crash`, `test_journal_kill` |
+| 7. Deshacer y rehacer 3 archivos es exacto; deshacer hasta el punto guardado deja limpio | Sí | `test_project_workspace.test_acceptance_criterion_7_*`, `test_undo_property` |
+| 8. Oro de `render_descriptor` y «Dark Age Mod» en cp1252 con CRLF | Sí | `test_modfile_write` |
+| 9. `test_arch_writes` pasa | Sí, sin excepciones temporales | `test_arch_writes` |
+| 10. Capturas ES/EN a 1100×700 y 1920×1080 | `docs/capturas/` aún tiene las de la iteración 1; según el traspaso, las de la iteración 2 se generaron y revisaron el 27-10-2026 y se suben con las correcciones de la revisión | revisión visual |
+| 11. Verificación adversarial; el mod de «Nuevo mod» aparece en el lanzador | La revisión adversarial (`docs/handoff/workflow_iteracion2_revision.js`) estaba en curso al escribir el traspaso; la comprobación en el juego se hace una sola vez, en la iteración 10 (decisión 6 de wizard §24) | — |
+
+Lo pendiente y su orden están en `CONTINUAR_EN_CLAUDE_CODE.md` §5.
 
 **Iteraciones 2 a 10.** Resumen de wizard §22, que tiene el objetivo, las
 entregas y los criterios de aceptación de cada una. Cada iteración sigue el
@@ -1239,18 +1858,25 @@ Paradox, nombres inválidos en Windows, cambios externos, taller de mapas…).
 
 | Riesgo | Situación y mitigación |
 |---|---|
-| Escribir fuera del mod | Aún no hay `WriteGuard`: `write_file`, `write_csv_file`, `write_descriptor` y `atomic_write_bytes` escriben en la ruta que reciben. Hoy la interfaz no escribe nada en el juego ni en el mod (§2), así que solo escriben las CLI (con `-o`) y el código que llame al núcleo. Lo resuelve la iteración 2 (§3.1). |
-| Copias `.bak` distintas según quién guarda | `write_file` hace la copia solo en el primer guardado de la sesión (guarda el original); `write_csv_file`, en cada guardado (guarda el anterior). Unificar al integrar el guardado con diario (wizard §6.5, D4). |
-| Huella esperada distinta según quién guarda | `write_csv_file` comprueba la huella siempre que guarda sobre el archivo leído (salvo `force=True`); `write_file` solo si se le pasa `expected`. |
-| Línea mal contada en archivos solo CR | `find_unencodable` cuenta las líneas solo por `\n`: en un script con saltos solo CR, el `UnencodableTextError` de `encode_text` y `write_file` da la línea 1 y una columna desde el principio del archivo (con `a = 1`, `b = 2` y `c = Ω` separados por CR: línea 1, columna 17, en vez de línea 3, columna 5). La ficha de archivo (`gather_facts`) también cuenta las líneas por `\n`: un archivo de 3 líneas solo CR sale con 1. El `unencodable_character` de Clausewitz (`Document.check_text`) no lleva posición, y el lint CSV no se ve afectado: allí un CR suelto es contenido de la fila. |
+| Escribir fuera del mod | Resuelto en la iteración 2 (§2, §3.5): todo lo que la aplicación escribe en el mod pasa por el diario y el `WriteGuard`, y `test_arch_writes` impide escribir por otro camino. Quedan sin guard, a propósito, `atomic_write_bytes`, `write_file` y `write_csv_file`, que escriben en la ruta que reciben: solo los llaman el diario (tras `WriteGuard.check`), el bloqueo (en `appdirs.locks_dir()`), los propios envoltorios y la CLI de localización, que escribe donde dice `-o`. Lo que escribe Qt (`QSettings` y los glifos) queda fuera de la regla. |
+| «Nuevo mod» que falla a medias deja rastro | `create_mod_skeleton` crea su `SaveTransaction` sin `trash_creates=False`. Si el guardado falla después de confirmar algún archivo, la reversión manda el `.mod` (y los archivos de la plantilla) a `<juego>/mod/<carpeta>/.vic2studio/trash/<txid>/`, así que la carpeta del mod queda en `<juego>/mod/` y un segundo intento con la misma carpeta da `descriptor_folder_taken`. Comprobado inyectando un fallo con `journal.FAULT_HOOK` en el primer `replace`. `test_journal_commit.NewModTests` prueba el diario con `trash_creates=False` y por eso no lo ve. |
+| «Archivos» y «Archivos CSV» muestran el disco | Siguen siendo las páginas de la iteración 1 y no pasan por el `Workspace` (§2.1): no enseñan los cambios sin guardar (I7), «Validar mod» valida lo que hay en disco y las insignias de capa (`LayerResolver`) solo miran si la misma ruta existe en la otra carpeta, sin `replace_path` ni dependencias. La pestaña «Código» sobre el `DocHandle` y la localización editable llegan en la iteración 3 (wizard §21). |
+| Guardar en el hilo de la interfaz | `MainWindow.save_project` llama a `Session.changeset()` (renderiza y verifica por relectura todos los documentos sucios, con su diff) y después a `Session.save()`, que los vuelve a renderizar: todo en el hilo de la interfaz. La sección «Cambios pendientes» también renderiza todos los sucios cada vez que se refresca, aunque solo mientras está a la vista. Con pocos documentos pequeños (el descriptor, `cb_types.txt`) no se nota; las pruebas de latido (§7.4) no cubren el guardado. |
+| Deshacer en memoria | Las instantáneas van comprimidas con zlib, pero siempre en memoria: `SNAPSHOT_TO_DISK` (8 MiB) y `Snapshot.before_path` no se usan (§2.4; wizard §6.3 las manda a disco). La pila se limita a 500 pasos y 256 MiB comprimidos y descarta los más viejos, y la LRU solo expulsa documentos limpios. |
+| Autoguardado antes del primer guardado | Con cambios sin guardar, `recovery/<sesión>/` se escribe cada 60 s, cada 20 transacciones y al cerrar sin «Descartar», y crea `<mod>/.vic2studio/` aunque aún no se haya guardado nada. Es lo que pide I8, pero wizard §5.4 dice que la carpeta se crea en el primer guardado; el criterio 4 (abrir y guardar sin cambios) no se ve afectado. |
+| Texto del diálogo de cambios sin guardar | `shell.unsaved_info` dice que, si no se guardan, queda una copia de recuperación para la próxima vez. En ese diálogo no guardar es «Descartar», que desde `59e8847` borra esa copia (`close_project(discard=True)`): la copia solo queda tras un cierre inesperado o un cierre sin pregunta. Hay que corregir el texto (ES y EN). |
+| Bloqueo que no caduca | Un bloqueo de otro equipo nunca se da por caducado, y uno de este equipo solo si su pid ya no existe (un pid reutilizado lo mantiene). El proyecto se abre entonces en solo lectura con el mensaje de que otra ventana del Studio lo tiene abierto, y la interfaz no ofrece romperlo: hay que borrar `<data_dir>/locks/<sha1>.lock`. |
+| Huellas distintas según quién guarda | Conviven tres: `fileio.FileStamp` (tamaño y BLAKE2b del contenido: `ParseResult.stamp`, `LocalisationFile.stamp`, `expected` de `write_file`), `vfs.Fingerprint` (tamaño, `mtime_ns` y sha256 perezoso: el `Workspace` y el diario) y `ui/viewers/common.file_stamp` (`(mtime_ns, size)`, para recargar la vista previa). Con `Fingerprint.matches`, un cambio externo que conserve tamaño y `mtime` no se detecta. Fuera de la aplicación, `write_csv_file` comprueba la huella siempre que guarda sobre el archivo leído (salvo `force=True`) y `write_file` solo si se le pasa `expected`. |
+| Copias `.bak` distintas según quién guarda | El guardado de la aplicación copia el destino a su `.bak` en cada guardado y, la primera vez, a `originals/` (D4, unificado en el diario). `write_file` hace la copia solo en el primer guardado de la sesión y `write_csv_file` en cada guardado, pero ya solo los usan la API y la CLI. |
+| Línea mal contada en archivos solo CR | `find_unencodable` cuenta las líneas solo por `\n`: en un script con saltos solo CR, el `UnencodableTextError` de `encode_text` y `write_file` da la línea 1 y una columna desde el principio del archivo (con `a = 1`, `b = 2` y `c = Ω` separados por CR: línea 1, columna 17, en vez de línea 3, columna 5). Desde la iteración 2 llega también al editar (la transacción que no se puede codificar lanza ese error) y al problema `save_unencodable` del guardado. La ficha de archivo (`gather_facts`) también cuenta las líneas por `\n`: un archivo de 3 líneas solo CR sale con 1. El `unencodable_character` de Clausewitz (`Document.check_text`) no lleva posición, y el lint CSV no se ve afectado: allí un CR suelto es contenido de la fila. |
 | Árbol grande soltado en segundo plano | Al cambiar de archivo, el visor suelta el `QTextDocument` del código en el hilo de la interfaz y el resto del análisis en `POOL_RELEASE`, por trozos de `RELEASE_CHUNK` (4 096) elementos (`dismantle_load`, §2.5). Quedan dos cascadas sin trocear, fuera del hilo de la interfaz pero con el GIL tomado: si la tarea del JSON sigue en marcha al cambiar de archivo, retiene la raíz, y el árbol se suelta de una vez cuando esa tarea acaba (NF-JSON-HELD-ROOT: una pausa de unos cientos de ms), y `core.modcheck.check_file` suelta el árbol de cada archivo al terminar con él (NF-VALIDATE-TREE-RELEASE: huecos de 206–260 ms con 7,9 MB, por debajo del límite de 0,5 s de §7.4). |
 | Ficha de archivo en el hilo de la interfaz | `project_page.gather_facts` lee hasta 2 MiB (`MAX_SCAN_BYTES`) y los decodifica en el hilo de la interfaz. Si el archivo es más largo usa `decode_bytes(partial=True)`, así que un carácter multibyte cortado al final del bloque ya no cambia la codificación detectada (NF-FACTS-PARTIAL). |
 | Contrato del recolector | Un resultado de tarea que forme un ciclo no se libera nunca mientras está congelado; con varios resultados grandes seguidos, la basura congelada con el primero espera a que no viva ninguno (§2.5). Las pruebas de `test_tasks` lo vigilan. |
-| Sin pruebas de arquitectura ni CI | La regla «core sin PySide6» y la compatibilidad con Python 3.10 se comprobaron a mano (§7.5); las pruebas automáticas de arquitectura están planificadas (wizard §19.5). wizard solo prevé CI para `tools/bench_mapforge.py` con las versiones mínimas (wizard §18.12); un CI con Windows y Linux para toda la batería no está planificado todavía. |
+| Sin CI y huecos en las pruebas de arquitectura | `test_arch_writes` ya comprueba las escrituras, que core no carga PySide6 y la sintaxis de Python 3.10, pero esta última solo en `src/`: la de `tests/` y `tools/` la cubre de hecho pasar la batería con 3.10, a mano. Falta la prueba «sin datos de Paradox» de wizard §19.5. No hay CI: wizard solo lo prevé para `tools/bench_mapforge.py` con las versiones mínimas (wizard §18.12), y un CI con Windows y Linux para toda la batería no está planificado todavía. |
 | Pestaña Código con archivos enormes | Al mostrar la pestaña Código, `QPlainTextEdit.setDocument` maqueta todos los bloques del documento en el hilo de la interfaz, y al cambiar de archivo el documento anterior se destruye también en ese hilo. Con 1,3 M líneas, `code_view.py` da ~0,6 s al colgarlo y 0,16–0,35 s al destruirlo (NF-DOC-DELETE: vaciarlo por trozos cuesta 1,4–1,9 s con el GIL tomado, y destruirlo en otro hilo no es seguro). Crear los `QTextLayout` en la tarea bajaría lo primero a unos 0,25 s, pero alargaría la carga unos 6 s y ocuparía unos 350 MB más aunque el código no llegue a mostrarse (con 20 MB); se dejó como límite conocido. |
-| Ediciones junto a texto descartado | En un archivo con errores de sintaxis, una edición puede releerse de otra forma: lo que se pone detrás de un bloque sin cerrar queda dentro de él (con `a = { b = 1` sin `}`, añadir `z = 9` al documento lo relee dentro de `a`), y un valor suelto seguido de un operador descartado forma con él una asignación. Lo nuevo ya no se pega al texto descartado (con `a =`, añadir `z = 9` da `z = 9 a =`). `write_file(verify=True)` detecta esos casos y no escribe (`SourceMismatchError` con `near_errors`), y el fuzz de edición solo compara árboles si el original no tenía errores (§7.3). |
-| Codificación explícita que no describe el archivo | `parse_file` ya ajusta una codificación forzada a los bytes (`match_bom` y `split_bom`, §4.2): `encoding="utf-16-be"` sobre un UTF-16 BE con BOM da `utf-16-be-bom`, y `"utf-8-sig"` sobre datos sin BOM, `utf-8`. `decode_bytes` y `fileio.read_text` no: `decode_bytes(datos, "utf-16")` de un UTF-16 BE con BOM vuelve a codificar en LE, y `"utf-8-sig"` sobre datos sin BOM añade un BOM al guardar, también con `read_csv_file` y `write_csv_file`. Ninguna llamada de `src/` fuerza una codificación al leer un script o un CSV: la interfaz, las CLI, `modfile` y `modcheck` usan la detección. |
-| Errores de guardado que no pasan por `pickle` | `pickle.loads(pickle.dumps(error))` falla con `SourceMismatchError` (su `__init__` pide 3 argumentos: `TypeError`), con `UnencodableTextError` (pide 2: `TypeError`) y con `DescriptorFieldError` (recibe el mensaje como código: `KeyError`). `EditError`, `FileChangedError` e `InvalidFieldError` sí se recuperan. Hoy no se usan procesos; hay que arreglarlo antes de que un error de guardado cruce al proceso trabajador del taller de mapas (wizard §18.4). |
+| Ediciones junto a texto descartado | En un archivo con errores de sintaxis, una edición puede releerse de otra forma: lo que se pone detrás de un bloque sin cerrar queda dentro de él (con `a = { b = 1` sin `}`, añadir `z = 9` al documento lo relee dentro de `a`), y un valor suelto seguido de un operador descartado forma con él una asignación. Lo nuevo ya no se pega al texto descartado (con `a =`, añadir `z = 9` da `z = 9 a =`). `write_file(verify=True)` detecta esos casos y no escribe (`SourceMismatchError` con `near_errors`), y el fuzz de edición solo compara árboles si el original no tenía errores (§7.3). En el `Workspace`, un documento con errores de sintaxis se abre con `read_only_reason="parse_errors"` y solo admite sustituir el texto entero (D17); si aun así algo se relee distinto, `render_checked` lo convierte en el problema `save_source_mismatch` sin tocar el disco. |
+| Codificación explícita que no describe el archivo | `parse_file` ya ajusta una codificación forzada a los bytes (`match_bom` y `split_bom`, §4.2): `encoding="utf-16-be"` sobre un UTF-16 BE con BOM da `utf-16-be-bom`, y `"utf-8-sig"` sobre datos sin BOM, `utf-8`. `decode_bytes` y `fileio.read_text` no: `decode_bytes(datos, "utf-16")` de un UTF-16 BE con BOM vuelve a codificar en LE, y `"utf-8-sig"` sobre datos sin BOM añade un BOM al guardar, también con `read_csv_file` y `write_csv_file`. Ninguna llamada de `src/` fuerza una codificación al leer un script o un CSV: la interfaz, las CLI, `modfile`, `modcheck` y los códecs de `core/project` usan la detección. |
+| Errores de guardado que no pasan por `pickle` | `pickle.loads(pickle.dumps(error))` falla con `SourceMismatchError` (su `__init__` pide 3 argumentos: `TypeError`), con `UnencodableTextError` (pide 2: `TypeError`) y con `DescriptorFieldError` (recibe el mensaje como código: `KeyError`), y también con los de la iteración 2: `WriteOutsideModError`, `InvalidPathError` y `ReadOnlyDocumentError` (piden 2: `TypeError`), `DescriptorProblemsError` (se rehace a partir de su texto: `AttributeError`) y `SaveProblem`, y con él `DescriptorWriteError` (su `args` por defecto es un `mappingproxy`, que no se puede serializar: `TypeError`). `EditError`, `FileChangedError`, `InvalidFieldError` y `WrongThreadError` sí se recuperan. Hoy no se usan procesos; hay que arreglarlo antes de que un error de guardado cruce al proceso trabajador del taller de mapas (wizard §18.4). |
 
 ---
 
@@ -1260,49 +1886,88 @@ Paradox, nombres inválidos en Windows, cambios externos, taller de mapas…).
 
 - **Framework**: `unittest` de la biblioteca estándar; sin dependencias extra.
   Cada archivo de prueba añade `<raíz>/src` a `sys.path`, así que no hace falta
-  instalar el paquete. `tests/_qt.py` fuerza `QT_QPA_PLATFORM=offscreen` si no
-  está definida y aísla las preferencias en una carpeta temporal
-  (`VIC2STUDIO_SETTINGS_DIR`).
+  instalar el paquete.
+- **Carpetas aisladas.** `tests/_qt.py` fuerza `QT_QPA_PLATFORM=offscreen` si no
+  está definida y desvía a carpetas temporales, que se borran al salir, las
+  preferencias (`VIC2STUDIO_SETTINGS_DIR`) y los datos y la caché de la
+  aplicación (`VIC2STUDIO_DATA_DIR` y `VIC2STUDIO_CACHE_DIR`: abrir un mod desde
+  la ventana usa el `Project` real, que escribe su bloqueo en la carpeta de
+  datos). En Linux, si falta `XDG_RUNTIME_DIR`, crea uno temporal (0700): Qt
+  6.5.0 avisa al crear la aplicación sin él, y el aviso haría fallar las pruebas
+  (§7.4). Las pruebas del núcleo aíslan las carpetas de la aplicación con
+  `_layers.isolate_appdirs(test)`, y `test_ui_shell.HarnessTests` comprueba que
+  las de interfaz nunca usan las reales y que el `XDG_RUNTIME_DIR` existe.
 - **PySide6 incompatible**: con Python 3.10 o 3.11 y PySide6 6.12 o posterior,
   `tests/_qt.py` lanza al importarse un `RuntimeError` que dice por qué y cómo
   arreglarlo (`compat.broken_binding_message`, §1.3). Todas las pruebas que usan
   Qt lo importan, así que fallan al cargarse en vez de abortar el proceso a
   mitad de la batería; `VIC2STUDIO_ALLOW_BROKEN_PYSIDE=1` desactiva la
   comprobación.
-- **Cifras actuales**: 609 pruebas en 24 archivos. Sin corpus: 609 correctas y
-  3 omitidas, con Python 3.13.17 y PySide6 6.12.0; con Python 3.10.20 y
-  PySide6 6.11.3 pasaron las 593 anteriores a `test_compat.py` y
-  `test_ui_roadmap.py` (3 omitidas) y, aparte, las 16 de esos dos archivos. Con
-  el corpus completo (instalación de vanilla, la plantilla del usuario y su
-  mod), la última ejecución fue con esas 593, antes también de los archivos de
-  país sintéticos de la muestra: 593 correctas. Los recuentos son exactos; los
-  tiempos son orientativos y varían entre ejecuciones: con 561 pruebas, en la
-  máquina de una sesión anterior, entre 135 y 160 s sin corpus y entre 210 y
-  225 s con él.
+- **Cifras actuales**: 978 pruebas en 55 archivos. Sin corpus pasan las 978,
+  con 4 omitidas (§7.2), con Python 3.13.17 y PySide6 6.12.0, con Python 3.10.20
+  y PySide6 6.11.3 y con PySide6 6.5.0, el mínimo declarado (Python 3.10, numpy
+  1.24.0 y Pillow 10.0.0, sin `XDG_RUNTIME_DIR`; la receta está en
+  `CONTINUAR_EN_CLAUDE_CODE.md` §4). Con el corpus completo (instalación de
+  vanilla, la plantilla del usuario y su mod), la última ejecución es de la
+  iteración 1, con 593 pruebas, antes también de los archivos de país sintéticos
+  de la muestra: 593 correctas. La batería de la iteración 2 aún no se ha pasado
+  con el corpus (criterio 1, §6.1). Los recuentos son exactos; los tiempos son
+  orientativos y varían entre ejecuciones: con 561 pruebas, en la máquina de una
+  sesión anterior, entre 135 y 160 s sin corpus y entre 210 y 225 s con él.
 
 ```bash
 # Desde la raíz del repositorio; sin VIC2_CORPUS usa la muestra del repositorio.
 python3 -m unittest discover -s tests
-# Con el corpus completo (rutas separadas por os.pathsep).
+# Con el corpus completo (rutas separadas por os.pathsep). VIC2_GAME, si se define, señala el juego base;
+# si no, es la primera raíz de VIC2_CORPUS con map/default.map (_corpus.vanilla_root).
 VIC2_CORPUS="/ruta/vanilla:/ruta/Plantilla Mod:/ruta/ShagoMod" python3 -m unittest discover -s tests
 ```
 
 | Archivo | Pruebas | Archivo | Pruebas |
 |---|---|---|---|
-| `test_clausewitz_cli.py` | 8 | `test_csvloc_lint.py` | 26 |
-| `test_clausewitz_corpus.py` | 7 | `test_csvloc_parse.py` | 31 |
-| `test_clausewitz_edit.py` | 88 | `test_encoding.py` | 20 |
-| `test_clausewitz_fuzz.py` | 6 | `test_i18n.py` | 17 |
-| `test_clausewitz_json.py` | 26 | `test_modcheck.py` | 29 |
-| `test_clausewitz_lexer.py` | 20 | `test_tasks.py` | 28 |
-| `test_clausewitz_parser.py` | 61 | `test_ui_integration.py` | 16 |
-| `test_compat.py` | 9 | `test_ui_localisation.py` | 22 |
-| `test_csvloc_cli.py` | 9 | `test_ui_pages.py` | 43 |
-| `test_csvloc_corpus.py` | 10 | `test_ui_roadmap.py` | 7 |
-| `test_csvloc_db.py` | 17 | `test_ui_smoke.py` | 25 |
-| `test_csvloc_edit.py` | 30 | `test_ui_viewer.py` | 54 |
+| `test_appdirs.py` | 5 | `test_noop_save.py` | 3 |
+| `test_arch_writes.py` | 10 | `test_project_codecs.py` | 8 |
+| `test_clausewitz_cli.py` | 8 | `test_project_diffing.py` | 5 |
+| `test_clausewitz_corpus.py` | 7 | `test_project_open.py` | 10 |
+| `test_clausewitz_edit.py` | 88 | `test_project_settings.py` | 3 |
+| `test_clausewitz_fuzz.py` | 6 | `test_project_workspace.py` | 28 |
+| `test_clausewitz_json.py` | 26 | `test_recovery_autosave.py` | 7 |
+| `test_clausewitz_lexer.py` | 20 | `test_tasks.py` | 29 |
+| `test_clausewitz_parser.py` | 61 | `test_texts.py` | 6 |
+| `test_compat.py` | 9 | `test_ui_counts.py` | 4 |
+| `test_csvloc_cli.py` | 9 | `test_ui_descriptor.py` | 15 |
+| `test_csvloc_corpus.py` | 10 | `test_ui_integration.py` | 16 |
+| `test_csvloc_db.py` | 17 | `test_ui_localisation.py` | 22 |
+| `test_csvloc_edit.py` | 30 | `test_ui_new_mod.py` | 8 |
+| `test_csvloc_lint.py` | 26 | `test_ui_pages.py` | 47 |
+| `test_csvloc_parse.py` | 31 | `test_ui_real_project.py` | 42 |
+| `test_encoding.py` | 21 | `test_ui_roadmap.py` | 9 |
+| `test_external_change.py` | 8 | `test_ui_session.py` | 21 |
+| `test_fileio_journal.py` | 13 | `test_ui_shell.py` | 40 |
+| `test_i18n.py` | 17 | `test_ui_smoke.py` | 29 |
+| `test_journal_commit.py` | 18 | `test_ui_viewer.py` | 60 |
+| `test_journal_crash.py` | 5 | `test_undo_property.py` | 2 |
+| `test_journal_kill.py` | 2 | `test_undo_stack.py` | 6 |
+| `test_lexer_cr.py` | 2 | `test_vfs_guard.py` | 11 |
+| `test_lock.py` | 6 | `test_vfs_paths.py` | 11 |
+| `test_modcheck.py` | 29 | `test_vfs_resolution.py` | 17 |
+| `test_modfile_write.py` | 30 | `test_workspace_readonly.py` | 2 |
+| | | `test_workspace_thread.py` | 3 |
 
-### 7.2 Corpus
+### 7.2 Corpus y fixtures
+
+Las pruebas del proyecto, de la VFS y del diario no necesitan corpus: usan
+fixtures sintéticos, todo inventado (wizard §19.1). `tests/_layers.py`
+(`build_layers`) monta en una carpeta temporal capas de juego, dependencias y
+mod a partir de diccionarios de bytes, por defecto con el mod dentro del juego
+(`<juego>/mod/<nombre>/` y su `.mod`, H24). `tests/_minigame.py`
+(`build_minigame`, la versión mínima de la iteración 2) genera encima un juego y
+un mod coherentes: `common/cb_types.txt` con `peace_order` y tres CB con
+`months`, `common/countries.txt` con `dynamic_tags` y sus archivos de país,
+localización, historias de país y de provincia (una solo con CR, otra con
+nombre irregular y un id repetido en dos carpetas), eventos y decisiones; el mod
+puede ir vacío, con archivos propios o con copias de archivos del juego
+(`mod_copies`, como VSM). Las iteraciones siguientes lo amplían.
 
 El corpus es opcional y no está en el repositorio (`tests/_corpus.py`):
 
@@ -1326,9 +1991,16 @@ El corpus es opcional y no está en el repositorio (`tests/_corpus.py`):
   sintética con la misma forma (`synthetic_template()`: `text.csv` de unas
   15 300 filas y unos 3,6 MB en cp1252 con CRLF, `newtext.csv` y una historia
   de provincia), y lo indican en su salida.
-- Sin corpus se omiten 3 pruebas, cada una con su motivo: la copia `.csv.bak`
-  del corpus, la precedencia mod sobre vanilla (necesita una carpeta vanilla) y
-  los valores pegados al token siguiente.
+- `vanilla_root()` da el juego base real: `VIC2_GAME` si está definida (y tiene
+  `common/`) o, si no, la primera raíz de `VIC2_CORPUS` con `map/default.map`;
+  sin corpus, `None` (la plantilla y la muestra no son el juego).
+- Sin corpus se omiten 4 pruebas, cada una con su motivo: la copia `.csv.bak`
+  del corpus, la precedencia mod sobre vanilla (necesita una carpeta vanilla),
+  los valores pegados al token siguiente y el criterio 3 de la iteración 2 sobre
+  vanilla + VSM (`test_project_workspace.test_acceptance_criterion_3_with_the_corpus`:
+  copia el `cb_types.txt` de VSM a un mod temporal, cambia los `months` de un CB
+  y comprueba un diff de 1 línea y que los hashes de `<juego>/common` no
+  cambian; necesita `vanilla_root()` y el VSM completo).
 
 Con el corpus completo se comprueba (los tiempos varían entre ejecuciones):
 
@@ -1347,7 +2019,7 @@ Con el corpus completo se comprueba (los tiempos varían entre ejecuciones):
   `to_source` de un texto de al menos 1 MB, hecho con los archivos más grandes
   del corpus, en menos de 2 s.
 
-### 7.3 Fuzzing
+### 7.3 Fuzzing, propiedades y fallos inyectados
 
 Con `random` y semilla fija (`test_clausewitz_fuzz.py`):
 
@@ -1369,18 +2041,78 @@ Con `random` y semilla fija (`test_clausewitz_fuzz.py`):
   Los cambios de comentarios y `close()` no tienen esa inversa, y en esos
   archivos no se comprueba.
 
+Del proyecto (iteración 2):
+
+- **Deshacer como propiedad** (`test_undo_property.py`, I5): con las semillas
+  20261026, 7 y 1836, secuencias de 40 operaciones sobre el minijuego que mezclan
+  archivos del juego (que se copiarían), del mod, CSV, archivos nuevos, borrados,
+  sustitución del texto, transacciones de varios archivos y transacciones
+  anidadas que fallan, con y sin guardados de por medio. Deshacer todo da los
+  bytes originales y rehacer todo, los del avance; en cada paso, un documento
+  cuyo contenido difiere del disco está sucio. wizard §19.2 la quiere también
+  sobre vanilla con corpus; esa variante no existe todavía.
+- **Guardado a medias** (I2, criterio 6): `test_journal_crash.py` lanza una
+  excepción y simula un corte de luz (`journal.FAULT_HOOK`) en cada uno de los
+  pasos de `journal.STEPS` de un guardado de 3 archivos, y un `PermissionError`
+  en el tercer `os.replace` (también con la reversión fallando);
+  `test_journal_kill.py` mata de verdad un subproceso con `os._exit` en cada
+  paso. Tras `recover()` todo queda como antes o como después, y recuperar dos
+  veces da lo mismo.
+- **Leer no escribe** (I4): `test_workspace_readonly.py` abre, lee y consulta el
+  proyecto y comprueba que el árbol del mod y del juego queda idéntico (solo
+  existe el bloqueo, fuera del mod), y `test_noop_save.py`, que guardar sin
+  cambios, o con cambios deshechos o idénticos a los bytes, no escribe nada.
+
 ### 7.4 Interfaz offscreen
 
-- **Humo** (`test_ui_smoke.py`): crear `MainWindow`, navegar con
-  `set_current_page` y Ctrl+1..Ctrl+5, cambiar de idioma y comprobar que ningún
-  texto visible queda sin traducir ni muestra una clave cruda, restaurar
-  preferencias y aplicar el tema. `test_i18n.py` comprueba que `es.json` y
-  `en.json` tienen las mismas claves.
-- **Hoja de ruta** (`test_ui_roadmap.py`): las páginas anuncian la iteración de
-  wizard §22 en ES y EN (Mapa en la 5, Países en la 6, Eventos en la 7 y la
-  edición de la localización en la 3), el plan tiene 10 hitos y, a 1100×700,
-  se reparten en filas equilibradas sin títulos cortados, mientras que a
-  1920×1080 caben en una.
+- **Humo** (`test_ui_smoke.py`): crear `MainWindow`, recorrer las 7 salas y
+  todas sus secciones, navegar con clics, Ctrl+1..Ctrl+7 y las flechas,
+  comprobar que las placas caben a 1100×700 y que el índice pasa a franja en
+  ventanas estrechas, que las secciones planificadas dicen su iteración, cambiar
+  de idioma y comprobar que ningún texto visible queda sin traducir ni muestra
+  una clave cruda (también con una pseudo-localización), restaurar preferencias
+  y aplicar el tema. `test_i18n.py` comprueba que `es.json` y `en.json` tienen
+  las mismas claves y que toda clave usada en el código existe;
+  `test_ui_shell.CatalogFragmentTests`, que cada fragmento tiene las mismas
+  claves en los dos idiomas y que una clave repetida entre archivos (también con
+  los textos del núcleo) es un error; y `test_texts.py`, la paridad de los textos
+  del núcleo y un texto para cada código de `SaveProblem`, cada nota de
+  recuperación y cada etiqueta `undo.*` del núcleo.
+- **Hoja de ruta** (`test_ui_roadmap.py`): las secciones planificadas anuncian la
+  iteración de wizard §22 en ES y EN (Mapa en la 5, Países en la 6, Eventos en
+  la 7 y la edición de la localización en la 3), toda sección existe o dice su
+  iteración, el plan tiene 10 hitos con la 2 como actual y, a 1100×700, se
+  reparten en filas equilibradas sin títulos cortados, mientras que a 1920×1080
+  caben en una.
+- **Armazón y sesión**: `test_ui_shell.py` (registro de salas, fragmentos,
+  `package-data`, insignias de capa, panel de cambios pendientes, que construir
+  la ventana, sus secciones y sus diálogos no muestra ninguna ventana suelta, y
+  la ventana con un proyecto abierto: título, botón Guardar y contadores,
+  Ctrl+Z/Ctrl+Y, «Historial», guardar según D13, conflictos, cerrar o cambiar de
+  mod con cambios y recuperación); `test_ui_session.py` (`Session`: abrir en
+  segundo plano y ceder el hilo, aperturas superadas, editar, guardar, conflictos,
+  autoguardado, recuperación, «Nuevo mod» y fecha de trabajo);
+  `test_ui_descriptor.py` y `test_ui_new_mod.py` (la sección Descriptor .mod y el
+  diálogo «Nuevo mod», este con un creador falso: el real se prueba en
+  `test_modfile_write`).
+- **Contra el `Project` falso y contra el real.** Las pruebas de la ventana con
+  un proyecto abierto se escribieron contra `tests/_fake_project.py`
+  (`FakeProject`, `FakeWorkspace`, `FakeVfs` y `FakeOpener`, que `Session` recibe
+  como `opener`): imita la API pública del real sobre carpetas de `_layers.py`,
+  lee del disco, deshace por instantáneas de bytes, emite los mismos eventos,
+  comprueba el hilo dueño igual que el real y admite fallos a la carta; guarda
+  escribiendo directamente y solo abre documentos Clausewitz.
+  `test_ui_real_project.py` las repite contra `Project.open` (`RealOpener`; con
+  `read_only=True`, otro `Project` del mismo proceso toma antes el bloqueo):
+  `ShellProjectTests`, `PendingSectionTests`, `HomeTests` y
+  `LayerBadgeExplorerTests` de `test_ui_shell` y las cinco clases de
+  `test_ui_descriptor`, más el ciclo de vida que el falso no imita (descartar al
+  cerrar y al cambiar de mod no deja nada que recuperar, cerrar sin preguntar
+  conserva la recuperación, guardar al cerrar, deshacerlo todo borra el
+  autoguardado, autoguardado cada N transacciones, «Revertir» y ajustes con
+  nombre en el historial) y la recuperación de una sesión anterior real. Así una
+  diferencia entre los dos no pasa inadvertida: si cambia la API del núcleo,
+  cambia el falso a la vez.
 - **Arranque con PySide6 incompatible** (`test_compat.py`): la tabla de
   combinaciones, la variable de escape, `app.main` con un `exec()` falso (sale
   con 1 sin crear la ventana y con el mensaje traducido) y la importación de
@@ -1406,23 +2138,32 @@ Con `random` y semilla fija (`test_clausewitz_fuzz.py`):
 
 ### 7.5 Verificación adversarial y arquitectura
 
-- En la iteración 1 cada componente pasó una verificación adversarial que
-  reprodujo cada hallazgo antes de informarlo; las correcciones se probaron con
-  mutantes (reintroducir el fallo en una copia del código y comprobar que alguna
-  prueba falla). Esos scripts no están en el repositorio.
-- **Reglas de arquitectura**: no hay pruebas automáticas. En esta revisión se
-  comprobó a mano que importar todos los módulos de `vic2studio.core` no carga
-  PySide6 ni shiboken6, y que todo `src/`, `tests/` y `tools/` pasa
-  `ast.parse(src, feature_version=(3, 10))`. Las pruebas (incluida
-  `test_arch_writes`) están planificadas en wizard §4 y §19.5. Diferencia
-  conocida con wizard: su §4 dice que «la prueba de subproceso actual se
-  amplía», pero en `tests/` ninguna prueba comprueba en un subproceso que
-  importar core no carga PySide6 (los subprocesos de las pruebas de CLI, de
-  `test_tasks`, del visor, de las capturas y de `test_compat` no lo miran); hay
-  que crearla.
-- **Capturas**: `tools/screenshot.py` genera PNG por idioma, página y estado
-  para revisión visual (no se comparan píxel a píxel: las fuentes varían entre
-  equipos); `test_ui_integration.py` prueba la herramienta.
+- **Verificación adversarial.** En la iteración 1 cada componente pasó una
+  verificación adversarial que reprodujo cada hallazgo antes de informarlo; la
+  segunda revisión de la última ronda de la interfaz y la de la iteración 2
+  siguen el mismo método, con un revisor y un verificador independiente por
+  componente (los guiones están en `docs/handoff/`). Las correcciones se prueban
+  con mutaciones: reintroducir el fallo en una copia del código y comprobar que
+  alguna prueba falla; según los mensajes de `563a709` y `59e8847`, cada arreglo
+  de la integración y del grupo de compatibilidad tiene su mutación detectada.
+  Esos scripts de mutación no están en el repositorio.
+- **Reglas de arquitectura**, automáticas desde la iteración 2
+  (`tests/test_arch_writes.py`): la regla de escrituras de §2, con pruebas del
+  propio detector (lo que debe encontrar y lo que no es una escritura, por cada
+  forma de importar), que en `journal.py` cada llamada a `fileio` esté en una
+  función `_guarded_*` que llama a `check`, que `lock.py` escriba en
+  `appdirs.locks_dir()` sin `WriteGuard` y que cada excepción declarada siga
+  haciendo falta; la sintaxis de Python 3.10 de todo `src/`
+  (`ast.parse(..., feature_version=(3, 10))`); y, en un subproceso, que importar
+  todos los módulos de `vic2studio.core` no carga PySide6 ni shiboken6. El
+  registro de salas (`discover_halls`) rechaza salas o secciones incoherentes,
+  y `test_ui_shell.RegistryTests` comprueba que existen todos sus textos e
+  iconos. Siguen sin prueba automática la sintaxis 3.10 de `tests/` y `tools/`
+  (la cubre pasar la batería con Python 3.10) y la regla «sin datos de Paradox»
+  de wizard §19.5.
+- **Capturas**: `tools/screenshot.py` genera PNG por idioma, sala, sección,
+  diálogo y estado para revisión visual (no se comparan píxel a píxel: las
+  fuentes varían entre equipos); `test_ui_integration.py` prueba la herramienta.
 - **CI**: no hay. wizard solo la prevé para `tools/bench_mapforge.py` con las
   versiones mínimas de `pyproject.toml` (wizard §18.12); una matriz con Windows
   y Linux para toda la batería no está planificada todavía, aunque la
@@ -1433,7 +2174,7 @@ Con `random` y semilla fija (`test_clausewitz_fuzz.py`):
 
 ## 8. Interfaz de escritorio
 
-### 8.1 Ventana y páginas
+### 8.1 Ventana, salas y secciones
 
 `app.main(argv)` crea la aplicación (`create_application`: nombre, versión,
 tema e icono) y, antes de la ventana y de cualquier tarea, comprueba la
@@ -1445,32 +2186,198 @@ Si no, muestra `MainWindow` y, al salir del bucle de eventos, llama a
 `cancel_all()` y `wait_for_tasks()` para que ningún hilo siga ejecutando Python
 mientras se cierra el intérprete.
 
-`MainWindow` (`ui/main_window.py`) tiene un estandarte (`HeaderBanner`) con el
-selector de idioma, la barra de navegación (`NavBar`), un marco ornamentado con
-un `QStackedWidget` con las páginas de `PAGE_CLASSES` y una barra de estado
-(`show_status(key, fmt)`, que se vuelve a traducir al cambiar de idioma).
-Ctrl+1..Ctrl+5 cambian de página. API: `current_page_index()`,
-`current_page()`, `set_current_page(index)`, `page(key)`, `page_actions()` y
-`open_in_localisation(path, line=None)`. Guarda la geometría y la última página
-(`ui/geometry`, `ui/last_page`); tamaño mínimo 1100 × 700 y por defecto
-1440 × 900. Al cerrar, llama a `shutdown()` de cada página y cancela las tareas
-sin esperar.
+**Ventana** (`ui/main_window.py`, wizard §13.2). `MainWindow` crea su `Session`
+(o recibe una: las pruebas le pasan una con un `opener` falso) y tiene:
 
-Las páginas heredan de `BasePage` (`key`, `title_key`, `subtitle_key`,
-`icon_name`, `build()`, `retranslate()`, `is_busy()`, `shutdown()` y la señal
-`status_requested`):
+- un estandarte (`HeaderBanner`) con Deshacer y Rehacer, el botón «Historial»
+  (abre y cierra el panel acoplable `HistoryDock`, abajo y oculto al empezar),
+  «Guardar», que con cambios dice «Guardar (N)» y solo se activa con un proyecto
+  que se pueda escribir y algo sin guardar, y el selector de idioma. Del
+  estandarte de wizard §13.2 faltan el selector de mod, el buscador (Ctrl+K), la
+  fecha de trabajo y el modo Sencillo/Avanzado, que llegan en iteraciones
+  posteriores; del pie, el panel «Problemas»;
+- la barra de navegación (`NavBar`) con una placa por sala, con nombre corto
+  («Proyecto», «Mapa», «Naciones», «Guerra», «Eventos», «Interfaz», «Textos») y
+  el título largo y el atajo en la ayuda emergente;
+- un `QStackedWidget` con las salas, que se descubren en `ui/halls`
+  (`discover_halls`, §8.1.1); cada una es un `HallPage` (`ui/shell/hall.py`) con
+  su índice de secciones (`SectionRail`) y un marco ornamentado con la sección a
+  la vista. Por debajo de `COMPACT_RAIL_WIDTH` (1360 px) de ancho, el índice
+  pasa de columna a franja encima de la sección, para que esta conserve el ancho;
+- una barra de estado con el mensaje (`show_status(key, fmt)`, que se vuelve a
+  traducir al cambiar de idioma), el estado del proyecto («Mod: Shago Mod ·
+  solo lectura · 3 archivos sin guardar · 1 se copiará del juego base», o
+  «abriéndose» y el motivo si no se pudo abrir) y la versión.
 
-| Página | Qué hace hoy |
+Acciones globales: Ctrl+1..Ctrl+7 (salas), Ctrl+S (guardar), Ctrl+Z (deshacer),
+Ctrl+Y y Ctrl+Mayús+Z (rehacer) y F7 (lleva a «Archivos» y ejecuta «Validar
+mod»); con el teclado, las flechas también cambian de sala y de sección. La
+ayuda del botón Deshacer nombra el paso que se deshará, y la barra de estado dice
+el que se deshizo o rehízo. El título es «{sala} › {sección} — Victoria II Mod
+Studio», con `*` delante si hay cambios sin guardar. API: `session`, `halls`,
+`hall(key)`, `set_current_hall(índice o clave)`, `current_hall_index()`,
+`sections()`, `page(key)`, `show_page(key)`, `navigate("sala:sección")`,
+`save_project()`, `open_new_mod_dialog()`, `open_in_localisation(path,
+line=None)`, `hall_actions()` e `is_busy()`. Por compatibilidad con la
+navegación de 5 páginas de la iteración 1, `page("project")` es «Archivos»,
+`page("localisation")` es «Archivos CSV», y `set_current_page(i)`,
+`current_page_index()` y `page_actions()` usan `pages.PAGE_KEYS`. Tamaño mínimo
+1100 × 700 y por defecto 1440 × 900 (como mucho el 95 % de la pantalla).
+
+**Abrir, guardar y cerrar.**
+
+- **Qué proyecto se abre.** Lo deciden las rutas del juego y del mod de
+  «Archivos», que las guarda en las preferencias; Inicio y «Nuevo mod» las
+  cambian a través de la ventana. Cada cambio abre el proyecto con
+  `Session.open_project` (en segundo plano), si `evaluate_mod` no da error. Si
+  hay cambios sin guardar pregunta antes: «Guardar», «Descartar» o «Cancelar»;
+  con «Cancelar», o si el guardado no se completa, vuelve a las rutas anteriores.
+  Al abrir, si hubo guardados que recuperar o quedan autoguardados huérfanos,
+  muestra el diálogo de recuperación.
+- **Guardar** (D13). `save_project()` pide el `ChangeSet` (`Session.changeset`):
+  si no hay escrituras, «nada que guardar»; si copia archivos del juego base o
+  manda algo a la papelera, abre antes la revisión (`SaveReviewDialog`).
+  Después `Session.save()`; si el guardado encuentra problemas, no toca el disco
+  y vuelve a abrir la revisión con ellos. Desde ahí, «Resolver conflictos…» abre
+  un `ConflictDialog` por archivo («Conservar mis cambios» →
+  `Session.accept_external`, «Recargar del disco» → `Session.reload`) y se vuelve
+  a intentar, hasta tres veces. Un error al renderizar (un carácter fuera de
+  cp1252, un `SourceMismatchError`) sale en un mensaje de error.
+- **Cambios externos.** Al volver a la aplicación, `Session.check_external_changes`;
+  los archivos limpios se recargan sin preguntar y, por cada uno con cambios sin
+  guardar o borrado, un `ConflictDialog`.
+- **Cerrar.** Con cambios sin guardar, `closeEvent` pregunta lo mismo que al
+  cambiar de mod. «Descartar», al cerrar o al cambiar de mod, cierra con
+  `Session.close_project(discard=True)`: no queda autoguardado y al reabrir no se
+  ofrece recuperar lo que se tiró. Cerrar sin preguntar con cambios sin guardar
+  (por código) deja la recuperación final, y sin cambios se borra el autoguardado
+  de la sesión (`Project.close`). Después guarda la geometría, llama a
+  `shutdown()` de cada sección, cierra el proyecto (suelta el bloqueo) y cancela
+  las tareas sin esperar.
+
+#### 8.1.1 Salas y secciones (`ui/halls`)
+
+Cada sala es un paquete `ui/halls/<sala>/` cuyo `__init__.py` exporta
+`HALL: HallSpec(key, order, plate_key, title_key, subtitle_key, icon)` y
+`SECTIONS: list[SectionSpec]`. `SectionSpec(key, hall, order, title_key, icon,
+factory=None, schema_kind=None, view=None, badge=None, iteration=None,
+planned_keys=())`: con `factory`, `HallPage` construye el widget que esta
+devuelve (recibe la `Session`); sin `factory` ni `schema_kind`, la sección está
+planificada y se ve como la tarjeta «en desarrollo» (`PlannedSectionPage`:
+`planned_keys` da la entrada y las funcionalidades) con su `iteration`, que el
+índice muestra como «It. N». `badge` da el contador del índice. `discover_halls`
+las recorre con `pkgutil.iter_modules` y lanza `ValueError` si una sala no es de
+`HALL_KEYS`, se repite una clave o un orden, una sección dice ser de otra sala o
+una planificada no dice su iteración. `HallPage` reemite `status_requested`,
+`navigate_requested` y `save_requested` de sus secciones y abre la primera que
+ya existe; la ventana recuerda la sala y la sección (§8.5).
+
+| Sala (atajo) | Secciones |
 |---|---|
-| Proyecto (`ProjectPage`) | Rutas del juego y del mod con su comprobación (`inspect_folder`, `evaluate_game`, `evaluate_mod`) y el descriptor encontrado (`find_descriptor`); explorador de archivos y pestaña «Validación». Al seleccionar un archivo muestra el visor que le corresponde: scripts (`CLAUSEWITZ_SUFFIXES`) en `ClausewitzViewer`, imágenes (`.tga`, `.dds`, `.bmp`, `.png`, `.jpg`, `.jpeg`, `.gif`) en `ImageViewer`, CSV de localización en la página Localización y el resto en una ficha con codificación y extracto. Vuelve a cargar la vista previa si el archivo cambió al reseleccionarlo o al volver a la aplicación. |
-| Localización (`LocalisationPage`) | CSV del mod en una tabla de solo lectura (`LocalisationEditor`) con filtro de texto sobre la tabla, conmutadores de comentarios y de todas las columnas, y la lista de lint traducida con su filtro de gravedad; `open_file(path, line=None)` salta a una fila. Anuncia la edición para la iteración 3 (`localisation.roadmap` y `loc.read_only`). |
-| Mapa, Países, Eventos | `PlannedModulePage`: funcionalidades previstas, la iteración en que llegan (Mapa en la 5, Países en la 6 y Eventos en la 7, según wizard §22) y la hoja de ruta de 10 hitos (`RoadmapStrip`; el hito 9 reúne la 9a y la 9b). Si los hitos no caben a `MIN_COLUMN` (150 px) cada uno, se reparten en filas equilibradas: 5 + 5 a 1100 × 700 y una sola fila a 1920 × 1080. |
+| Proyecto (Ctrl+1) | Inicio · Descriptor .mod · Archivos · Validación *(iteración 3)* · Cambios pendientes (con el número de archivos sin guardar en el índice) |
+| Mapa (Ctrl+2) | Mundo (provincias), Regiones, Continentes y climas, Estrechos y canales *(iteración 5)* · Taller de mapas *(9)* |
+| Naciones (Ctrl+3) | Países *(6)* · Culturas, Gobiernos *(4)* |
+| Guerra (Ctrl+4) | Fechas de inicio *(4)* · Guerras de inicio, Diplomacia inicial *(6)* · Casus belli, Unidades terrestres, Unidades navales *(4)* |
+| Eventos (Ctrl+5) | Eventos, Decisiones, Modificadores *(7)* |
+| Interfaz (Ctrl+6) | Ventanas (.gui), Sprites (.gfx), Imágenes y banderas *(8)* |
+| Textos (Ctrl+7) | Todos los textos, Pendientes de traducir *(3)* · Archivos CSV |
 
-Las señales de la página Proyecto conectan con el resto: `mod_path_changed`
-actualiza la página Localización y `csv_requested(path, line)` abre allí un CSV
-(desde el explorador o desde un problema de la validación).
+Las secciones que ya existen:
+
+- **Inicio** (`ui/halls/project/home.py`, wizard §13.3): la carpeta del juego,
+  validada con `evaluate_game`; una tarjeta por cada `<juego>/mod/*.mod`
+  (`read_descriptor`: nombre, carpeta y `user_dir`), con la del mod abierto
+  resaltada, más «Crear mod nuevo» y «Abrir otra carpeta…», y debajo el estado del
+  proyecto (abriéndose, abierto, en solo lectura, cambios sin guardar o el motivo
+  por el que no se abrió); «¿Qué quieres hacer?», con tarjetas que llevan a su
+  sección y dicen en qué iteración llegan las que aún no existen (traducir en la
+  3; unidad, gobierno y cultura en la 4; provincias en la 5; país y guerra en la
+  6; evento y decisión en la 7; ventana en la 8; mapa nuevo en la 9); y la hoja
+  de ruta (`RoadmapCard`: los 10 hitos de wizard §22 con la iteración 2 como
+  actual; el hito 9 reúne la 9a y la 9b; si los hitos no caben a `MIN_COLUMN`
+  (150 px) cada uno, se reparten en filas equilibradas, 5 + 5 a 1100 × 700 y una
+  sola fila a 1920 × 1080). La página no guarda rutas: emite
+  `game_path_selected`, `mod_selected` y `new_mod_requested`.
+- **Descriptor .mod** (`ui/halls/project/descriptor.py`, wizard §14.1): formulario
+  sobre `DescriptorSpec` con nombre, carpeta (`path = "mod/<carpeta>"`, con
+  propuestas de `sanitize_folder`), `user_dir` (con un botón para igualarlo a la
+  carpeta), `dependencies` (una por línea) y un selector de `replace_path` entre
+  las carpetas del juego que lee el juego y las subcarpetas de `history`, `gfx`,
+  `map` e `interface`, que dice cuántos archivos del juego base dejarán de
+  cargarse. Cada campo que se confirma (al salir de él o al marcar una carpeta)
+  es una transacción con nombre (`descriptor.undo_edit`, fundida por campo) que
+  lleva el formulario al CST vivo con `apply_descriptor`: conserva comentarios y
+  claves desconocidas, se deshace con Ctrl+Z y se escribe al guardar. Si el mod
+  no tiene descriptor, el primero se crea con `render_descriptor`. A la derecha,
+  los problemas de `descriptor_problems`, que siguen lo que se teclea aunque no
+  se haya confirmado (un valor con comillas no llega al documento), y el texto
+  tal como quedará el archivo. Con el proyecto en solo lectura o un descriptor con
+  errores de sintaxis, el formulario solo muestra. El botón «Nuevo mod» abre el
+  diálogo.
+- **Archivos** (`ui/halls/project/files.py`): la `ProjectPage` de la iteración 1
+  sin cambios de API (§8.2): rutas del juego y del mod con su comprobación y el
+  descriptor encontrado, explorador con filtro y pestaña «Validación», vista
+  previa con el visor de cada tipo y «Validar mod». Las rutas siguen viviendo
+  aquí (wizard §21 las pasa a Inicio; Inicio ya las elige, pero «Archivos» las
+  guarda). El explorador lleva en la primera columna la insignia de capa de cada
+  archivo (`ui/widgets/layer_badge.py`): J (solo en el juego base), M (solo en
+  el mod) o M⊃J (el mod sustituye al del juego), G/M/M⊃G en inglés, con su
+  explicación en la ayuda; `LayerResolver` la decide mirando si existe la misma
+  ruta en la otra carpeta, sin mayúsculas, y la olvida al listar una carpeta y
+  después de cada guardado. Sus señales conectan con el resto:
+  `mod_path_changed` actualiza «Archivos CSV» y `csv_requested(path, line)` abre
+  allí un CSV (desde el explorador o desde un problema de la validación).
+- **Cambios pendientes** (`ui/halls/project/pending.py`, D13): el `ChangeSet` de
+  `Session.changeset` en un `PendingChangesPanel` (una fila por archivo con su
+  acción —crear, modificar, copiar del juego base, a la papelera—, su ruta y las
+  líneas añadidas y quitadas, y debajo el diff coloreado del seleccionado), que
+  se recalcula al cambiar los documentos solo si la sección está a la vista;
+  «Guardar» (la ventana decide si hace falta la revisión) y «Descartar este
+  archivo» (`Workspace.revert` dentro de `Session.edit`, así que se deshace; no
+  se ofrece para un archivo nuevo).
+- **Archivos CSV** (sala Textos): la `LocalisationPage` de la iteración 1, de
+  solo lectura (§8.2): CSV del mod en una tabla (`LocalisationEditor`) con filtro
+  de texto, conmutadores de comentarios y de todas las columnas y la lista de
+  lint traducida con su filtro de gravedad; `open_file(path, line=None)` salta a
+  una fila. Anuncia la edición para la iteración 3 (`localisation.roadmap` y
+  `loc.read_only`).
+
+Las secciones heredan casi todas de `BasePage` (`key`, `title_key`,
+`subtitle_key`, `icon_name`, `build()`, `retranslate()`, `is_busy()`,
+`shutdown()` y la señal `status_requested`).
+
+#### 8.1.2 Diálogos (`ui/dialogs`)
+
+Ninguno toca el proyecto: devuelven lo elegido y la ventana lo aplica con
+`Session`.
+
+- **`SaveReviewDialog`** (`save_review.py`, D13): sale solo si el guardado copia
+  archivos del juego base, manda algo a la papelera o tiene conflictos o errores
+  (`needs_review`, `review_reasons`). Explica el motivo, lista lo que se escribirá
+  con el diff de cada archivo y, si los hay, los `SaveProblem` (conflictos
+  externos, nombres que Windows no admite, caracteres fuera de cp1252…); con un
+  problema bloqueante no se puede guardar, y «Resolver conflictos…»
+  (`resolve_requested`) solo aparece si hay conflictos.
+- **`ConflictDialog`** (`conflict.py`): «Conservar mis cambios», «Recargar del
+  disco» y «Comparar», que muestra en el propio diálogo el diff entre el disco y
+  la memoria; `choice` es `KEEP`, `RELOAD` o `None`.
+- **`RecoveryDialog`** (`recovery.py`): explica los guardados cortados que se
+  completaron o se deshicieron al abrir (`Project.recovered`; solo informa) y,
+  por cada autoguardado huérfano (`Project.orphan_sessions`), deja elegir
+  «Restaurar» (sus documentos vuelven como cambios sin guardar, en un paso que
+  se deshace) o «Descartar» (`decisions`: `{sesión: RESTORE | DISCARD}`).
+- **`NewModDialog`** (`new_mod.py`, wizard §14.1): nombre, carpeta propuesta con
+  `sanitize_folder` sin las que ya hay en `<juego>/mod` mientras no se escriba
+  otra, `user_dir` igual que la carpeta salvo que se desmarque, y una plantilla
+  opcional. Los problemas de `descriptor_problems(..., creating=True)` se ven al
+  momento y los errores impiden crear. «Crear» llama a `Session.create_mod`, en
+  segundo plano, y espera: si el mod se creó, el diálogo se cierra y la ventana
+  selecciona el mod nuevo y abre su Descriptor .mod; si no, muestra el motivo.
 
 ### 8.2 Visores (`ui/viewers`)
+
+Los usan «Archivos» y «Archivos CSV». Son de solo lectura y leen del disco por
+su ruta absoluta, no del `Workspace` (§2.1, §6.3).
 
 - **`ClausewitzViewer`**: `load_clausewitz(path, …)` corre en una tarea:
   `parse_file`, `to_source`, el índice plano de la estructura
@@ -1517,16 +2424,25 @@ actualiza la página Localización y `csv_requested(path, line)` abre allí un C
 ### 8.3 Tareas y cancelación
 
 Todos los visores y la validación usan `TaskRunner` (§2.5). Cambiar de archivo
-cancela la carga anterior; `shutdown()` de cada página cancela su tarea. El
+cancela la carga anterior; `shutdown()` de cada sección cancela su tarea. El
 recolector de basura está parado mientras corre alguna tarea y lo que dejan los
-resultados grandes se congela al terminar (§2.5).
+resultados grandes se congela al terminar (§2.5). `Session` abre los proyectos y
+crea los mods nuevos con sus propios runners (§2.5); `is_busy()` de la ventana
+espera también a la sesión (lo usan las capturas y las pruebas). Guardar,
+deshacer y calcular los cambios pendientes son síncronos, en el hilo de la
+interfaz (§6.3).
 
 ### 8.4 Idioma
 
-`i18n.Translator` carga `es.json` y `en.json` (346 claves cada uno), emite
-`languageChanged(str)` y cada página y visor implementa `retranslate()`; el
-cambio es inmediato, sin reiniciar. Los mensajes del núcleo se piden en el
-idioma activo con `message(lang)`.
+`i18n.Translator` carga para cada idioma el catálogo de `load_catalog` (§2):
+`es.json` y `en.json` (330 claves cada uno), los fragmentos `es/project.json` y
+`en/project.json` (154) y `es/shell.json` y `en/shell.json` (186), y los 17
+textos del núcleo: 687 claves por idioma, sin repetir ninguna entre archivos.
+Emite `languageChanged(str)` y cada sala, sección, panel, diálogo y visor
+implementa `retranslate()`; el cambio es inmediato, sin reiniciar. Los mensajes
+del núcleo con tabla propia se piden en el idioma activo con `message(lang)`;
+los de los JSON del núcleo (problemas de guardado, etiquetas `undo.*`) se
+traducen con `tr()` como cualquier otro.
 
 ### 8.5 Preferencias (`settings.py`)
 
@@ -1535,22 +2451,44 @@ para que sea un archivo legible) con `ORG_NAME` y `APP_NAME`.
 `VIC2STUDIO_SETTINGS_DIR` (`SETTINGS_DIR_ENV`) desvía la carpeta de las
 preferencias, y `use_settings_dir(directory)` lo hace para todo el proceso: lo
 usan las pruebas y las capturas automáticas para no tocar la configuración del
-usuario. Se guardan, entre otras, la geometría y la última página de la
-ventana, las rutas del juego y del mod y la pestaña del visor.
+usuario. Se guardan la geometría de la ventana (`ui/geometry`), la última sala
+(`ui/last_hall`) y la última sección de cada sala (`ui/last_section/<sala>`), el
+idioma (`ui/language`), las rutas del juego y del mod (`project/game_path`,
+`project/mod_path`), la raíz, el divisor y la pestaña izquierda del explorador
+(`project/explorer_root`, `project/splitter`, `project/left_tab`) y la pestaña
+del visor de scripts (`viewer/clausewitz_tab`). Los ajustes de cada proyecto no
+van aquí sino en su `.vic2studio/project.json` (§3.6).
 
 ### 8.6 Cómo se prueba
 
 - `tests/_qt.py`: `application()`, `reset_settings()`,
   `process_events(ms)`, `delete_pending()`, `dispose(*widgets)` (devuelve los
   que siguen vivos), `live_main_windows()`, `wait_until(pred, timeout_ms)` y
-  `take_qt_messages()`; fuerza offscreen y aísla las preferencias, y al
-  importarse para con un `RuntimeError` si PySide6 es incompatible con la
-  versión de Python (§7.1).
+  `take_qt_messages()`; fuerza offscreen, aísla las preferencias y las carpetas
+  de datos y caché, crea un `XDG_RUNTIME_DIR` si falta, y al importarse para con
+  un `RuntimeError` si PySide6 es incompatible con la versión de Python (§7.1).
+- La ventana con un proyecto abierto se prueba dos veces: contra el `Project`
+  falso de `tests/_fake_project.py` y contra el real en
+  `tests/test_ui_real_project.py` (§7.4). Las pruebas sustituyen la interacción
+  modal de la ventana (`exec_dialog`, `ask_unsaved`, `show_error`) para elegir
+  la respuesta de cada diálogo.
 - Las pruebas de visor y de integración usan archivos grandes sintéticos
   (scripts de 1,2 a 1,5 MB y el `text.csv` sintético) y miden los latidos del
   hilo de la interfaz (§7.4).
-- `tools/screenshot.py` hace capturas offscreen: `--out DIR`,
-  `--lang es|en|all`, `--page`, `--size`, `--mod`, `--game`,
+- `tools/screenshot.py` hace capturas offscreen y, como las pruebas, desvía las
+  preferencias, los datos y la caché a carpetas temporales. Opciones: `--out
+  DIR`, `--lang es|en|all`, `--size ANCHOxALTO`, `--page` (las claves de la
+  iteración 1, `project` y `localisation`, una sala o `sala:sección`;
+  repetible), `--hall all|SALA[,SALA…]` y `--section all|SECCIÓN`, `--dialog
+  save_review|new_mod|conflict|recovery`, `--mod` y `--game`, `--demo-game` (un
+  juego sintético temporal con una copia de `--mod` en su `mod/`),
+  `--demo-changes` (dos cambios sin guardar hechos a través de la sesión: el
+  `user_dir` del descriptor y un archivo del juego base que se copiará al mod),
+  `--fake-project` (el `Project` falso en lugar del real), `--no-game-art` (solo
+  la estética procedural, D12; se fuerza si `--out` está dentro de
+  `docs/capturas`),
   `--open-file RUTA` con `--line N`, `--tab structure|source|diagnostics|json`
   y `--search TEXTO`, `--validate`, `--left-tab files|validation` y
-  `--report ESTADO.json`.
+  `--report ESTADO.json`. Los archivos se llaman
+  `<idioma>_<n>_<sala>[_<sección>].png` (`n` es el atajo de la sala) y
+  `<idioma>_dialog_<nombre>.png`.
