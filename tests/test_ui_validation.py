@@ -203,6 +203,19 @@ class FixTests(ValidationCase):
         _qt.process_events(30)
         self.assertEqual(window.status_label.text(), applied)
 
+    def test_the_end_of_the_validation_follows_the_language(self):
+        """Cierre de la iteración 3: la captura en español decía «Validación terminada en 0.01 s», con el punto del
+        inglés. La barra de estado se vuelve a traducir, pero las cifras se formateaban una sola vez."""
+        window = self.open_checks()
+        self.addCleanup(set_language, "es")
+        set_language("en")
+        self.validate()
+        self.assertTrue(_qt.wait_until(lambda: window.status_label.text() != tr("checks.status_started"), 3000))
+        self.assertRegex(window.status_label.text(), r"^Validation finished in \d+\.\d\d s — ")
+        set_language("es")
+        _qt.process_events(30)
+        self.assertRegex(window.status_label.text(), r"^Validación terminada en \d+,\d\d s — errores: 1 · ")
+
     def test_a_cancelled_fix_changes_nothing(self):
         window = self.open_checks()
         page = self.validate()

@@ -618,9 +618,13 @@ class ValidationPage(BasePage):
         elif state == "ready" and self.session.report is not None:
             # Del informe, no del modelo de la tabla: problemsChanged llega después de este cambio de estado.
             own = Counter(p.severity for p in self.session.problems())
-            self.request_status("checks.status_done", errors=format_number(own[Severity.ERROR]),
-                                warnings=format_number(own[Severity.WARNING]), infos=format_number(own[Severity.INFO]),
-                                seconds=format_seconds(self.session.report.elapsed))
+            errors, warnings, infos = own[Severity.ERROR], own[Severity.WARNING], own[Severity.INFO]
+            elapsed = self.session.report.elapsed
+            # Invocables: la barra de estado vuelve a traducir al cambiar de idioma, y las cifras también («0,01 s»
+            # en español; formateadas aquí se quedaban en el idioma de cuando terminó, «0.01 s»).
+            self.request_status("checks.status_done", errors=lambda: format_number(errors),
+                                warnings=lambda: format_number(warnings), infos=lambda: format_number(infos),
+                                seconds=lambda: format_seconds(elapsed))
 
     def refresh(self) -> None:
         current = self.current_problem()

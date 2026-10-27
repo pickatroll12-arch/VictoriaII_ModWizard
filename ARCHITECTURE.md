@@ -1819,11 +1819,14 @@ VictoriaII_ModWizard/
 ├── pyproject.toml                       metadatos y empaquetado (setuptools, layout src, gui-script vic2studio, package-data con fragmentos y textos del núcleo)
 ├── requirements.txt                     dependencias de ejecución (las mismas que pyproject.toml; numpy < 2 con PySide6 6.5/6.6)
 ├── docs/
-│   ├── capturas/                        10 PNG ES/EN de la interfaz de la iteración 1 sobre la muestra (T5: 01_validar_mod_es_1100x700 … 10_map_roadmap_en_1920x1080)
+│   ├── capturas/                        26 PNG ES/EN de la interfaz sobre la muestra: T5 (01–10), iteración 2 (11–20) e iteración 3 (21–26: Validación con el explicador, Todos los textos y Ctrl+K)
 │   ├── diseno/
 │   │   ├── wizard.md                    diseño de las iteraciones 2 a 10
 │   │   └── prototipos/mapforge/         README y 61 scripts de estudio del taller de mapas (wizard §18); no se instalan ni se prueban
 │   ├── handoff/
+│   │   ├── PARA_GEMINI.md               tareas para otros asistentes (G1–G7) y su estado
+│   │   ├── iteracion3_agente_A.md       encargo del agente A de la iteración 3 (índice, reglas, validación)
+│   │   ├── iteracion3_agente_B.md       encargo del agente B de la iteración 3 (LocSync, Session e interfaz)
 │   │   ├── workflow_iteracion1.js       flujo de trabajo de la iteración 1 (fases, componentes y verificadores)
 │   │   ├── workflow_t4_segunda_revision_interfaz.js   segunda revisión adversarial de la última ronda de la interfaz
 │   │   ├── workflow_iteracion2_implementacion.js      iteración 2: agentes A (núcleo) y B (descriptor e interfaz) contra el contrato
@@ -1853,6 +1856,68 @@ VictoriaII_ModWizard/
 │   │   ├── modfile.py                   descriptor .mod: leer, buscar, DescriptorSpec, render_descriptor, descriptor_problems, sanitize_folder, create_mod_skeleton, write_descriptor
 │   │   ├── modcheck.py                  validación sintáctica de un mod completo (y textos de los códigos de descriptor_problems)
 │   │   ├── texts.py                     textos del núcleo: load_texts(lang), text(key, lang, **fmt)
+│   │   ├── locsync.py                   LocSync: editar la localización con la política del juego, vista efectiva e indicadores (§2.7)
+│   │   ├── lua_defines.py               defines.lua sin pérdidas: leer y cambiar CLAVE = valor (H20)
+│   │   ├── tablecsv.py                  tablas «;» sin pérdidas (definition.csv y compañía; G4)
+│   │   ├── index/                       índice de símbolos (§2.3)
+│   │   │   ├── __init__.py              API pública (SymbolIndex, build_index, FactsCache, Symbol, SymbolRef, FileFacts, extractor, fold, short_name)
+│   │   │   ├── model.py                 Symbol, SymbolRef, FileFacts, @extractor, tipos (KIND_*), fold, short_name
+│   │   │   ├── parsing.py               document(data): un análisis por archivo para todos sus extractores
+│   │   │   ├── builder.py               build_index, extract_bytes, extract_entry: hechos con caché por huella
+│   │   │   ├── cache.py                 FactsCache: JSON-lines con gzip por capa, fuera del mod
+│   │   │   ├── index.py                 SymbolIndex: combinación por reglas de carga, apply incremental, consultas, search, display
+│   │   │   └── extractors/              9 familias registradas con @extractor
+│   │   │       ├── __init__.py
+│   │   │       ├── _support.py          atajos comunes (crear símbolos y referencias, normalizar rutas)
+│   │   │       ├── countries.py         registro de TAG, archivos de país con sus partidos, historias de país
+│   │   │       ├── culture.py           culturas, religiones, tipos de POP y bloques de POPs
+│   │   │       ├── economy.py           bienes, edificios, tecnologías, invenciones, unidades y modificadores
+│   │   │       ├── interface.py         sprites de .gfx, ventanas de .gui y archivos de gfx/
+│   │   │       ├── localisation.py      claves de localisation/*.csv (sin la fila de cabecera)
+│   │   │       ├── map.py               provincias, regiones, continentes, climas, terrenos e historias de provincia
+│   │   │       ├── politics.py          gobiernos, ideologías, asuntos y reformas, valores nacionales, rebeldes
+│   │   │       ├── script.py            eventos, decisiones, marcas y referencias a eventos y textos
+│   │   │       └── war.py               casus belli, bookmarks, guerras y diplomacia de inicio
+│   │   ├── validate/                    validación cruzada con línea base (§2.6)
+│   │   │   ├── __init__.py              API pública (Validator, build_context, baseline_for, explain, FIXES, plan_fix, apply_fix, @rule…)
+│   │   │   ├── model.py                 Problem (y su huella), ValidationReport, FixSpec, ChangePlan, PlannedChange, Explanation, ExplainStep
+│   │   │   ├── registry.py              @rule, make_problem, discover_rules
+│   │   │   ├── context.py               ValidationContext, build_context, base_snapshot, apply_unsaved_deletions
+│   │   │   ├── validator.py             Validator: reglas, heredados, check_failed
+│   │   │   ├── baseline.py              línea base del juego y las dependencias: compute_baseline, BaselineCache, baseline_for
+│   │   │   ├── fixes.py                 los 5 arreglos, plan = aplicación, FixError
+│   │   │   ├── explain.py               explicador de conflicto por código
+│   │   │   ├── rules/                   9 familias de reglas
+│   │   │   │   ├── __init__.py
+│   │   │   │   ├── syntax.py            lo de modcheck.check_file sobre los bytes efectivos
+│   │   │   │   ├── files.py             copias idénticas al juego, mayúsculas, nombres y rutas de Windows
+│   │   │   │   ├── descriptor.py        campos del .mod y replace_path
+│   │   │   │   ├── countries.py         registro de TAG, archivos de país, partidos, gobiernos, historias y referencias rotas
+│   │   │   │   ├── provinces.py         historias de provincia, ids, colores del BMP y regiones
+│   │   │   │   ├── localisation.py      claves que faltan, sin traducir, huérfanas y copias degradadas
+│   │   │   │   ├── events.py            ids de evento repetidos, fuera de rango o que no existen
+│   │   │   │   ├── decisions.py         decisiones repetidas y sin imagen
+│   │   │   │   └── military.py          peace_order de cb_types.txt
+│   │   │   └── texts/
+│   │   │       ├── issues.es.json       mensajes, arreglos, sus errores y el explicador de cada código
+│   │   │       └── issues.en.json       los mismos, en inglés
+│   │   ├── rules/                       reglas del juego (wizard §9)
+│   │   │   ├── __init__.py
+│   │   │   ├── game.py                  GameRules: defines.lua, bookmarks, default.map, BMP, issues.txt y governments.txt
+│   │   │   ├── ids.py                   TAG, ids de provincia y de evento, flag_tag
+│   │   │   ├── names.py                 nombres de archivo que crea el Studio
+│   │   │   └── colors.py                colores fuera de rango
+│   │   ├── map/                         piezas del mapa para la iteración 5 (G4, G5)
+│   │   │   ├── __init__.py
+│   │   │   ├── bmp.py                   códec BMP propio con numpy
+│   │   │   ├── definition.py            definition.csv sin pérdidas
+│   │   │   └── texts/
+│   │   │       ├── map.es.json          problemas de definition.csv
+│   │   │       └── map.en.json          los mismos, en inglés
+│   │   ├── gfx/                         imágenes para las iteraciones 6 y 8 (G6, G7)
+│   │   │   ├── __init__.py
+│   │   │   ├── dds.py                   DDS sin comprimir de 24 y 32 bits
+│   │   │   └── flags.py                 banderas TGA de 32 bits, 93 × 64
 │   │   ├── clausewitz/                  parser .txt
 │   │   │   ├── __init__.py              API pública (parse, to_source, to_json, render_checked, write_file, …)
 │   │   │   ├── __main__.py              CLI check / tojson
@@ -1869,6 +1934,7 @@ VictoriaII_ModWizard/
 │   │   │   ├── model.py                 LocRow, LocalisationFile, columnas de idioma
 │   │   │   ├── serialization.py         lectura, render_csv_checked, escritura y JSON
 │   │   │   ├── lint.py                  validación de un archivo
+│   │   │   ├── degraded.py              is_degraded: la fila degradada de H15, para la regla y para Textos
 │   │   │   ├── db.py                    LocalisationDB: precedencia mod/vanilla
 │   │   │   └── diagnostics.py           CsvDiagnostic, Severity y mensajes es/en
 │   │   ├── vfs/                         herencia juego + dependencias + mod (§3)
@@ -1889,16 +1955,16 @@ VictoriaII_ModWizard/
 │   │       ├── recovery.py              pending_journals, recover, recover_all, orphan_sessions, load_session
 │   │       ├── lock.py                  ProjectLock: bloqueo entre instancias en appdirs.locks_dir()
 │   │       ├── settings.py              project.json ⇄ ProjectSettings (default_settings, settings_from_json, render_settings)
-│   │       ├── diffing.py               unified_diff y changed_lines para «Cambios pendientes»
+│   │       ├── diffing.py               unified_diff, counted_diff (las cuentas del diff entero), split_truncation y changed_lines
 │   │       ├── project.py               Project: open, edit, save, set_settings, restore_session, discard_session, close
 │   │       └── texts/
-│   │           ├── project.es.json      17 textos del núcleo: códigos de SaveProblem, notas de recuperación, etiquetas undo.*
+│   │           ├── project.es.json      22 textos del núcleo: códigos de SaveProblem, notas de recuperación, etiquetas undo.*
 │   │           └── project.en.json      los mismos, en inglés
 │   ├── i18n/
 │   │   ├── __init__.py                  Translator, load_catalog (rechaza claves repetidas), tr(), N_(), set_language(), …
-│   │   ├── es.json                      textos en español (330 claves planas "nav.project", …)
+│   │   ├── es.json                      textos en español (332 claves planas "nav.project", …)
 │   │   ├── en.json                      textos en inglés (las mismas claves)
-│   │   ├── es/                          fragmentos por área: project.json (154 claves) y shell.json (186)
+│   │   ├── es/                          fragmentos por área: project.json (154 claves), shell.json (193), validation.json (80), localisation.json (74) y palette.json (64)
 │   │   └── en/                          los mismos fragmentos, en inglés
 │   └── ui/
 │       ├── __init__.py
@@ -1911,8 +1977,10 @@ VictoriaII_ModWizard/
 │       │   ├── __init__.py              HallPage, SectionRail, RailButton, PendingChangesPanel, HistoryDock
 │       │   ├── hall.py                  HallPage: índice de secciones y sección a la vista
 │       │   ├── section_rail.py          SectionRail: columna de madera o franja en ventanas estrechas, contadores e iteración
-│       │   ├── pending_changes.py       PendingChangesPanel: lista de escrituras de un ChangeSet y su diff coloreado
-│       │   └── history_dock.py          HistoryDock: panel acoplable «Historial»
+│       │   ├── pending_changes.py       PendingChangesPanel: lista de escrituras de un ChangeSet y su diff coloreado (con las cuentas reales)
+│       │   ├── history_dock.py          HistoryDock: panel acoplable «Historial»
+│       │   ├── problems_dock.py         ProblemsDock, ProblemsModel y FixFlow: el panel «Problemas» y lo que comparte con Validación
+│       │   └── command_palette.py       CommandPalette: el buscador Ctrl+K superpuesto a la ventana
 │       ├── halls/
 │       │   ├── __init__.py
 │       │   ├── registry.py              HallSpec, SectionSpec, discover_halls (pkgutil), HALL_KEYS
@@ -1921,19 +1989,24 @@ VictoriaII_ModWizard/
 │       │   │   ├── home.py              Inicio: juego base, mods de <juego>/mod, «¿Qué quieres hacer?», hoja de ruta
 │       │   │   ├── descriptor.py        Descriptor .mod: formulario sobre DescriptorSpec, problemas y texto resultante
 │       │   │   ├── files.py             Archivos: la ProjectPage con insignias de capa
+│       │   │   ├── validation.py        Validación: informe con heredados, [Arreglar ▾], [¿Por qué?] y el ExplainerPanel
 │       │   │   └── pending.py           Cambios pendientes: ChangeSet con diff, Guardar y Descartar un archivo
 │       │   ├── map/__init__.py          sala Mapa (Ctrl+2), planificada (iteraciones 5 y 9)
 │       │   ├── nations/__init__.py      sala Naciones (Ctrl+3), planificada (iteraciones 4 y 6)
 │       │   ├── war/__init__.py          sala Guerra (Ctrl+4), planificada (iteraciones 4 y 6)
 │       │   ├── events/__init__.py       sala Eventos (Ctrl+5), planificada (iteración 7)
 │       │   ├── interface/__init__.py    sala Interfaz (Ctrl+6), planificada (iteración 8)
-│       │   └── localisation/__init__.py sala Textos (Ctrl+7): Archivos CSV; el resto, iteración 3
+│       │   └── localisation/
+│       │       ├── __init__.py          sala Textos (Ctrl+7): Todos los textos, Pendientes de traducir y Archivos CSV
+│       │       └── texts.py             Todos los textos y Pendientes de traducir: la tabla editable de LocSync
 │       ├── dialogs/
 │       │   ├── __init__.py              API de los diálogos (KEEP, RELOAD, RESTORE, DISCARD, needs_review…)
 │       │   ├── save_review.py           SaveReviewDialog: revisión antes de guardar (D13)
 │       │   ├── conflict.py              ConflictDialog: Conservar mis cambios, Recargar del disco, Comparar
 │       │   ├── recovery.py              RecoveryDialog: guardados recuperados y autoguardados huérfanos
-│       │   └── new_mod.py               NewModDialog: «Nuevo mod»
+│       │   ├── new_mod.py               NewModDialog: «Nuevo mod»
+│       │   ├── fix_plan.py              FixPlanDialog: el plan de un arreglo, con confirmación explícita si borra o sustituye
+│       │   └── add_key.py               AddKeyDialog: «Añadir clave» de Textos
 │       ├── pages/
 │       │   ├── __init__.py              PAGE_CLASSES y PAGE_KEYS: compatibilidad con la navegación de la iteración 1
 │       │   ├── base.py                  BasePage: key, título, subtítulo, icono, retranslate(), shutdown()
@@ -1952,11 +2025,14 @@ VictoriaII_ModWizard/
 │       └── widgets/
 │           ├── __init__.py
 │           ├── banner.py                cabecera-estandarte con emblema y título
+│           ├── busy.py                  busy(widget): cursor de espera y barra de estado para lo síncrono largo
+│           ├── delegates.py             PathElideDelegate: rutas recortadas por la izquierda en las tablas
 │           ├── cards.py                 insignias, estados vacíos, cintas, hoja de ruta (RoadmapStrip, en filas si no cabe)
 │           ├── flow.py                  disposición en filas que salta de línea
 │           ├── icons.py                 iconos vectoriales dibujados con QPainter
 │           ├── icons_extra/             iconos nuevos de la iteración 2, un archivo por dueño (wizard §20)
 │           │   ├── __init__.py          load(): los registra junto a los de icons.py
+│           │   ├── checks.py            iteración 3: añadir (Textos), arreglar y «¿por qué?»
 │           │   ├── halls.py             salas y secciones (espadas, ventana, corona, barco, casco, calendario…)
 │           │   └── shell.py             armazón: Inicio, guardar, deshacer, rehacer, historial y capas
 │           ├── layer_badge.py           insignias de capa J / M / M⊃J del explorador (LayerResolver, LayerBadgeDelegate)
@@ -1969,6 +2045,7 @@ VictoriaII_ModWizard/
     ├── _layers.py                       capas de juego, dependencias y mod desde diccionarios de bytes; isolate_appdirs
     ├── _minigame.py                     minijuego sintético (versión de la iteración 2): CB, países, localización, historias, eventos y decisiones
     ├── _fake_project.py                 Project falso para las pruebas de interfaz: la API del real, rápido y con fallos a la carta
+    ├── _fake_index.py                   índice, validación, línea base y arreglos falsos para las pruebas de interfaz (y --demo-index)
     ├── _diskfull.py                     disco lleno simulado (ENOSPC) en las primitivas de fileio, para las pruebas del diario
     ├── fixtures/shago_mod_min/          muestra mínima del mod del usuario: VSM.mod y 19 archivos de VSM/ (los 6 de países, sintéticos)
     ├── test_appdirs.py                  carpetas de datos y caché fuera de cualquier mod
@@ -1981,24 +2058,41 @@ VictoriaII_ModWizard/
     ├── test_clausewitz_lexer.py         tokens, trivia y saltos de línea
     ├── test_clausewitz_parser.py        árbol, diagnósticos, escalares, fechas, consultas, saltos de línea, cancelación
     ├── test_compat.py                   aviso con PySide6 6.12 en Python 3.10/3.11: combinaciones, app.main y tests/_qt.py
+    ├── test_contract_it3.py             contrato de la iteración 3: tipos, registros y firmas
+    ├── test_cr_line_counts.py           líneas con saltos solo CR, contra el parser y una referencia (G2)
     ├── test_csvloc_cli.py               CLI check / tojson / fromjson
     ├── test_csvloc_corpus.py            ida y vuelta, edición y rendimiento con los CSV del corpus y del mod del usuario
     ├── test_csvloc_db.py                LocalisationDB: orden de carga y precedencia
     ├── test_csvloc_edit.py              edición de filas y escritura
     ├── test_csvloc_lint.py              diagnósticos del CSV
     ├── test_csvloc_parse.py             lectura, BOM, saltos de línea, cancelación y JSON
+    ├── test_e2e_it3.py                  la ventana, la Session y el núcleo reales de punta a punta (minijuego y copia de VSM: criterios 3, 5 y 6)
     ├── test_encoding.py                 detección, escritura atómica y huellas, ida y vuelta del corpus
     ├── test_external_change.py          cambios externos: conflicto, Conservar, Recargar y Comparar
     ├── test_fileio_journal.py           primitivas del diario en fileio
+    ├── test_gfx_dds.py                  DDS sin comprimir de vanilla (G6)
+    ├── test_gfx_flags.py                banderas TGA (G7)
     ├── test_i18n.py                     catálogos es/en y cambio de idioma
+    ├── test_index_cache.py              FactsCache: formato, versiones de extractor, nunca dentro de una capa
+    ├── test_index_combine.py            combinación por reglas de carga, replace_path, dependencias y apply incremental
+    ├── test_index_corpus.py             criterios 1, 2 y 7 con vanilla real
+    ├── test_index_extractors.py         cada extractor sobre el minijuego
+    ├── test_index_review_it3.py         regresiones de la revisión de la iteración 3 en el índice
     ├── test_journal_commit.py           guardado con diario: pasos, copias, papelera, comprobaciones previas y «Nuevo mod»
     ├── test_journal_crash.py            fallo inyectado y corte simulado en cada paso de un guardado de 3 archivos (criterio 6)
     ├── test_journal_kill.py             os._exit en un subproceso en cada paso (criterio 6)
     ├── test_lexer_cr.py                 saltos de línea solo CR con comentario (criterio 2)
+    ├── test_loc_effective.py            vista efectiva de la localización con documentos sin guardar
     ├── test_lock.py                     bloqueo entre instancias: segunda instancia en solo lectura, pid muerto caducado
+    ├── test_locsync.py                  LocSync: dónde se escribe, formato de archivos nuevos, degradadas, criterio 6 con el corpus
+    ├── test_lua_defines.py              defines.lua: ida y vuelta byte a byte y set
+    ├── test_map_bmp.py                  códec BMP (G5)
+    ├── test_map_definition.py           definition.csv (G4)
     ├── test_modcheck.py                 descriptor .mod y validación del mod
     ├── test_modfile_write.py            generador del descriptor: oro, edición sin pérdidas, problemas, carpetas, «Nuevo mod» (criterio 8)
+    ├── test_no_paradox_data.py          ningún dato de Paradox en el repositorio (G1)
     ├── test_noop_save.py                abrir y guardar sin cambios no escribe ni crea .vic2studio/ (criterio 4)
+    ├── test_pickle_errors.py            los errores del núcleo pasan por pickle (G3)
     ├── test_project_codecs.py           códecs: ida y vuelta, render comprobado igual que write_file y write_csv_file
     ├── test_project_diffing.py          diffs de «Cambios pendientes» y almacén LRU
     ├── test_project_open.py             Project.open: descriptor, VFS, escaneo, bloqueo, recuperación y ajustes
@@ -2007,22 +2101,35 @@ VictoriaII_ModWizard/
     ├── test_recovery_autosave.py        autoguardado de recuperación, sesiones huérfanas y su restauración
     ├── test_review_*.py                 regresiones de la revisión adversarial de la iteración 2 (§6.1): vfs, journal,
     │                                    workspace(_open), descriptor_session, interface y otras siete, una por hallazgo
+    ├── test_rules_game.py               GameRules desde la vista efectiva
+    ├── test_rules_ids.py                TAG, ids, banderas y nombres de archivo
+    ├── test_tablecsv.py                 tablas «;» sin pérdidas (G4)
     ├── test_tasks.py                    entrega, cancelación, espera, recolector, latidos y cierre
     ├── test_texts.py                    textos del núcleo: paridad, códigos de SaveProblem y etiquetas undo.*
     ├── test_ui_counts.py                recuentos con 1 en singular
     ├── test_ui_descriptor.py            sección Descriptor .mod contra el Project falso
     ├── test_ui_integration.py           vista previa, validación, localización y capturas en la ventana
+    ├── test_ui_loc_edit.py              Textos: editar, filtros, añadir clave, deshacer
     ├── test_ui_localisation.py          página y editor de localización
     ├── test_ui_new_mod.py               diálogo «Nuevo mod» con un creador falso
     ├── test_ui_pages.py                 página Proyecto: explorador, descriptor, carpeta del mod, imágenes, validación
+    ├── test_ui_palette.py               Ctrl+K: búsqueda, teclado, abrir en su línea (criterio 7 con el corpus)
     ├── test_ui_real_project.py          la ventana contra el Project real: test_ui_shell y test_ui_descriptor otra vez, y el ciclo de vida
+    ├── test_ui_review_it3.py            regresiones de la revisión de la iteración 3 en la interfaz
     ├── test_ui_roadmap.py               hoja de ruta: iteraciones de wizard §22 en ES y EN y reparto en filas
     ├── test_ui_session.py               Session contra el Project falso: abrir, editar, guardar, deshacer, recuperación, «Nuevo mod»
     ├── test_ui_shell.py                 armazón: registro de salas, fragmentos, insignias, cambios pendientes y la ventana con un proyecto
     ├── test_ui_smoke.py                 ventana principal: 7 salas y secciones, navegación, idioma, preferencias, tema y arranque
+    ├── test_ui_validation.py            Validación y Problemas: tabla, heredados, arreglos, explicador, barra de estado
     ├── test_ui_viewer.py                visor Clausewitz: índice, código, diagnósticos, archivos grandes y latidos
     ├── test_undo_property.py            propiedad: secuencias aleatorias de edición, deshacer y rehacer todo
     ├── test_undo_stack.py               UndoStack: instantáneas, fusión por merge_key y límites
+    ├── test_validate_baseline.py        línea base: cálculo, caché, firmas y dependencias
+    ├── test_validate_corpus.py          criterios 3, 4 y 5 con vanilla y VSM reales
+    ├── test_validate_explain.py         explicador: capas, veredictos, frases de cada código
+    ├── test_validate_fixes.py           los 5 arreglos: plan sin efectos, un paso de deshacer, revalidar, negativas
+    ├── test_validate_review_it3.py      regresiones de la revisión de la iteración 3 en la validación
+    ├── test_validate_rules.py           un caso por código del catálogo, con su explicación
     ├── test_vfs_guard.py                WriteGuard: enlaces, .., \, mayúsculas, mod dentro del juego, descriptor (criterio 5)
     ├── test_vfs_paths.py                VPath, nombres de Windows y reglas de carga
     ├── test_vfs_resolution.py           resolución: WHOLE_FILE, UNION, KEYED, replace_path, mayúsculas, dependencias
@@ -2353,10 +2460,10 @@ Paradox, nombres inválidos en Windows, cambios externos, taller de mapas…).
   Qt lo importan, así que fallan al cargarse en vez de abortar el proceso a
   mitad de la batería; `VIC2STUDIO_ALLOW_BROKEN_PYSIDE=1` desactiva la
   comprobación.
-- **Cifras actuales**: 1089 pruebas en 70 archivos. Con el corpus completo (la
+- **Cifras actuales**: 1493 pruebas en 97 archivos. Con el corpus completo (la
   instalación de vanilla, la plantilla del usuario y su mod, de la release
-  `recursos-v1`) pasan las 1089 sin omitir ninguna, con Python 3.13.17 y PySide6
-  6.12.0. Sin corpus pasan las 1089, con 5 omitidas (§7.2), con Python 3.13.17 y
+  `recursos-v1`, en copias) pasan las 1493 sin omitir ninguna, con Python 3.13.17 y PySide6
+  6.12.0. Sin corpus pasan las 1493, con 31 omitidas (§7.2), con Python 3.13.17 y
   PySide6 6.12.0, con Python 3.10.20 y PySide6 6.11.3 y con PySide6 6.5.0, el
   mínimo declarado (Python 3.10, numpy 1.24.0 y Pillow 10.0.0, sin
   `XDG_RUNTIME_DIR`; la receta está en `CONTINUAR_EN_CLAUDE_CODE.md` §4). Los recuentos son exactos; los tiempos son
@@ -2373,8 +2480,8 @@ VIC2_CORPUS="/ruta/vanilla:/ruta/Plantilla Mod:/ruta/ShagoMod" python3 -m unitte
 
 | Archivo | Pruebas | Archivo | Pruebas |
 |---|---|---|---|
-| `test_appdirs.py` | 5 | `test_project_workspace.py` | 28 |
-| `test_arch_writes.py` | 10 | `test_recovery_autosave.py` | 7 |
+| `test_appdirs.py` | 5 | `test_project_workspace.py` | 38 |
+| `test_arch_writes.py` | 10 | `test_recovery_autosave.py` | 9 |
 | `test_clausewitz_cli.py` | 8 | `test_review_descriptor_path_kept.py` | 3 |
 | `test_clausewitz_corpus.py` | 7 | `test_review_descriptor_session.py` | 11 |
 | `test_clausewitz_edit.py` | 88 | `test_review_external_window.py` | 2 |
@@ -2383,31 +2490,45 @@ VIC2_CORPUS="/ruta/vanilla:/ruta/Plantilla Mod:/ruta/ShagoMod" python3 -m unitte
 | `test_clausewitz_lexer.py` | 20 | `test_review_new_mod_paths.py` | 4 |
 | `test_clausewitz_parser.py` | 61 | `test_review_undo_all_autosave.py` | 1 |
 | `test_compat.py` | 9 | `test_review_unencodable_form.py` | 1 |
-| `test_cr_line_counts.py` | 5 | `test_review_utf16_form.py` | 2 |
-| `test_csvloc_cli.py` | 9 | `test_review_vfs.py` | 13 |
-| `test_csvloc_corpus.py` | 10 | `test_review_workspace.py` | 15 |
-| `test_csvloc_db.py` | 17 | `test_review_workspace_open.py` | 3 |
-| `test_csvloc_edit.py` | 30 | `test_tasks.py` | 30 |
-| `test_csvloc_lint.py` | 26 | `test_texts.py` | 6 |
-| `test_csvloc_parse.py` | 31 | `test_ui_counts.py` | 4 |
-| `test_encoding.py` | 21 | `test_ui_descriptor.py` | 15 |
-| `test_external_change.py` | 8 | `test_ui_integration.py` | 16 |
-| `test_fileio_journal.py` | 13 | `test_ui_localisation.py` | 22 |
+| `test_contract_it3.py` | 5 | `test_review_utf16_form.py` | 2 |
+| `test_cr_line_counts.py` | 5 | `test_review_vfs.py` | 13 |
+| `test_csvloc_cli.py` | 9 | `test_review_workspace.py` | 15 |
+| `test_csvloc_corpus.py` | 10 | `test_review_workspace_open.py` | 3 |
+| `test_csvloc_db.py` | 17 | `test_rules_game.py` | 5 |
+| `test_csvloc_edit.py` | 30 | `test_rules_ids.py` | 7 |
+| `test_csvloc_lint.py` | 26 | `test_tablecsv.py` | 12 |
+| `test_csvloc_parse.py` | 31 | `test_tasks.py` | 30 |
+| `test_e2e_it3.py` | 9 | `test_texts.py` | 6 |
+| `test_encoding.py` | 21 | `test_ui_counts.py` | 4 |
+| `test_external_change.py` | 8 | `test_ui_descriptor.py` | 15 |
+| `test_fileio_journal.py` | 13 | `test_ui_integration.py` | 16 |
+| `test_gfx_dds.py` | 10 | `test_ui_loc_edit.py` | 17 |
+| `test_gfx_flags.py` | 12 | `test_ui_localisation.py` | 22 |
 | `test_i18n.py` | 17 | `test_ui_new_mod.py` | 8 |
-| `test_journal_commit.py` | 18 | `test_ui_pages.py` | 47 |
-| `test_journal_crash.py` | 5 | `test_ui_real_project.py` | 42 |
-| `test_journal_kill.py` | 2 | `test_ui_roadmap.py` | 9 |
-| `test_lexer_cr.py` | 2 | `test_ui_session.py` | 21 |
-| `test_lock.py` | 6 | `test_ui_shell.py` | 40 |
-| `test_modcheck.py` | 29 | `test_ui_smoke.py` | 29 |
-| `test_modfile_write.py` | 30 | `test_ui_viewer.py` | 60 |
-| `test_no_paradox_data.py` | 2 | `test_undo_property.py` | 2 |
-| `test_noop_save.py` | 3 | `test_undo_stack.py` | 6 |
-| `test_pickle_errors.py` | 15 | `test_vfs_guard.py` | 11 |
-| `test_project_codecs.py` | 8 | `test_vfs_paths.py` | 11 |
-| `test_project_diffing.py` | 5 | `test_vfs_resolution.py` | 17 |
-| `test_project_open.py` | 10 | `test_workspace_readonly.py` | 2 |
-| `test_project_settings.py` | 3 | `test_workspace_thread.py` | 3 |
+| `test_index_cache.py` | 13 | `test_ui_pages.py` | 48 |
+| `test_index_combine.py` | 17 | `test_ui_palette.py` | 12 |
+| `test_index_corpus.py` | 4 | `test_ui_real_project.py` | 42 |
+| `test_index_extractors.py` | 22 | `test_ui_review_it3.py` | 35 |
+| `test_index_review_it3.py` | 8 | `test_ui_roadmap.py` | 9 |
+| `test_journal_commit.py` | 18 | `test_ui_session.py` | 36 |
+| `test_journal_crash.py` | 5 | `test_ui_shell.py` | 40 |
+| `test_journal_kill.py` | 2 | `test_ui_smoke.py` | 29 |
+| `test_lexer_cr.py` | 2 | `test_ui_validation.py` | 24 |
+| `test_loc_effective.py` | 9 | `test_ui_viewer.py` | 60 |
+| `test_lock.py` | 6 | `test_undo_property.py` | 2 |
+| `test_locsync.py` | 34 | `test_undo_stack.py` | 7 |
+| `test_lua_defines.py` | 6 | `test_validate_baseline.py` | 12 |
+| `test_map_bmp.py` | 14 | `test_validate_corpus.py` | 6 |
+| `test_map_definition.py` | 7 | `test_validate_explain.py` | 10 |
+| `test_modcheck.py` | 29 | `test_validate_fixes.py` | 21 |
+| `test_modfile_write.py` | 30 | `test_validate_review_it3.py` | 24 |
+| `test_no_paradox_data.py` | 2 | `test_validate_rules.py` | 20 |
+| `test_noop_save.py` | 3 | `test_vfs_guard.py` | 11 |
+| `test_pickle_errors.py` | 15 | `test_vfs_paths.py` | 11 |
+| `test_project_codecs.py` | 8 | `test_vfs_resolution.py` | 17 |
+| `test_project_diffing.py` | 6 | `test_workspace_readonly.py` | 2 |
+| `test_project_open.py` | 10 | `test_workspace_thread.py` | 3 |
+| `test_project_settings.py` | 3 |  | |
 
 ### 7.2 Corpus y fixtures
 

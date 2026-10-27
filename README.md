@@ -314,9 +314,11 @@ pruebas que necesitan archivos que la muestra no tiene (un `text.csv` grande,
 una historia de provincia) usan una plantilla sintética generada por código
 (`tests/_corpus.py`).
 
-Resultado actual: **1089 pruebas** en 70 archivos, **todas OK con 5 omitidas**
-sin `VIC2_CORPUS`, y todas OK sin omitir ninguna con el corpus completo (la
-instalación de vanilla, la plantilla y el Shago Mod). Con el corpus, el parser
+Resultado actual: **1493 pruebas** en 97 archivos, **todas OK con 31
+omitidas** sin `VIC2_CORPUS`, y todas OK sin omitir ninguna con el corpus
+completo (la instalación de vanilla, la plantilla y el Shago Mod). Sin corpus
+pasan con Python 3.13 y PySide6 6.12, con Python 3.10 y PySide6 6.11, y con
+PySide6 6.5 y Pillow 10.0, los mínimos declarados. Con el corpus, el parser
 recorre 12 054 archivos Clausewitz (27,4 MB) con ida y vuelta byte a byte.
 
 Algunas pruebas miden las pausas de la interfaz: en una máquina cargada (por
@@ -604,7 +606,7 @@ tools/screenshot.py    capturas sin pantalla
 packaging/             PyInstaller y lanzador de Linux
 docs/
 ├── diseno/            wizard.md (iteraciones 2 a 10) y prototipos del taller de mapas
-├── capturas/          20 capturas ES/EN de la muestra (T5 e iteración 2)
+├── capturas/          26 capturas ES/EN de la muestra (T5 e iteraciones 2 y 3)
 ├── requisitos/        requisitos originales del usuario
 └── handoff/           encargos de los agentes, guiones de workflow y tareas para otros asistentes
 ```
@@ -735,8 +737,8 @@ PySide6 6.11.3 and with PySide6 6.5.0, the declared minimum.
 PYTHONPATH=src python3 -m vic2studio                    # run from source
 pip install -e . && vic2studio                          # or install, then run
 QT_QPA_PLATFORM=offscreen VIC2STUDIO_SETTINGS_DIR="$(mktemp -d)" \
-    python3 -m unittest discover -s tests               # 1089 tests, 5 skipped without a corpus
-VIC2_CORPUS="/path/to/vanilla:/path/to/mod" ...         # enable real-corpus tests (last run: 1089 of 1089 OK)
+    python3 -m unittest discover -s tests               # 1493 tests, 31 skipped without a corpus
+VIC2_CORPUS="/path/to/vanilla:/path/to/mod" ...         # enable real-corpus tests (last run: 1493 of 1493 OK)
 PYTHONPATH=src python3 -m vic2studio.core.clausewitz check /path/to/mod --lang en
 PYTHONPATH=src python3 -m vic2studio.core.csvloc check /path/to/mod/localisation
 python3 tools/screenshot.py --out capturas --lang all   # offscreen screenshots
