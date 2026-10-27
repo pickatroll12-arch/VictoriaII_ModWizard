@@ -137,6 +137,17 @@ class SaveProblem:
     args: Mapping = MappingProxyType({})
     blocking: bool = True
 
+    def __getstate__(self) -> tuple[str, VPath | None, Mapping, bool, bool]:
+        is_proxy = isinstance(self.args, MappingProxyType)
+        return (self.code, self.rel, dict(self.args) if is_proxy else self.args, self.blocking, is_proxy)
+
+    def __setstate__(self, state: tuple[str, VPath | None, Mapping, bool, bool]) -> None:
+        code, rel, args, blocking, is_proxy = state
+        object.__setattr__(self, "code", code)
+        object.__setattr__(self, "rel", rel)
+        object.__setattr__(self, "args", MappingProxyType(args) if is_proxy else args)
+        object.__setattr__(self, "blocking", blocking)
+
     def message(self, lang: str = "en") -> str:
         from ..texts import text
 

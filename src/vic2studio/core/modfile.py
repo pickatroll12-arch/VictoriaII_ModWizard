@@ -64,10 +64,13 @@ class DescriptorFieldError(ValueError):
     inglés y ``str()``, en español.
     """
 
-    def __init__(self, code: str, **params: str):
+    def __init__(self, code: str, params: dict[str, str] | None = None, **kw: str):
         self.code = code
-        self.params = params
+        self.params = dict(params or (), **kw)
         super().__init__(self.message("es"))
+
+    def __reduce__(self):
+        return (type(self), (self.code, self.params))
 
     def message(self, lang: str = "en") -> str:
         return MESSAGES.get(lang, MESSAGES["en"])[self.code].format(**self.params)
@@ -318,6 +321,9 @@ class DescriptorProblemsError(ValueError):
         self.issues = list(issues)
         super().__init__(self.issues[0].message("es") if self.issues else "")
 
+    def __reduce__(self):
+        return (type(self), (self.issues,))
+
 
 class DescriptorWriteError(OSError):
     """El diario encontró un problema bloqueante (``problems``: ``core.project.SaveProblem``) y no escribió nada."""
@@ -325,6 +331,9 @@ class DescriptorWriteError(OSError):
     def __init__(self, problems: list):
         self.problems = list(problems)
         super().__init__(self.problems[0].message("es") if self.problems else "")
+
+    def __reduce__(self):
+        return (type(self), (self.problems,))
 
 
 def _copy_result(existing: ParseResult) -> ParseResult:

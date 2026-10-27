@@ -64,6 +64,9 @@ class FileChangedError(OSError):
         self.path = Path(path)
         super().__init__(self.message("es"))
 
+    def __reduce__(self):
+        return (type(self), (self.path,))
+
     def message(self, lang: str = "en") -> str:
         return MESSAGES.get(lang, MESSAGES["en"])[FILE_CHANGED].format(path=self.path)
 
