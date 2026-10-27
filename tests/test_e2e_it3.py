@@ -99,6 +99,24 @@ class MinigameEndToEndTests(RealCoreWindowCase):
         self.assertIn("tag_not_registered", self.codes(page))
         self.assertFalse(self.game.mod("common/countries.txt").exists(), "nada se guardó")
 
+    def test_undoing_the_real_fix_revalidates_by_itself(self):
+        """Revisión it3 (hallazgo 7): tras Ctrl+Z del arreglo, la tabla seguía diciendo que SIL estaba registrado
+        hasta pulsar F7. El paso del núcleo se llama «undo.fix_register_tag»: deshacerlo revalida."""
+        window = self.open_real()
+        session = window.session
+        page = self.validate()
+        self.apply_from_dialog(page, "tag_not_registered")
+        self.wait_validated()
+        self.assertNotIn("tag_not_registered", self.codes(page))
+        self.assertEqual([label for label, _ in session.history()], ["undo.fix_register_tag"])
+        window.undo()
+        self.assertTrue(session.report_stale(), "hasta el informe nuevo, desfasado")
+        self.assertTrue(session.fixes_blocked())
+        self.assertTrue(_qt.wait_until(lambda: "tag_not_registered" in self.codes(page) and not window.is_busy(),
+                                       INDEX_MS), "deshacer no revalidó")
+        self.assertFalse(session.report_stale())
+        self.assertFalse(page.stale_badge.isVisible())
+
     def test_a_plan_that_went_stale_is_not_applied_and_says_why_in_the_ui_language(self):
         """Revisión it3: si el archivo cambia entre enseñar el plan y aceptarlo, no se aplica otra cosa."""
         from vic2studio.core.project.codecs import codec_for

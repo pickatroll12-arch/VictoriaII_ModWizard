@@ -431,6 +431,8 @@ class ScreenshotToolTests(unittest.TestCase):
         self.assertEqual(checks["state"], "ready")
         self.assertGreater(checks["shown"], 0)
         self.assertTrue(checks["explained"].startswith("Why "), checks["explained"])
+        # Lo que se veía en la captura con el explicador, aunque al final la ventana esté en otra sala.
+        self.assertEqual(checks["explainer_shots"], {"en_1_project_validation_palette.png": []})
         self.assertEqual(state["texts"]["filter"], "studio")
         self.assertGreater(state["texts"]["rows"], state["texts"]["visible"])
         self.assertEqual(state["palette"]["text"], "AGC")

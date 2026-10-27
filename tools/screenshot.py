@@ -52,7 +52,9 @@ capturar Validación y Ctrl+K aunque el núcleo aún no los tenga. ``--check`` v
 validador del núcleo (Proyecto › Validación, F7) y espera el informe; ``--explain N``
 además abre el explicador del problema N de la tabla (empezando en 0) y espera a que llegue
 (se explica en segundo plano); ``--report`` dice en ``checks.explainer_layout`` lo que se
-vería mal en él (vacío si nada: veredictos, alto de las capas, frase final). ``--palette TEXTO``
+vería mal en él (vacío si nada: veredictos, alto de las capas, frase final) y, en
+``checks.explainer_shots``, lo mismo para cada captura en que se ve (por idioma: el estado
+final ya puede estar en otra sala); si algo se ve mal se avisa en stderr. ``--palette TEXTO``
 abre Ctrl+K con ese texto en cada captura (``<lang>_<n>_<sala>_palette.png``).
 ``--texts-search`` y ``--texts-filter`` (``all``, ``studio``, ``untranslated``,
 ``overrides``, ``degraded``) preparan Textos › Todos los textos.
@@ -530,6 +532,8 @@ def _run(args: argparse.Namespace) -> int:
 
     args.out.mkdir(parents=True, exist_ok=True)
     width, height = args.size
+    explainer = window.page("project:validation").explainer
+    explainer_shots: dict[str, list[str]] = {}
     for code in lang_list:
         set_language(code)
         for key, name in shots:
@@ -544,6 +548,10 @@ def _run(args: argparse.Namespace) -> int:
                 print(f"no se pudo guardar {target}", file=sys.stderr)
                 return 1
             print(target)
+            if args.explain is not None and explainer.isVisible():
+                problems = explainer_shots[target.name] = explainer.layout_problems()
+                for problem in problems:
+                    print(f"aviso: el explicador de {target.name} se ve mal: {problem}", file=sys.stderr)
         for name in args.dialog:
             dialog = dialog_for(window, name)
             if name == "save_review":  # el diff aprovecha el sitio; los demás tienen su tamaño
@@ -559,7 +567,10 @@ def _run(args: argparse.Namespace) -> int:
                 return 1
             print(target)
     if args.report:
-        args.report.write_text(json.dumps(window_state(window), ensure_ascii=False, indent=2), encoding="utf-8")
+        state = window_state(window)
+        if state["checks"] is not None:
+            state["checks"]["explainer_shots"] = explainer_shots
+        args.report.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
     window.ask_unsaved = lambda: "discard"  # las capturas nunca guardan lo que hayan cambiado
     window.close()
     return 0
