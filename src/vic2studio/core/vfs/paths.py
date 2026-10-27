@@ -47,6 +47,9 @@ class InvalidPathError(ValueError):
         self.reason = reason
         super().__init__(self.message("es"))
 
+    def __reduce__(self):
+        return (type(self), (self.path, self.reason))
+
     def message(self, lang: str = "en") -> str:
         return MESSAGES.get(lang, MESSAGES["en"])[INVALID_PATH].format(path=self.path, reason=self.reason)
 

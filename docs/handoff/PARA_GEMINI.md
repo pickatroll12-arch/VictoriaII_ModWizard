@@ -1,5 +1,13 @@
 # Tareas para Gemini (ayuda en paralelo)
 
+> **Estado (27-10-2026): las tres entregadas e integradas.** Gemini las subió como `gemini/g1`, `gemini/g2` y
+> `gemini/g3`, y el usuario las fusionó en `main` (PR #7, #8 y #9). Claude las revisó: mutaciones propias
+> detectadas (8 de 8), `find_unencodable` sin discrepancias contra una referencia en 28 000 textos aleatorios con
+> 7 codificaciones y 12 veces más rápida que antes, pruebas de control más estrictas y batería completa con el
+> corpus real y con Python 3.13, 3.10 y PySide6 6.5.0 (999 OK). Única desviación: `DescriptorFieldError` admite
+> ahora un `params` posicional (compatible con todos los llamadores). Claude completó los dos errores de
+> `core/vfs` que la tarea G3 dejaba para él. Este documento queda como modelo de encargo.
+
 Este documento reparte trabajo de **Victoria II Mod Studio** con otro asistente mientras Claude Code cierra la
 revisión adversarial de la iteración 2. Las tres tareas son independientes entre sí y de lo que Claude está
 cambiando ahora. Cada una dice qué tocar, qué no tocar, cómo probar y qué entregar. Léelas enteras antes de

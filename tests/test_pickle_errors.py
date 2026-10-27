@@ -169,15 +169,17 @@ class PickleErrorsTests(unittest.TestCase):
         restored = self.assert_roundtrip(err)
         self.assertIsInstance(restored.path, Path)
 
-    # Queda para Claude: src/vic2studio/core/vfs/paths.py no se toca en esta tarea (regla 8).
-    @unittest.expectedFailure
     def test_invalid_path_error(self):
-        self.assert_roundtrip(InvalidPathError("../outside.txt", "parent"))
+        try:
+            VPath.of("../outside.txt")
+        except InvalidPathError as error:
+            restored = self.assert_roundtrip(error)
+        self.assertEqual((restored.path, restored.reason), ("../outside.txt", "parent"))
 
-    # Queda para Claude: src/vic2studio/core/vfs/guard.py no se toca en esta tarea (regla 8).
-    @unittest.expectedFailure
     def test_write_outside_mod_error(self):
-        self.assert_roundtrip(WriteOutsideModError(Path("/etc/passwd"), Path("/tmp/mod")))
+        restored = self.assert_roundtrip(WriteOutsideModError(Path("/juego/common/a.txt"), Path("/juego/mod/VSM")))
+        self.assertIsInstance(restored.path, Path)
+        self.assertEqual(restored.mod_root, Path("/juego/mod/VSM"))
 
 
 if __name__ == "__main__":

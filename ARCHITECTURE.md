@@ -8,8 +8,8 @@ Darkness*) de forma visual.
 Estado: **iteración 2 integrada** (cimientos: VFS, proyecto transaccional con
 diario, deshacer por instantáneas, descriptor `.mod` y armazón de 7 salas;
 commits `97f0386`, `f3ff809`, `d3ed5de`, `563a709` y `59e8847`). La iteración 1
-está cerrada. De la 2 quedan los criterios de aceptación que necesitan el corpus
-completo del usuario y el cierre de su revisión (§6.1). Este documento describe
+está cerrada. De la 2 queda el cierre de su revisión adversarial (§6.1); los criterios
+que necesitaban el corpus del usuario ya se cumplen con sus archivos reales. Este documento describe
 el código que hay hoy en el repositorio. El diseño de las iteraciones 2 a 10
 está en [`docs/diseno/wizard.md`](docs/diseno/wizard.md) («wizard» en adelante);
 lo de la iteración 2 sigue sobre todo wizard §3–§6, §13, §14.1 y §22. Lo marcado
@@ -1813,9 +1813,9 @@ Estado de los criterios de aceptación de wizard §22:
 
 | Criterio | Estado | Pruebas |
 |---|---|---|
-| 1. La batería pasa sin corpus, con la muestra y con `VIC2_CORPUS` completo | Sin corpus y con la muestra, sí (978 pruebas, 4 omitidas, §7.1). Con el corpus completo, **pendiente**: el usuario aún no lo ha subido | toda la batería |
+| 1. La batería pasa sin corpus, con la muestra y con `VIC2_CORPUS` completo | **Sí.** 999 pruebas: con el corpus real del usuario (vanilla, su plantilla y el Shago Mod, de la release `recursos-v1`) pasan todas sin omitir ninguna, con ida y vuelta byte a byte de los 12 054 archivos Clausewitz (27,4 MB); sin corpus, 999 con 5 omitidas (§7.1) | toda la batería |
 | 2. `a = 1 # c\rb = 2\r` da 2 entradas y `detect_newline` da `"\r"` | Sí | `test_lexer_cr` |
-| 3. Cambiar `months` de un CB copia `cb_types.txt` con 1 línea de diff; sobre la copia de VSM, la modifica; el juego no cambia | Con el minijuego (mod vacío y mod con su copia), sí. Sobre vanilla + VSM, **pendiente del corpus**: la prueba existe y solo se ha comprobado con un corpus sintético | `test_project_workspace.test_acceptance_criterion_3_*` |
+| 3. Cambiar `months` de un CB copia `cb_types.txt` con 1 línea de diff; sobre la copia de VSM, la modifica; el juego no cambia | **Sí**, con el minijuego (mod vacío y mod con su copia) y sobre vanilla real + la copia de `cb_types.txt` de VSM (1 línea de diff, `common/` de vanilla intacto) | `test_project_workspace.test_acceptance_criterion_3_*` |
 | 4. Abrir y guardar sin cambios no escribe ni crea `.vic2studio/` | Sí | `test_noop_save` |
 | 5. `WriteGuard` rechaza el juego, `..` y enlaces que salen; admite el mod y su `.mod` | Sí | `test_vfs_guard` |
 | 6. Un fallo en cada paso de un guardado de 3 archivos (y `os._exit`) deja todo antes o todo después; recuperar dos veces da lo mismo | Sí | `test_journal_crash`, `test_journal_kill` |
@@ -1868,15 +1868,15 @@ Paradox, nombres inválidos en Windows, cambios externos, taller de mapas…).
 | Bloqueo que no caduca | Un bloqueo de otro equipo nunca se da por caducado, y uno de este equipo solo si su pid ya no existe (un pid reutilizado lo mantiene). El proyecto se abre entonces en solo lectura con el mensaje de que otra ventana del Studio lo tiene abierto, y la interfaz no ofrece romperlo: hay que borrar `<data_dir>/locks/<sha1>.lock`. |
 | Huellas distintas según quién guarda | Conviven tres: `fileio.FileStamp` (tamaño y BLAKE2b del contenido: `ParseResult.stamp`, `LocalisationFile.stamp`, `expected` de `write_file`), `vfs.Fingerprint` (tamaño, `mtime_ns` y sha256 perezoso: el `Workspace` y el diario) y `ui/viewers/common.file_stamp` (`(mtime_ns, size)`, para recargar la vista previa). Con `Fingerprint.matches`, un cambio externo que conserve tamaño y `mtime` no se detecta. Fuera de la aplicación, `write_csv_file` comprueba la huella siempre que guarda sobre el archivo leído (salvo `force=True`) y `write_file` solo si se le pasa `expected`. |
 | Copias `.bak` distintas según quién guarda | El guardado de la aplicación copia el destino a su `.bak` en cada guardado y, la primera vez, a `originals/` (D4, unificado en el diario). `write_file` hace la copia solo en el primer guardado de la sesión y `write_csv_file` en cada guardado, pero ya solo los usan la API y la CLI. |
-| Línea mal contada en archivos solo CR | `find_unencodable` cuenta las líneas solo por `\n`: en un script con saltos solo CR, el `UnencodableTextError` de `encode_text` y `write_file` da la línea 1 y una columna desde el principio del archivo (con `a = 1`, `b = 2` y `c = Ω` separados por CR: línea 1, columna 17, en vez de línea 3, columna 5). Desde la iteración 2 llega también al editar (la transacción que no se puede codificar lanza ese error) y al problema `save_unencodable` del guardado. La ficha de archivo (`gather_facts`) también cuenta las líneas por `\n`: un archivo de 3 líneas solo CR sale con 1. El `unencodable_character` de Clausewitz (`Document.check_text`) no lleva posición, y el lint CSV no se ve afectado: allí un CR suelto es contenido de la fila. |
+| Líneas en archivos solo CR | **Resuelto** (tarea G2, hecha por Gemini e integrada tras revisión): `encoding.find_unencodable` y la ficha de archivo cuentan como salto `\r\n`, `\n` y un `\r` suelto, igual que el lexer (`encoding.line_breaks` y `count_lines`). `find_unencodable` deja la codificación a C con un manejador de errores propio y es unas 12 veces más rápida que antes (0,08 s frente a 0,96 s con 22 MB). `tests/test_cr_line_counts.py` la compara con el parser y con una referencia sobre textos aleatorios. |
 | Árbol grande soltado en segundo plano | Al cambiar de archivo, el visor suelta el `QTextDocument` del código en el hilo de la interfaz y el resto del análisis en `POOL_RELEASE`, por trozos de `RELEASE_CHUNK` (4 096) elementos (`dismantle_load`, §2.5). Quedan dos cascadas sin trocear, fuera del hilo de la interfaz pero con el GIL tomado: si la tarea del JSON sigue en marcha al cambiar de archivo, retiene la raíz, y el árbol se suelta de una vez cuando esa tarea acaba (NF-JSON-HELD-ROOT: una pausa de unos cientos de ms), y `core.modcheck.check_file` suelta el árbol de cada archivo al terminar con él (NF-VALIDATE-TREE-RELEASE: huecos de 206–260 ms con 7,9 MB, por debajo del límite de 0,5 s de §7.4). |
 | Ficha de archivo en el hilo de la interfaz | `project_page.gather_facts` lee hasta 2 MiB (`MAX_SCAN_BYTES`) y los decodifica en el hilo de la interfaz. Si el archivo es más largo usa `decode_bytes(partial=True)`, así que un carácter multibyte cortado al final del bloque ya no cambia la codificación detectada (NF-FACTS-PARTIAL). |
 | Contrato del recolector | Un resultado de tarea que forme un ciclo no se libera nunca mientras está congelado; con varios resultados grandes seguidos, la basura congelada con el primero espera a que no viva ninguno (§2.5). Las pruebas de `test_tasks` lo vigilan. |
-| Sin CI y huecos en las pruebas de arquitectura | `test_arch_writes` ya comprueba las escrituras, que core no carga PySide6 y la sintaxis de Python 3.10, pero esta última solo en `src/`: la de `tests/` y `tools/` la cubre de hecho pasar la batería con 3.10, a mano. Falta la prueba «sin datos de Paradox» de wizard §19.5. No hay CI: wizard solo lo prevé para `tools/bench_mapforge.py` con las versiones mínimas (wizard §18.12), y un CI con Windows y Linux para toda la batería no está planificado todavía. |
+| Sin CI y huecos en las pruebas de arquitectura | `test_arch_writes` ya comprueba las escrituras, que core no carga PySide6 y la sintaxis de Python 3.10, pero esta última solo en `src/`: la de `tests/` y `tools/` la cubre de hecho pasar la batería con 3.10, a mano. La regla «sin datos de Paradox» de wizard §19.5 ya tiene prueba (`tests/test_no_paradox_data.py`, tarea G1). No hay CI: wizard solo lo prevé para `tools/bench_mapforge.py` con las versiones mínimas (wizard §18.12), y un CI con Windows y Linux para toda la batería no está planificado todavía. |
 | Pestaña Código con archivos enormes | Al mostrar la pestaña Código, `QPlainTextEdit.setDocument` maqueta todos los bloques del documento en el hilo de la interfaz, y al cambiar de archivo el documento anterior se destruye también en ese hilo. Con 1,3 M líneas, `code_view.py` da ~0,6 s al colgarlo y 0,16–0,35 s al destruirlo (NF-DOC-DELETE: vaciarlo por trozos cuesta 1,4–1,9 s con el GIL tomado, y destruirlo en otro hilo no es seguro). Crear los `QTextLayout` en la tarea bajaría lo primero a unos 0,25 s, pero alargaría la carga unos 6 s y ocuparía unos 350 MB más aunque el código no llegue a mostrarse (con 20 MB); se dejó como límite conocido. |
 | Ediciones junto a texto descartado | En un archivo con errores de sintaxis, una edición puede releerse de otra forma: lo que se pone detrás de un bloque sin cerrar queda dentro de él (con `a = { b = 1` sin `}`, añadir `z = 9` al documento lo relee dentro de `a`), y un valor suelto seguido de un operador descartado forma con él una asignación. Lo nuevo ya no se pega al texto descartado (con `a =`, añadir `z = 9` da `z = 9 a =`). `write_file(verify=True)` detecta esos casos y no escribe (`SourceMismatchError` con `near_errors`), y el fuzz de edición solo compara árboles si el original no tenía errores (§7.3). En el `Workspace`, un documento con errores de sintaxis se abre con `read_only_reason="parse_errors"` y solo admite sustituir el texto entero (D17); si aun así algo se relee distinto, `render_checked` lo convierte en el problema `save_source_mismatch` sin tocar el disco. |
 | Codificación explícita que no describe el archivo | `parse_file` ya ajusta una codificación forzada a los bytes (`match_bom` y `split_bom`, §4.2): `encoding="utf-16-be"` sobre un UTF-16 BE con BOM da `utf-16-be-bom`, y `"utf-8-sig"` sobre datos sin BOM, `utf-8`. `decode_bytes` y `fileio.read_text` no: `decode_bytes(datos, "utf-16")` de un UTF-16 BE con BOM vuelve a codificar en LE, y `"utf-8-sig"` sobre datos sin BOM añade un BOM al guardar, también con `read_csv_file` y `write_csv_file`. Ninguna llamada de `src/` fuerza una codificación al leer un script o un CSV: la interfaz, las CLI, `modfile`, `modcheck` y los códecs de `core/project` usan la detección. |
-| Errores de guardado que no pasan por `pickle` | `pickle.loads(pickle.dumps(error))` falla con `SourceMismatchError` (su `__init__` pide 3 argumentos: `TypeError`), con `UnencodableTextError` (pide 2: `TypeError`) y con `DescriptorFieldError` (recibe el mensaje como código: `KeyError`), y también con los de la iteración 2: `WriteOutsideModError`, `InvalidPathError` y `ReadOnlyDocumentError` (piden 2: `TypeError`), `DescriptorProblemsError` (se rehace a partir de su texto: `AttributeError`) y `SaveProblem`, y con él `DescriptorWriteError` (su `args` por defecto es un `mappingproxy`, que no se puede serializar: `TypeError`). `EditError`, `FileChangedError`, `InvalidFieldError` y `WrongThreadError` sí se recuperan. Hoy no se usan procesos; hay que arreglarlo antes de que un error de guardado cruce al proceso trabajador del taller de mapas (wizard §18.4). |
+| Errores que no pasan por `pickle` | **Resuelto** (tarea G3, hecha por Gemini e integrada tras revisión, más los dos de `core/vfs`): `SourceMismatchError`, `UnencodableTextError`, `DescriptorFieldError`, `DescriptorProblemsError`, `DescriptorWriteError`, `SaveProblem` (conserva su `mappingproxy`), `ReadOnlyDocumentError`, `DuplicateKeyError`, `FileChangedError` (cuya copia duplicaba el mensaje), `InvalidPathError` y `WriteOutsideModError` se recuperan iguales; `tests/test_pickle_errors.py` compara tipo, `str()`, mensajes, `repr()` y atributos. Listo para el proceso trabajador del taller de mapas (wizard §18.4). |
 
 ---
 
@@ -1903,15 +1903,13 @@ Paradox, nombres inválidos en Windows, cambios externos, taller de mapas…).
   Qt lo importan, así que fallan al cargarse en vez de abortar el proceso a
   mitad de la batería; `VIC2STUDIO_ALLOW_BROKEN_PYSIDE=1` desactiva la
   comprobación.
-- **Cifras actuales**: 978 pruebas en 55 archivos. Sin corpus pasan las 978,
-  con 4 omitidas (§7.2), con Python 3.13.17 y PySide6 6.12.0, con Python 3.10.20
-  y PySide6 6.11.3 y con PySide6 6.5.0, el mínimo declarado (Python 3.10, numpy
-  1.24.0 y Pillow 10.0.0, sin `XDG_RUNTIME_DIR`; la receta está en
-  `CONTINUAR_EN_CLAUDE_CODE.md` §4). Con el corpus completo (instalación de
-  vanilla, la plantilla del usuario y su mod), la última ejecución es de la
-  iteración 1, con 593 pruebas, antes también de los archivos de país sintéticos
-  de la muestra: 593 correctas. La batería de la iteración 2 aún no se ha pasado
-  con el corpus (criterio 1, §6.1). Los recuentos son exactos; los tiempos son
+- **Cifras actuales**: 999 pruebas en 58 archivos. Con el corpus completo (la
+  instalación de vanilla, la plantilla del usuario y su mod, de la release
+  `recursos-v1`) pasan las 999 sin omitir ninguna, con Python 3.13.17 y PySide6
+  6.12.0. Sin corpus pasan las 999, con 5 omitidas (§7.2), con Python 3.13.17 y
+  PySide6 6.12.0, con Python 3.10.20 y PySide6 6.11.3 y con PySide6 6.5.0, el
+  mínimo declarado (Python 3.10, numpy 1.24.0 y Pillow 10.0.0, sin
+  `XDG_RUNTIME_DIR`; la receta está en `CONTINUAR_EN_CLAUDE_CODE.md` §4). Los recuentos son exactos; los tiempos son
   orientativos y varían entre ejecuciones: con 561 pruebas, en la máquina de una
   sesión anterior, entre 135 y 160 s sin corpus y entre 210 y 225 s con él.
 
@@ -1994,9 +1992,10 @@ El corpus es opcional y no está en el repositorio (`tests/_corpus.py`):
 - `vanilla_root()` da el juego base real: `VIC2_GAME` si está definida (y tiene
   `common/`) o, si no, la primera raíz de `VIC2_CORPUS` con `map/default.map`;
   sin corpus, `None` (la plantilla y la muestra no son el juego).
-- Sin corpus se omiten 4 pruebas, cada una con su motivo: la copia `.csv.bak`
+- Sin corpus se omiten 5 pruebas, cada una con su motivo: la copia `.csv.bak`
   del corpus, la precedencia mod sobre vanilla (necesita una carpeta vanilla),
-  los valores pegados al token siguiente y el criterio 3 de la iteración 2 sobre
+  los valores pegados al token siguiente, la de líneas de vanilla en el
+  repositorio (`test_no_paradox_data`) y el criterio 3 de la iteración 2 sobre
   vanilla + VSM (`test_project_workspace.test_acceptance_criterion_3_with_the_corpus`:
   copia el `cb_types.txt` de VSM a un mod temporal, cambia los `months` de un CB
   y comprueba un diff de 1 línea y que los hashes de `<juego>/common` no
@@ -2158,9 +2157,12 @@ Del proyecto (iteración 2):
   todos los módulos de `vic2studio.core` no carga PySide6 ni shiboken6. El
   registro de salas (`discover_halls`) rechaza salas o secciones incoherentes,
   y `test_ui_shell.RegistryTests` comprueba que existen todos sus textos e
-  iconos. Siguen sin prueba automática la sintaxis 3.10 de `tests/` y `tools/`
-  (la cubre pasar la batería con Python 3.10) y la regla «sin datos de Paradox»
-  de wizard §19.5.
+  iconos. `test_no_paradox_data` comprueba la regla «sin datos de Paradox» de
+  wizard §19.5: `tests/fixtures/` solo tiene la muestra permitida y, con corpus,
+  ninguna línea de 40 o más caracteres de vanilla (unas 27 000 distintas) aparece en
+  un archivo de texto de `src/`, `tests/` o `docs/`. Sigue sin prueba automática
+  la sintaxis 3.10 de `tests/` y `tools/` (la cubre pasar la batería con Python
+  3.10).
 - **Capturas**: `tools/screenshot.py` genera PNG por idioma, sala, sección,
   diálogo y estado para revisión visual (no se comparan píxel a píxel: las
   fuentes varían entre equipos); `test_ui_integration.py` prueba la herramienta.

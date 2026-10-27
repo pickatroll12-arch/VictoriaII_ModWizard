@@ -51,6 +51,9 @@ class WriteOutsideModError(PermissionError):
         self.mod_root = Path(mod_root)
         super().__init__(self.message("es"))
 
+    def __reduce__(self):
+        return (type(self), (self.path, self.mod_root))
+
     def message(self, lang: str = "en") -> str:
         return MESSAGES.get(lang, MESSAGES["en"])[WRITE_OUTSIDE_MOD].format(path=self.path, mod=self.mod_root)
 

@@ -27,7 +27,7 @@ descriptor sus problemas, sin datos de Paradox. ``--demo-changes`` hace dos camb
 través de la sesión (el ``user_dir`` del descriptor y un archivo del juego base, que se
 copiará al mod) para que «Cambios pendientes» y el diálogo de revisión tengan qué
 mostrar. ``--fake-project`` abre el proyecto con el ``Project`` falso de las pruebas
-(``tests/_fake_project.py``), mientras ``core/project`` es del contrato. ``--no-game-art``
+(``tests/_fake_project.py``) en lugar del real. ``--no-game-art``
 dibuja solo con la estética procedural (wizard D12): es lo que se hace siempre que
 ``--out`` está dentro de ``docs/capturas``, y hoy el Studio aún no usa arte del juego.
 

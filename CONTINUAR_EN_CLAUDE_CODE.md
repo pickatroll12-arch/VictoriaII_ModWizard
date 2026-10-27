@@ -41,8 +41,15 @@ arreglarlo, deja una prueba de regresión que falle sin el arreglo y pasa la bat
     punta de la interfaz contra el `Project` real (`59e8847`), que destapó cinco fallos de integración, todos
     corregidos con prueba de regresión y mutación (§3, «Iteración 2»).
   - La batería entera pasa por primera vez con **PySide6 6.5.0**, el mínimo declarado (`563a709`).
-- **Pruebas** (sin corpus): 978 OK con 4 omitidas, con Python 3.13.17 + PySide6 6.12.0, con Python 3.10.20 +
-  PySide6 6.11.3 y con Python 3.10 + PySide6 6.5.0 (sin `XDG_RUNTIME_DIR`). Las 4 omitidas necesitan el corpus.
+- **Pruebas**: 999. Con el corpus real del usuario (release `recursos-v1`, descomprimido fuera del repositorio
+  según §4), las 999 OK sin omitir ninguna (criterios 1 y 3 de la iteración 2 cumplidos con sus archivos). Sin
+  corpus, 999 OK con 5 omitidas, con Python 3.13.17 + PySide6 6.12.0, con Python 3.10.20 + PySide6 6.11.3 y con
+  Python 3.10 + PySide6 6.5.0 (sin `XDG_RUNTIME_DIR`).
+- **Ayuda de otros asistentes** (`docs/handoff/PARA_GEMINI.md`): Gemini hizo G1 (prueba «sin datos de Paradox»),
+  G2 (líneas con saltos solo CR, 12 veces más rápido) y G3 (errores serializables con `pickle`); el usuario las
+  fusionó en `main` (PR #7–#9) y Claude las revisó (mutaciones, fuzz de 28 000 textos en 7 codificaciones,
+  pruebas propias más estrictas, batería con corpus y en las tres combinaciones) y completó los dos errores de
+  `core/vfs`. El parche anterior de Grok se descartó.
 - **En curso al escribir esto**: la revisión adversarial de la iteración 2 (criterio 11), con el guion
   `docs/handoff/workflow_iteracion2_revision.js` sobre `59e8847`. Si la sesión se cortó antes de corregir sus
   hallazgos, es el paso 1 de §5.
@@ -299,11 +306,13 @@ dos de la última ronda de T4 y los de §0.
 
 ### Pruebas
 
-978 pruebas en 55 archivos `tests/test_*.py` (las de la iteración 1 más `test_vfs_*`, `test_project_*`,
+999 pruebas en 58 archivos `tests/test_*.py` (las de la iteración 1 más `test_vfs_*`, `test_project_*`,
 `test_journal_*`, `test_undo_*`, `test_workspace_*`, `test_recovery_autosave`, `test_lock`, `test_arch_writes`,
 `test_texts`, `test_appdirs`, `test_modfile_write`, `test_ui_shell`, `test_ui_session`, `test_ui_descriptor`,
-`test_ui_new_mod`, `test_ui_roadmap`, `test_ui_real_project`…). Sin corpus se omiten 4: valores pegados al token
-siguiente, el `.csv.bak`, la carpeta vanilla y el criterio 3 de la iteración 2 sobre vanilla + VSM.
+`test_ui_new_mod`, `test_ui_roadmap`, `test_ui_real_project`, y de Gemini `test_no_paradox_data`,
+`test_cr_line_counts` y `test_pickle_errors`…). Sin corpus se omiten 5: valores pegados al token siguiente, el
+`.csv.bak`, la carpeta vanilla, las líneas de vanilla en el repositorio y el criterio 3 de la iteración 2 sobre
+vanilla + VSM.
 `tests/_qt.py` aísla preferencias, datos y caché en carpetas temporales y crea un `XDG_RUNTIME_DIR` si falta.
 
 Antes de la iteración 2 eran 593 pruebas en 22 archivos `tests/test_*.py` (parser `test_clausewitz_*`, CSV `test_csvloc_*`, `test_encoding`,
@@ -434,11 +443,20 @@ python3 tools/screenshot.py --out DIR --lang all --size 1100x700 --mod tests/fix
 El 27-10-2026 se generaron y revisaron las 20 (sin defectos); se suben a `docs/capturas/` con las correcciones de
 la revisión. Informe al usuario en español: qué entrega la iteración 2, resultado de las pruebas y qué queda.
 
-### 3. Criterios con corpus (cuando el usuario suba los zips)
+### 3. Criterios con corpus: hechos (27-10-2026)
 
-El usuario dijo que subirá los zips del corpus más adelante (§4, «Corpus»). Con ellos: criterio 1 (la batería
-con `VIC2_CORPUS` completo y la ida y vuelta byte a byte) y criterio 3 sobre vanilla + VSM
-(`test_project_workspace.test_acceptance_criterion_3_with_the_corpus`, que usa `_corpus.vanilla_root()`).
+El usuario subió el corpus a la release `recursos-v1` del repositorio. Se descarga por la API de GitHub (la URL
+directa da 404 porque el repositorio es privado; el proxy de la nube pone la autenticación):
+
+```bash
+curl -sSL -H "Accept: application/octet-stream" -o <nombre> \
+    https://api.github.com/repos/pickatroll12-arch/VictoriaII_ModWizard/releases/assets/<id>
+```
+
+(los `id` y los sha256 salen de la release). Se descomprime fuera del repositorio como dice §4. Con él, los
+criterios 1 y 3 se cumplen: 999 pruebas OK sin omitir ninguna, ida y vuelta de 12 054 archivos y el criterio 3
+sobre vanilla real + VSM. Además, el Shago Mod completo abre sobre vanilla en 0,12 s, su `somaliland_shago.txt`
+roto se abre en solo lectura y guardar sin cambios no escribe nada.
 
 ### 4. Iteración 3 (wizard.md §22)
 
