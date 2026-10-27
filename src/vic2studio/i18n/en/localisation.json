@@ -61,6 +61,7 @@
   "texts.search_tooltip": "Searches the key and the texts, ignoring case and accents",
   "texts.shown": "({shown} shown)",
   "texts.status_added": "Key “{name}” added: it will be written to {file} when you save (Ctrl+Z undoes it).",
+  "texts.status_cannot_win": "“{name}” cannot be overridden: no mod file name loads before the CSV that defines it.",
   "texts.status_invalid": "That text cannot be stored: {error}",
   "texts.status_read_only": "That text cannot be edited: the project or the file is read-only.",
   "texts.status_unencodable": "The character “{char}” ({code}) does not exist in the game's encoding (cp1252): the game could not display it.",

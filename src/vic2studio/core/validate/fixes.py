@@ -25,6 +25,7 @@ from dataclasses import dataclass
 from types import MappingProxyType
 from typing import TYPE_CHECKING
 
+from ..clausewitz.diagnostics import ENCODING_CODES, Severity
 from ..clausewitz.nodes import Scalar
 from ..encoding import (
     GAME_ENCODING,
@@ -62,6 +63,11 @@ FIX_UNENCODABLE = "unencodable"
 FIX_NOTHING_TO_DO = "nothing_to_do"
 FIX_NO_GAME_FILE = "no_game_file"
 FIX_MISSING_FILE = "missing_file"
+FIX_READ_ONLY = "read_only"
+FIX_PLAN_CHANGED = "plan_changed"
+FIX_SYNTAX_ERRORS = "syntax_errors"
+FIX_DESCRIPTOR_CHANGED = "descriptor_changed"
+FIX_STILL_UTF8 = "still_utf8"
 
 
 class FixError(ValueError):
@@ -102,8 +108,16 @@ def plan_fix(key: str, problem: Problem, project: Project) -> ChangePlan:
     return FIXES[key].plan(problem, project)
 
 
-def apply_fix(key: str, problem: Problem, project: Project) -> None:
-    """Aplica el arreglo en una transacción deshacible; ``KeyError`` si la clave no existe."""
+def apply_fix(key: str, problem: Problem, project: Project, *, expected: ChangePlan | None = None) -> None:
+    """Aplica el arreglo en una transacción deshacible; ``KeyError`` si la clave no existe.
+
+    ``expected``: el plan que vio el usuario. Si el arreglo ya no haría eso (el archivo cambió entre medias),
+    ``FixError(plan_changed)`` y no se cambia nada. En un proyecto de solo lectura, ``FixError(read_only)``.
+    """
+    if project.ws.read_only:
+        raise FixError(FIX_READ_ONLY)
+    if expected is not None and plan_fix(key, problem, project).changes != expected.changes:
+        raise FixError(FIX_PLAN_CHANGED)
     FIXES[key].apply(problem, project)
 
 
@@ -139,9 +153,12 @@ def current(project: Project, rel: VPath) -> Current:
         layer = LayerKind.MOD if handle.origin is None else handle.origin.layer.kind
         return Current(handle.rel, data, layer, getattr(handle.model, "encoding", None) or GAME_ENCODING,
                        handle.is_new)
-    if handle is not None and handle.deleted:
-        return Current(handle.rel, None, None, GAME_ENCODING)
     entry = project.vfs.resolve(rel)
+    if handle is not None and handle.deleted:
+        # Lápida de la copia del mod: lo efectivo es lo que gana debajo (el juego o una dependencia), si lo hay.
+        entry = _below_mod(project.vfs.stack(rel), project.vfs.snapshot().hidden, rel)
+        if entry is None:
+            return Current(handle.rel, None, None, GAME_ENCODING)
     if entry is None:
         return Current(rel, None, None, GAME_ENCODING)
     try:
@@ -149,6 +166,14 @@ def current(project: Project, rel: VPath) -> Current:
     except OSError:
         data = None
     return Current(entry.rel, data, entry.layer.kind, decode_bytes(data).encoding if data else GAME_ENCODING)
+
+
+def _below_mod(stack, hidden, rel: VPath):
+    """La entrada que carga el juego sin la del mod: la primera que no es del mod, salvo un archivo del juego que
+    ``replace_path`` oculta."""
+    key = VPath.of(rel).key
+    return next((e for e in stack if e.layer.kind is not LayerKind.MOD
+                 and not (key in hidden and e.layer.kind is LayerKind.GAME)), None)
 
 
 def _action(edit: Edit) -> str:
@@ -260,6 +285,9 @@ def _register_tag(problem: Problem, project: Project) -> list[Edit]:
     tag = _tag_of(problem)
     state = current(project, COUNTRIES_REL)
     result = _parse(_require(state))
+    if any(d.severity is Severity.ERROR and d.code not in ENCODING_CODES for d in result.diagnostics):
+        # Con un bloque sin cerrar, dynamic_tags queda dentro y la línea iría detrás (D7, H11 lo prohíben).
+        raise FixError(FIX_SYNTAX_ERRORS, file=str(state.rel))
     doc = result.document
     if any(e.key is not None and e.key.text == tag for e in doc.entries):
         raise FixError(FIX_ALREADY_REGISTERED, tag=tag)
@@ -296,6 +324,10 @@ def _convert(problem: Problem, project: Project) -> list[Edit]:
         raise FixError(FIX_UNENCODABLE, file=str(state.rel), line=line, column=column, char=char) from None
     if converted == data:
         raise FixError(FIX_NOTHING_TO_DO)
+    if decode_bytes(converted).encoding != GAME_ENCODING:
+        # El texto ya estaba codificado dos veces («CafÃ©»): en cp1252 vuelve a ser UTF-8 válido, el juego (y la
+        # detección) lo seguirían leyendo como UTF-8 y un segundo clic cambiaría el texto sin plan que lo enseñe.
+        raise FixError(FIX_STILL_UTF8, file=str(state.rel))
     return [Edit(state.rel, state, converted)]
 
 
@@ -359,8 +391,10 @@ _byte_fix("restore_vanilla_loc_rows", lambda p: {**_file_args(p), "rows": p.args
 
 
 def identical_copies(project: Project) -> list[VPath]:
-    """Archivos del mod idénticos al del juego que sustituyen, fuera de las carpetas con ``replace_path`` y sin
-    documento abierto con cambios: los que manda a la papelera ``trash_identical_copies``."""
+    """Archivos del mod idénticos a lo que el juego cargaría sin ellos (el archivo del juego o, si hay una en
+    medio, el de una dependencia), fuera de las carpetas con ``replace_path`` y sin documento abierto con cambios:
+    los que manda a la papelera ``trash_identical_copies``. Compararlos solo con el del juego borraba copias que
+    tapan una dependencia distinta (y cambiaba lo que carga el juego)."""
     from ..vfs.paths import DESCRIPTOR_REL
 
     vfs = project.vfs
@@ -371,15 +405,31 @@ def identical_copies(project: Project) -> list[VPath]:
             continue
         stack = snapshot.entries[key]
         mod = next((e for e in stack if e.layer.kind is LayerKind.MOD), None)
-        game = next((e for e in stack if e.layer.kind is LayerKind.GAME), None)
-        if mod is None or game is None or mod.fingerprint.size != game.fingerprint.size:
+        below = _below_mod(stack, snapshot.hidden, VPath.of(mod.rel) if mod is not None else key)
+        if mod is None or below is None or mod.fingerprint.size != below.fingerprint.size:
             continue
         handle = project.ws.peek(mod.rel)
         if handle is not None and (handle.dirty or handle.deleted):
             continue
-        if _same_file(mod.path, game.path):
+        if _same_file(mod.path, below.path):
             found.append(mod.rel)
     return found
+
+
+def _require_current_replace_paths(project: Project) -> None:
+    """``FixError(descriptor_changed)`` si el descriptor (abierto con cambios o guardado) nombra otros
+    ``replace_path`` que los de la vista abierta: esta aún no los aplica (se aplican al abrir el proyecto) y la
+    papelera se llevaría las copias que un ``replace_path`` nuevo hace imprescindibles."""
+    from ..modfile import descriptor_from_result
+    from ..vfs.paths import DESCRIPTOR_REL, folder_key
+
+    state = current(project, DESCRIPTOR_REL)
+    wanted: set[str] = set()
+    if state.data is not None:
+        descriptor = descriptor_from_result("descriptor.mod", _parse(state.data))   # solo sus replace_path
+        wanted = {key for key in (folder_key(p) for p in descriptor.replace_paths) if key}
+    if wanted != set(project.vfs.replace_paths):
+        raise FixError(FIX_DESCRIPTOR_CHANGED)
 
 
 def _same_file(a, b) -> bool:
@@ -396,11 +446,13 @@ def _same_file(a, b) -> bool:
 
 
 def _trash_plan(problem: Problem, project: Project) -> ChangePlan:
+    _require_current_replace_paths(project)
     return ChangePlan("trash_identical_copies",
                       tuple(PlannedChange(rel, ACTION_TRASH) for rel in identical_copies(project)))
 
 
 def _trash_apply(problem: Problem, project: Project) -> None:
+    _require_current_replace_paths(project)
     rels = identical_copies(project)
     if not rels:
         raise FixError(FIX_NOTHING_TO_DO)

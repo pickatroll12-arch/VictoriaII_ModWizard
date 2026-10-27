@@ -31,7 +31,6 @@ from ..vfs.model import DocKind
 from ..vfs.paths import VPath
 from ..vfs.vfs import VirtualFS, resolve_dependencies
 from . import journal
-from .codecs import codec_for
 from .lock import ProjectLock
 from .model import DocChanged, DocCreated, DocDeleted, DocReplaced, ProjectSettings, RecoveryResult, SaveReport
 from .recovery import load_session, orphan_sessions, recover_all
@@ -179,10 +178,16 @@ class Project:
         restored: list[VPath] = []
         with self.ws.transaction(LABEL_RESTORE, session=session):
             for rel in sorted(documents, key=lambda r: r.key):
-                handle = self.ws.open(rel, create=True)
-                if not codec_for(handle.kind).writable:
+                data = documents[rel]
+                if data is None:
+                    try:
+                        self.ws.delete(rel)          # estaba borrado sin guardar
+                    except (FileNotFoundError, PermissionError):
+                        continue                     # ya no está en el mod: no queda nada que borrar
+                    restored.append(rel)
                     continue
-                self.ws.replace_text(handle, documents[rel])
+                handle = self.ws.open(rel, create=True)
+                self.ws.restore_bytes(handle, data)  # también un binario (deshacer tras guardar la papelera)
                 restored.append(handle.rel)
         # Antes de borrar el huérfano, el autoguardado de esta sesión: un corte ahora no debe perder nada (I8).
         self.ws.write_recovery()

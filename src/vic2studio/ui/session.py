@@ -192,10 +192,10 @@ class ValidationEngine:
 
         return plan_fix(key, problem, project)
 
-    def apply_fix(self, key: str, problem, project) -> None:
+    def apply_fix(self, key: str, problem, project, expected=None) -> None:
         from ..core.validate import apply_fix
 
-        apply_fix(key, problem, project)
+        apply_fix(key, problem, project, expected=expected)
 
 
 class BaselineEngine:
@@ -884,11 +884,12 @@ class Session(QObject):
         with self._operation():
             return self._validation_engine.plan_fix(key, problem, project)
 
-    def apply_fix(self, key: str, problem) -> None:
-        """Aplica un arreglo (una transacción deshacible) y vuelve a validar cuando el índice se ponga al día."""
+    def apply_fix(self, key: str, problem, plan=None) -> None:
+        """Aplica un arreglo (una transacción deshacible) y vuelve a validar cuando el índice se ponga al día.
+        ``plan``: el que vio el usuario; si el arreglo ya no haría eso, ``FixError(plan_changed)`` y nada cambia."""
         project = self._require()
         with self._operation():
-            self._validation_engine.apply_fix(key, problem, project)
+            self._validation_engine.apply_fix(key, problem, project, plan)
         # Los resultados de antes siguen a la vista hasta que el índice tenga el arreglo; entonces se revalida.
         self._revalidate = True
         if not self._index_behind():

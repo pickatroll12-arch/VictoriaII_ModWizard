@@ -571,6 +571,9 @@ class TextsPage(BasePage):
         except ReadOnlyDocumentError:
             self.request_status("texts.status_read_only")
             return False
+        except ValueError:   # ningún nombre de archivo del mod carga antes que el ganador (LocSync)
+            self.request_status("texts.status_cannot_win", name=key)
+            return False
         self.request_status("texts.status_written", name=key, file=str(rel))
         self._queue_refresh()   # fuera de setData: la vista aún está cerrando el editor
         return True

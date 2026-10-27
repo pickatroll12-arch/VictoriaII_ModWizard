@@ -587,9 +587,12 @@ def trash_file(guard: WriteGuard, trash_root: Path, txid: str, rel: VPath, sourc
 
 # --- autoguardado de recuperación ------------------------------------------------------------
 
-def write_recovery(guard: WriteGuard, recovery_root: Path, session: str, documents: Mapping[VPath, bytes], *,
-                   closed: bool = False) -> None:
+def write_recovery(guard: WriteGuard, recovery_root: Path, session: str, documents: Mapping[VPath, bytes | None],
+                   *, closed: bool = False) -> None:
     """Autoguardado: ``recovery/<sesión>/<rel>`` con el ``snapshot()`` de cada documento sucio y un índice JSON.
+
+    Un documento borrado sin guardar (``None``) va solo en el índice, como ``"deleted": true``: al recuperar la
+    sesión se vuelve a borrar (antes se perdía, y una sesión con solo borrados ni se ofrecía).
 
     Cada documento va en ``<sha256>.dat`` (no depende de los nombres y nunca pisa uno
     que el índice anterior nombra); el índice dice qué ruta es cada uno y se escribe
@@ -605,6 +608,9 @@ def write_recovery(guard: WriteGuard, recovery_root: Path, session: str, documen
     previous = _recovery_files(folder)
     entries = []
     for rel, data in sorted(documents.items(), key=lambda item: VPath.of(item[0]).key):
+        if data is None:
+            entries.append({"rel": str(rel), "deleted": True})
+            continue
         digest = sha256_bytes(data)
         name = f"{digest}.dat"    # por contenido: nunca se pisa un archivo que el índice anterior aún nombra
         if name not in previous:
@@ -613,7 +619,7 @@ def write_recovery(guard: WriteGuard, recovery_root: Path, session: str, documen
     index = {"format": JOURNAL_FORMAT, "session": session, "pid": os.getpid(), "host": socket.gethostname(),
              "written": _now(), "closed": closed, "files": entries}
     _guarded_write(guard, folder / RECOVERY_INDEX, (json.dumps(index, ensure_ascii=False, indent=1) + "\n").encode())
-    keep = {e["file"] for e in entries} | {RECOVERY_INDEX}
+    keep = {e["file"] for e in entries if "file" in e} | {RECOVERY_INDEX}
     for name in previous - keep:
         _guarded_remove(guard, folder / name)
 

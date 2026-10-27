@@ -67,7 +67,7 @@ from .csvloc.model import (
     language_column,
     normalized_fields,
 )
-from .encoding import GAME_ENCODING
+from .encoding import GAME_ENCODING, encode_text
 from .vfs.model import DocKind, FileEntry, LayerKind
 from .vfs.paths import VPath
 
@@ -515,9 +515,15 @@ class LocSync:
         return [file for file in state.db.files if state.info[id(file)].layer is LayerKind.MOD]
 
     def _new_file_format(self) -> tuple[str | None, bool, str]:
-        """(cabecera, con «x», salto de línea) de un archivo nuevo, imitando a los del mod."""
+        """(cabecera, con «x», salto de línea) de un archivo nuevo, imitando a los del mod. Cuentan los CSV propios
+        del usuario: las copias de un CSV del juego (con su nombre) dicen cómo es el juego, no el mod (en VSM, sus
+        22 copias de vanilla, con «x», tapaban a sus 00_VSM_*, sin ella). Sin CSV propios, todos los del mod."""
+        state = self._state()
+        mod_files = self._mod_files()
+        _, twins = self._base_state(state.sources)
+        own = [file for file in mod_files if state.info[id(file)].rel.name.upper() not in twins]
         header, newline, marked, unmarked = None, None, 0, 0
-        for file in self._mod_files():
+        for file in own or mod_files:
             first = next(file.data_rows(), None)
             if header is None and first is not None and is_header_row(first):
                 header = first.to_line()
@@ -584,6 +590,7 @@ class LocSync:
         self._require_txn()
         column = language_column(lang)
         check_text(text)
+        encode_text(text, GAME_ENCODING)   # el juego lee en cp1252 cualquier CSV, también uno guardado en UTF-8
         state = self._state()
         db = state.db
         winner = db.file_of(key)
@@ -629,6 +636,7 @@ class LocSync:
             columns: dict[int, str] = {}
             for lang, text in texts.items():
                 check_text(text)
+                encode_text(text, GAME_ENCODING)
                 columns[language_column(lang)] = text
             if key in db or any(key == k for k, _ in wanted):
                 continue

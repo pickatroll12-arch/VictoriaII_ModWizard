@@ -296,5 +296,10 @@
  "fix_error.unencodable": "«{file}» tiene un carácter que no cabe en Windows-1252 («{char}», línea {line}, columna {column}): cámbialo antes de convertir.",
  "fix_error.nothing_to_do": "No queda nada que arreglar: el archivo ya cambió.",
  "fix_error.no_game_file": "«{file}» no tiene un archivo del juego del que recuperar las filas.",
- "fix_error.missing_file": "«{file}» ya no existe."
+ "fix_error.missing_file": "«{file}» ya no existe.",
+ "fix_error.read_only": "El proyecto está abierto en solo lectura (otra ventana lo tiene): no se puede arreglar desde aquí.",
+ "fix_error.plan_changed": "El archivo cambió desde que se preparó el plan: vuelve a pulsar Arreglar para ver el plan nuevo.",
+ "fix_error.syntax_errors": "«{file}» tiene errores de sintaxis: corrígelos antes (la línea nueva podría quedar dentro de un bloque sin cerrar).",
+ "fix_error.descriptor_changed": "El descriptor .mod nombra otros replace_path que los que tiene la vista abierta: guárdalo y vuelve a abrir el proyecto antes de limpiar copias (podrían ser imprescindibles).",
+ "fix_error.still_utf8": "«{file}» parece codificado dos veces (como «CafÃ©»): convertido a cp1252 seguiría leyéndose como UTF-8. Revísalo a mano."
 }

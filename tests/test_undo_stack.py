@@ -93,6 +93,18 @@ class UndoStackTests(unittest.TestCase):
         lone.push(step("huge", before=big, after=big))
         self.assertEqual(len(lone.labels()), 1, "el último paso se conserva aunque pase del límite")
 
+    def test_shared_snapshot_bytes_count_once(self):
+        """Una lápida tiene el mismo objeto antes y después: cuenta una vez (revisión de la iteración 3)."""
+        rng = random.Random(7)
+        blob = compress(bytes(rng.getrandbits(8) for _ in range(4000)))
+        tomb = UndoStep("trash", {}, [Snapshot(VPath.of("a.dds"), blob, blob, after_deleted=True,
+                                               before_version=1, after_version=2)])
+        self.assertEqual(step_size(tomb), len(blob))
+        stack = UndoStack(max_bytes=len(blob) + 200)
+        stack.push(tomb, now=0)
+        stack.push(step("edit"), now=10)
+        self.assertEqual([label for label, _ in stack.labels()], ["edit", "trash"], "la papelera sigue deshaciéndose")
+
     def test_referenced_and_clear(self):
         stack = UndoStack()
         stack.push(step("a", rel="Common/A.txt"), now=0)

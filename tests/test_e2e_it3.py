@@ -99,6 +99,31 @@ class MinigameEndToEndTests(RealCoreWindowCase):
         self.assertIn("tag_not_registered", self.codes(page))
         self.assertFalse(self.game.mod("common/countries.txt").exists(), "nada se guardó")
 
+    def test_a_plan_that_went_stale_is_not_applied_and_says_why_in_the_ui_language(self):
+        """Revisión it3: si el archivo cambia entre enseñar el plan y aceptarlo, no se aplica otra cosa."""
+        from vic2studio.core.project.codecs import codec_for
+        from vic2studio.i18n import set_language
+
+        window = self.open_real()
+        session = window.session
+        page = self.validate()
+        self.addCleanup(set_language, "es")
+        set_language("en")
+        self.select(page, "tag_not_registered")
+
+        def edit_then_accept(dialog: FixPlanDialog):
+            with session.edit("pending.undo_revert", name="common/countries.txt"):
+                handle = session.project.ws.open("common/countries.txt")
+                data = codec_for(handle.kind).snapshot(handle.model)
+                session.project.ws.replace_text(handle, data.replace(b"countries/Corland.txt",
+                                                                     b"countries/Corland2.txt"))
+            dialog.apply_button.click()
+
+        self.dialogs.handlers[FixPlanDialog] = edit_then_accept
+        page.fix_button.click()
+        self.assertEqual([label for label, _ in session.history()], ["pending.undo_revert"], "no se aplicó")
+        self.assertIn("The file changed since the plan was prepared", window.status_label.text())
+
     def test_unsaved_texts_reach_the_index_and_the_validator(self):
         window = self.open_real()
         page = self.validate()

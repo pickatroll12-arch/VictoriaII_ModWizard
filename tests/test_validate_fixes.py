@@ -109,6 +109,51 @@ class RegisterTagTests(FixTestCase):
         with self.assertRaises(KeyError):
             plan_fix("no_such_fix", problem, project)
 
+    def test_refused_on_a_countries_txt_with_syntax_errors(self):
+        """Revisión it3: con un bloque sin cerrar, dynamic_tags queda dentro y la línea iba al final, detrás."""
+        broken = GAME_FILES[COUNTRIES].replace('dynamic_tags = yes', 'oops = {\r\ndynamic_tags = yes', 1)
+        self.assertNotEqual(broken, GAME_FILES[COUNTRIES])
+        game, project = self.open(mod_files={**ESLAND, COUNTRIES: broken})
+        [problem] = problems(project, {"tag_not_registered"})
+        with self.assertRaises(FixError) as raised:
+            plan_fix("register_tag", problem, project)
+        self.assertEqual(raised.exception.code, "syntax_errors")
+        self.assertIn("countries.txt", raised.exception.message("es"))
+
+    def test_registers_in_the_game_file_after_trashing_the_mod_copy(self):
+        """Revisión it3: con la copia del mod de countries.txt en la papelera, lo efectivo es el del juego."""
+        game, project = self.open(mod_files={**ESLAND, COUNTRIES: GAME_FILES[COUNTRIES]})
+        with project.edit("undo.delete"):
+            project.ws.delete(COUNTRIES)
+        [problem] = problems(project, {"tag_not_registered"})
+        [change] = plan_fix("register_tag", problem, project).changes
+        self.assertIn('+EEE = "countries/Esland.txt"', change.diff)
+        apply_fix("register_tag", problem, project)
+        handle = project.ws.peek(COUNTRIES)
+        self.assertFalse(handle.deleted)
+        self.assertEqual(changed_lines(game.game(COUNTRIES).read_bytes(), codec_for(handle.kind).snapshot(handle.model)),
+                         (1, 0))
+
+    def test_read_only_projects_and_stale_plans_are_refused(self):
+        game, project = self.open(mod_files=ESLAND)
+        [problem] = problems(project, {"tag_not_registered"})
+        plan = plan_fix("register_tag", problem, project)
+        with project.edit("undo.edit"):                          # cambia countries.txt entre el plan y el apply
+            handle = project.ws.open(COUNTRIES)
+            data = codec_for(handle.kind).snapshot(handle.model)
+            project.ws.replace_text(handle, data.replace(b"countries/Corland.txt", b"countries/Corland2.txt"))
+        with self.assertRaises(FixError) as raised:
+            apply_fix("register_tag", problem, project, expected=plan)
+        self.assertEqual(raised.exception.code, "plan_changed")
+        self.assertEqual(len(project.ws.history()), 1, "no aplicó nada")
+        holder = Project.open(game.game_root, game.mod_root)     # la otra ventana: solo lectura
+        self.addCleanup(holder.close, discard=True)
+        self.assertTrue(holder.ws.read_only)
+        with self.assertRaises(FixError) as raised:
+            apply_fix("register_tag", problem, holder)
+        self.assertEqual(raised.exception.code, "read_only")
+        self.assertEqual(holder.ws.documents(), [], "no abrió nada")
+
     def test_modifies_the_mod_copy_and_falls_back_to_a_new_file_name(self):
         files = {COUNTRIES: GAME_FILES[COUNTRIES], "history/countries/FFF.txt": "capital = 1\r\n"}
         game, project = self.open(mod_files=files)
@@ -137,6 +182,15 @@ class ConvertTests(FixTestCase):
                 wanted = f'country_event = {{ id = {event} title = "{expected}" }}\r\n'
                 self.assertEqual(data, wanted.encode("cp1252"))
                 self.assertFalse([p for p in problems(project, {code}) if p.rel == rel])
+
+    def test_doubly_encoded_text_is_refused(self):
+        """Revisión it3: «CafÃ©» en UTF-8 pasa a cp1252 como «Café» en UTF-8: la conversión no surtía efecto."""
+        rel = "events/double.txt"
+        game, project = self.open(mod_files={rel: 'e = { title = "CafÃ©" }\r\n'.encode("utf-8")})
+        [problem] = [p for p in problems(project, {"non_game_encoding"}) if p.rel == rel]
+        with self.assertRaises(FixError) as raised:
+            plan_fix("convert_to_cp1252", problem, project)
+        self.assertEqual(raised.exception.code, "still_utf8")
 
     def test_unencodable_text_is_refused_without_changes(self):
         cjk = 'country_event = { id = 5009 title = "中" }'.encode("utf-8")
@@ -213,6 +267,45 @@ class TrashCopiesTests(FixTestCase):
                          [("common/cb_types.txt", WriteAction.TRASH), ("map/region.txt", WriteAction.TRASH)])
         project.ws.undo()
         self.assertEqual(project.ws.dirty(), [])
+
+    def test_a_copy_that_hides_a_different_dependency_stays(self):
+        """Revisión it3: la copia es idéntica al juego pero tapa otra versión de una dependencia; borrarla cambiaría
+        lo que carga el juego. Solo cuenta lo que ganaría sin la copia."""
+        import tempfile
+
+        from _layers import build_layers
+
+        rel = "common/cb_types.txt"
+        dep = GAME_FILES[rel].replace("months = 12", "months = 99")
+        descriptor = b'name = "TestMod"\r\npath = "mod/TestMod"\r\ndependencies = { "Dep" }\r\n'
+        for dependency, expected in ((dep, []), (GAME_FILES[rel], [rel])):
+            with self.subTest(dependencia_igual=dependency == GAME_FILES[rel]):
+                layers = build_layers(game=GAME_FILES, mod={rel: GAME_FILES[rel]}, descriptor=descriptor,
+                                      dependencies={"Dep": {rel: dependency}}, base=Path(tempfile.mkdtemp()))
+                self.addCleanup(layers.cleanup)
+                project = Project.open(layers.game_root, layers.mod_root)
+                self.addCleanup(project.close, discard=True)
+                from vic2studio.core.validate.fixes import identical_copies
+
+                self.assertEqual([str(r) for r in identical_copies(project)], expected)
+
+    def test_refused_while_the_descriptor_names_other_replace_paths(self):
+        """Revisión it3: un replace_path añadido en la sesión no está aún en la vista abierta; la papelera se llevaba
+        las copias que lo hacen imprescindible."""
+        from _layers import descriptor_bytes
+        from vic2studio.core.vfs import DESCRIPTOR_REL
+
+        game, project = self.open(mod_files={"events/minigame_events.txt": GAME_FILES["events/minigame_events.txt"]})
+        self.assertTrue(plan_fix("trash_identical_copies", None, project).changes)
+        with project.edit("undo.edit"):
+            project.ws.replace_text(project.ws.open(DESCRIPTOR_REL),
+                                    descriptor_bytes("TestMod", "TestMod", "TestMod", replace_paths=["events"]))
+        for call in (plan_fix, apply_fix):
+            with self.subTest(call=call.__name__):
+                with self.assertRaises(FixError) as raised:
+                    call("trash_identical_copies", None, project)
+                self.assertEqual(raised.exception.code, "descriptor_changed")
+        self.assertEqual([h.rel for h in project.ws.dirty()], [DESCRIPTOR_REL], "no mandó nada a la papelera")
 
     def test_nothing_to_trash(self):
         game, project = self.open()

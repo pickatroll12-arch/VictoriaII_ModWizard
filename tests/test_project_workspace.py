@@ -512,6 +512,22 @@ class UnopenedDeleteTests(WorkspaceCase):
         self.assertEqual(snapshot(self.ws, DECISIONS), b"a = 1\r\n")
         self.assertTrue(self.ws.peek(DECISIONS).dirty)
 
+    def test_undoing_a_saved_deletion_of_a_binary_saves_it_back(self):
+        """Regresión (bloqueante de la revisión): tras guardar la papelera y deshacer, la imagen volvía como un
+        documento sin códec de escritura y ningún guardado funcionaba (ni el de otras ediciones)."""
+        self.delete(PICTURE)
+        self.assertTrue(self.ws.save().ok)
+        self.assertFalse(self.game.mod(PICTURE).exists())
+        self.ws.undo()
+        with self.ws.transaction("undo.edit"):
+            set_months(self.ws, months="30")                     # otra edición cualquiera
+        writes = {str(w.rel): w.action for w in self.ws.changeset().writes}
+        self.assertEqual(writes[PICTURE], WriteAction.CREATE)
+        report = self.ws.save()
+        self.assertTrue(report.ok, report.problems)
+        self.assertEqual(self.game.mod(PICTURE).read_bytes(), PICTURE_BYTES, "la imagen vuelve tal cual")
+        self.assertIn(b"months = 30", self.game.mod(CB).read_bytes())
+
     def test_an_opened_file_keeps_its_instance(self):
         handle = self.ws.open(DECISIONS)
         self.delete(DECISIONS)

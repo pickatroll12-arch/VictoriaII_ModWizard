@@ -51,7 +51,7 @@ from ..vfs.model import DocKind, FileEntry, Fingerprint, LayerKind
 from ..vfs.paths import VPath
 from ..vfs.vfs import VirtualFS
 from . import journal
-from .codecs import codec_for, kind_for
+from .codecs import BinaryCodec, codec_for, kind_for
 from .diffing import binary_summary, is_binary, unified_diff
 from .documents import DocumentStore
 from .model import (
@@ -485,6 +485,23 @@ class Workspace:
         model, diagnostics = codec_for(handle.kind).load(bytes(data), handle.rel)
         self.replace_model(handle, model, diagnostics=diagnostics)
 
+    def restore_bytes(self, handle: DocHandle, data: bytes) -> None:
+        """Pone en ``handle`` los bytes de un autoguardado (dentro de una transacción). Como ``replace_text``, pero
+        vale también para un binario, que no se edita pero sí se restaura tal cual (y se guarda tal cual)."""
+        self._check()
+        if codec_for(handle.kind).writable:
+            self.replace_text(handle, data)
+            return
+        self._require_txn()
+        self._require_live(handle)
+        self._require_writable_workspace(handle.rel)
+        if handle.deleted:
+            raise FileNotFoundError(f"{handle.rel}: está borrado")
+        self._begin_change(handle, handle.rel)
+        handle.model, handle.diagnostics = codec_for(handle.kind).load(bytes(data), handle.rel)
+        for frame in self._frames:
+            frame._replaced.add(handle.rel.key)
+
     def create(self, rel: str | VPath, kind: DocKind, model: object | None = None) -> DocHandle:
         """Documento nuevo (dentro de una transacción); ``model=None`` usa ``codec.empty``.
 
@@ -845,9 +862,12 @@ class Workspace:
                 diff = self._trash_diff(handle) if with_diff else ""
                 plans.append((handle, PlannedWrite(handle.rel, target, WriteAction.TRASH, None, handle.base, diff)))
                 continue
-            if not codec.writable:
+            if not codec.writable and not isinstance(codec, BinaryCodec):
                 problems.append(SaveProblem(SAVE_NOT_WRITABLE, handle.rel, {"reason": READ_ONLY_BINARY}))
                 continue
+            # Un binario no se edita (touch, replace_model y create lo rechazan): si está sucio es que deshacer o
+            # rehacer lo devolvió a unos bytes que ya tuvo (deshacer la papelera después de guardarla, con 4570
+            # imágenes en el mod del usuario). Se escriben tal cual: sin esto, ningún guardado volvía a funcionar.
             try:
                 data = codec.render(handle.model, rel=handle.rel)
             except UnencodableTextError as exc:
@@ -1188,10 +1208,13 @@ class Workspace:
         self._autosave_time = time.monotonic()
         if self._read_only or self._session_id is None:
             return
-        documents: dict[VPath, bytes] = {}
+        documents: dict[VPath, bytes | None] = {}
         signature: dict[str, int] = {}
         for handle in self._dirty_handles():
             if handle.deleted:
+                if handle.origin is not None and handle.origin.layer.kind is LayerKind.MOD:
+                    documents[handle.rel] = None        # borrado sin guardar: se recupera como borrado
+                    signature[handle.rel.key] = handle.version
                 continue
             try:
                 documents[handle.rel] = codec_for(handle.kind).snapshot(handle.model)

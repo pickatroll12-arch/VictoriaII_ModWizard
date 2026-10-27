@@ -296,5 +296,10 @@
  "fix_error.unencodable": "“{file}” has a character that does not fit in Windows-1252 (“{char}”, line {line}, column {column}): change it before converting.",
  "fix_error.nothing_to_do": "There is nothing left to fix: the file has already changed.",
  "fix_error.no_game_file": "“{file}” has no game file to restore the rows from.",
- "fix_error.missing_file": "“{file}” no longer exists."
+ "fix_error.missing_file": "“{file}” no longer exists.",
+ "fix_error.read_only": "The project is open read-only (another window holds it): it cannot be fixed from here.",
+ "fix_error.plan_changed": "The file changed since the plan was prepared: press Fix again to see the new plan.",
+ "fix_error.syntax_errors": "“{file}” has syntax errors: fix them first (the new line could end up inside an unclosed block).",
+ "fix_error.descriptor_changed": "The .mod descriptor names other replace_path folders than the open view: save it and reopen the project before cleaning copies (they could be needed).",
+ "fix_error.still_utf8": "“{file}” looks doubly encoded (like “CafÃ©”): converted to cp1252 it would still read as UTF-8. Review it by hand."
 }

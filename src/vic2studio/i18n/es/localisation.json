@@ -61,6 +61,7 @@
   "texts.search_tooltip": "Busca en la clave y en los textos, sin distinguir mayúsculas ni acentos",
   "texts.shown": "(se muestran {shown})",
   "texts.status_added": "Clave «{name}» añadida: se escribirá en {file} al guardar (Ctrl+Z lo deshace).",
+  "texts.status_cannot_win": "No se puede sobrescribir «{name}»: ningún nombre de archivo del mod carga antes que el CSV que la define.",
   "texts.status_invalid": "No se puede guardar ese texto: {error}",
   "texts.status_read_only": "Ese texto no se puede editar: el proyecto o el archivo es de solo lectura.",
   "texts.status_unencodable": "El carácter «{char}» ({code}) no existe en la codificación del juego (cp1252): el juego no podría mostrarlo.",

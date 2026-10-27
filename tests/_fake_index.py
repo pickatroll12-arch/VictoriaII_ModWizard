@@ -528,7 +528,7 @@ class FakeValidationEngine(_Gate):
     def plan_fix(self, key: str, problem: Problem, project) -> ChangePlan:
         return self.fixes[key].plan(problem, project)
 
-    def apply_fix(self, key: str, problem: Problem, project) -> None:
+    def apply_fix(self, key: str, problem: Problem, project, expected=None) -> None:
         self.applied.append((key, problem))
         self.fixes[key].apply(problem, project)
 

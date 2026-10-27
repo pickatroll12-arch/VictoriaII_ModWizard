@@ -233,14 +233,21 @@ def orphan_sessions(recovery_root: Path, *, alive: set[str] = frozenset(), lock_
     return orphans
 
 
-def load_session(recovery_root: Path, session: str) -> dict[VPath, bytes]:
-    """Documentos guardados por ``journal.write_recovery`` en esa sesión (los que no cuadran con su sha, no)."""
+def load_session(recovery_root: Path, session: str) -> dict[VPath, bytes | None]:
+    """Documentos guardados por ``journal.write_recovery`` en esa sesión (los que no cuadran con su sha, no);
+    ``None`` para un documento que estaba borrado sin guardar."""
     folder = Path(recovery_root) / session
     index = _index(folder)
-    documents: dict[VPath, bytes] = {}
+    documents: dict[VPath, bytes | None] = {}
     if index is None:
         return documents
     for entry in index["files"]:
+        if isinstance(entry, dict) and entry.get("deleted") is True:
+            try:
+                documents[rel_from_text(entry["rel"])] = None
+            except (KeyError, TypeError, ValueError):
+                pass
+            continue
         try:
             data = (folder / entry["file"]).read_bytes()
             rel = rel_from_text(entry["rel"])

@@ -322,6 +322,12 @@ def problems_table(model: ProblemsModel) -> ProblemsTable:
     return view
 
 
+def _reason(exc: Exception, lang: str) -> str:
+    """Motivo de un fallo de arreglo en el idioma de la interfaz (``FixError.message``; ``str`` lo da en español)."""
+    message = getattr(exc, "message", None)
+    return message(lang) if callable(message) else str(exc)
+
+
 class FixFlow(QObject):
     """[Arreglar] de un problema: plan → ``FixPlanDialog`` → ``Session.apply_fix``.
 
@@ -362,16 +368,16 @@ class FixFlow(QObject):
         try:
             plan = self.session.plan_fix(spec.key, problem)
         except Exception as exc:  # noqa: BLE001 - el motivo se muestra
-            self.request_status("checks.status_fix_failed", fix=spec.label(problem, lang), error=str(exc))
+            self.request_status("checks.status_fix_failed", fix=spec.label(problem, lang), error=_reason(exc, lang))
             return False
         dialog = FixPlanDialog(spec, problem, plan, self.parent_widget)
         if self.exec_dialog(dialog) != QDialog.DialogCode.Accepted:
             self.request_status("checks.status_fix_cancelled")
             return False
         try:
-            self.session.apply_fix(spec.key, problem)
+            self.session.apply_fix(spec.key, problem, plan=plan)   # si ya no haría lo que enseñó el plan, no aplica
         except Exception as exc:  # noqa: BLE001
-            self.request_status("checks.status_fix_failed", fix=spec.label(problem, lang), error=str(exc))
+            self.request_status("checks.status_fix_failed", fix=spec.label(problem, lang), error=_reason(exc, lang))
             return False
         self.request_status("checks.status_fix_applied", fix=lambda s=spec, p=problem: s.label(p, core_language()))
         self.applied.emit(spec.key, problem)

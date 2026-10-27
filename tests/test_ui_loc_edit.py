@@ -165,6 +165,17 @@ class TextsTableTests(TextsWindowCase):
         self.assertEqual(list(writes), ["localisation/00_TST_decisions.csv"])
         self.assertIs(writes["localisation/00_TST_decisions.csv"].action, WriteAction.MODIFY)
 
+    def test_a_key_no_mod_file_can_override_says_so(self):
+        """Revisión it3: un CSV del juego cuyo nombre carga antes que cualquier «0…» («!early.csv»): LocSync no
+        puede sobrescribir la clave; la sala lo decía con nada (el ValueError no se capturaba)."""
+        self.open_window(game_files={"localisation/!early.csv": "EARLY;Early;;;;Pronto;;;;;;;;x\r\n"})
+        page = self.texts()
+        self.assertTrue(page.select_key("EARLY", "es"))
+        self.assertFalse(page.set_text("EARLY", "es", "Temprano"))
+        self.assertIn("EARLY", self.window.status_label.text())
+        self.assertIn("ningún nombre de archivo del mod", self.window.status_label.text())
+        self.assertEqual(self.window.session.dirty_count(), 0)
+
     def test_an_invalid_text_is_refused_with_its_reason(self):
         window = self.open_window()
         page = self.texts()

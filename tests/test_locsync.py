@@ -149,6 +149,33 @@ class PolicyTests(LocSyncCase):
         self.assertEqual(data, (VSM_HEADER + "\r\nAAA_desc;Land of Aland;;;;;;;;;;;;\r\n").encode("cp1252"),
                          "misma cabecera, copiada tal cual, y filas sin «x»")
 
+    def test_a_new_file_imitates_the_users_own_csvs_not_the_copies_of_game_csvs(self):
+        """Revisión it3: en VSM sus 22 copias de vanilla (con «x») tapaban a sus 00_VSM_* (sin ella)."""
+        prefix = "TESTMOD"
+        marked = CRLF.join(f"k{n};Text {n};;;;Texto {n};;;;;;;;;x" for n in range(5)) + CRLF   # 13 idiomas y «x»
+        loc = self.open(mod=False, mod_files={f"localisation/00_{prefix}_countries.csv": VSM_STYLE},
+                        game_files={"localisation/minigame.csv": marked}, mod_copies=["localisation/minigame.csv"])
+        state = loc._state()
+        copy = next(f for f in loc._mod_files() if state.info[id(f)].rel.name == "minigame.csv")
+        self.assertTrue(all(r.has_end_marker for r in copy.data_rows()), "premisa: la copia del juego lleva «x»")
+        self.edit(lambda: loc.ensure({"AAA_desc": {"en": "Land of Aland"}}, area="events"))
+        data = self.writes()[f"localisation/00_{prefix}_events.csv"][2]
+        self.assertEqual(data, (VSM_HEADER + "\r\nAAA_desc;Land of Aland;;;;;;;;;;;;\r\n").encode("cp1252"))
+
+    def test_a_utf8_mod_csv_also_refuses_characters_the_game_cannot_show(self):
+        """Revisión it3: el juego lee en cp1252 cualquier CSV; en uno guardado en UTF-8 se aceptaba «Łódź»."""
+        rel = "localisation/00_utf8.csv"
+        area = "localisation/00_TESTMOD_events.csv"                 # el archivo del área ya existe, en UTF-8
+        loc = self.open(mod=False, mod_files={rel: "KUTF;Café;;;;Café;;;;;;;;x\r\n".encode("utf-8"),
+                                              area: "KEV;Événement;;;;Evento;;;;;;;;x\r\n".encode("utf-8")})
+        with self.assertRaises(UnencodableTextError):
+            self.edit(lambda: loc.set_text("KUTF", "es", "Łódź"))
+        with self.assertRaises(UnencodableTextError):
+            self.edit(lambda: loc.ensure({"KNEW": {"en": "Łódź"}}, area="events"))
+        self.assertEqual(self.project.ws.dirty(), [])
+        self.edit(lambda: loc.set_text("KUTF", "es", "Niño"))
+        self.assertEqual(loc.text("KUTF", "es"), "Niño")
+
     def test_a_row_added_to_an_existing_file_follows_that_file_and_edits_keep_its_layout(self):
         prefix = "TESTMOD"
         rel = f"localisation/00_{prefix}_countries.csv"
