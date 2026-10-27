@@ -61,9 +61,9 @@ arreglarlo, deja una prueba de regresión que falle sin el arreglo y pasa la bat
   - capturas 21 a 26 en `docs/capturas/`.
 
   Los 8 criterios de wizard.md §22 se cumplen, los del corpus con los archivos reales del usuario.
-- **Pruebas**: 1493 en 97 archivos.
+- **Pruebas**: 1494 en 97 archivos.
   - Con el corpus real del usuario (release `recursos-v1`, descomprimido fuera del repositorio según §4, y copias
-    de VSM y de la plantilla: nunca se abren las reales) pasan las 1493 sin omitir ninguna, y no queda ningún
+    de VSM y de la plantilla: nunca se abren las reales) pasan las 1494 sin omitir ninguna, y no queda ningún
     `.vic2studio` en el corpus real.
   - Sin corpus pasan con 31 omitidas en tres combinaciones: Python 3.13.17 + PySide6 6.12.0, Python 3.10.20 +
     PySide6 6.11.3 y Python 3.10.20 + PySide6 6.5.0 con Pillow 10.0 y numpy 1.24 (sin `XDG_RUNTIME_DIR`).
@@ -386,7 +386,7 @@ El detalle de diseño está en ARCHITECTURE.md §2.3, §2.6, §2.7 y §8.1.1, y 
 
 ### Pruebas
 
-1493 pruebas en 97 archivos `tests/test_*.py`. Las de la iteración 3 son `test_index_*`, `test_validate_*`,
+1494 pruebas en 97 archivos `tests/test_*.py`. Las de la iteración 3 son `test_index_*`, `test_validate_*`,
 `test_rules_*`, `test_lua_defines`, `test_locsync`, `test_loc_effective`, `test_ui_loc_edit`, `test_ui_validation`,
 `test_ui_palette`, `test_contract_it3`, `test_e2e_it3` y los tres `test_*_review_it3`; las de G4–G7,
 `test_tablecsv`, `test_map_*` y `test_gfx_*`. Sin corpus se omiten 31 (las que necesitan vanilla, VSM o la
