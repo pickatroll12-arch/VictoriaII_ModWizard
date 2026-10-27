@@ -189,6 +189,9 @@ class UnencodableTextError(ValueError):
             f"el primero es {char!r} (U+{ord(char):04X}) en la línea {line}, columna {column}"
         )
 
+    def __reduce__(self):
+        return (type(self), (self.encoding, self.problems))
+
 
 @dataclass(frozen=True)
 class DecodedText:

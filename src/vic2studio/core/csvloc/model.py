@@ -96,6 +96,9 @@ class DuplicateKeyError(InvalidFieldError, KeyError):
     def __init__(self, key: str):
         super().__init__(DUPLICATE_KEY, key=key)
 
+    def __reduce__(self):
+        return (type(self), (self.params["key"],))
+
 
 def column_index(lang: Lang) -> int:
     """Columna de ``lang``: código ("es"), nombre ("Spanish") o índice de columna (int)."""

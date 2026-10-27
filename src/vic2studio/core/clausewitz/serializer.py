@@ -87,6 +87,12 @@ class SourceMismatchError(EditError):
         super().__init__("source_mismatch",
                          {"where": str(path), "entry": entry, "line": line, "near_errors": near_errors})
 
+    def __reduce__(self):
+        return (
+            type(self),
+            (self.params["where"], self.params["entry"], self.params["line"], self.params["near_errors"]),
+        )
+
     def _template(self) -> str:
         return "source_mismatch_near_errors" if self.params.get("near_errors") else self.code
 

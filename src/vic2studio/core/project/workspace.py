@@ -108,6 +108,9 @@ class ReadOnlyDocumentError(PermissionError):
         self.reason = reason
         super().__init__(f"{rel}: {reason}")
 
+    def __reduce__(self):
+        return (type(self), (self.rel, self.reason))
+
 
 @dataclass
 class _State:
