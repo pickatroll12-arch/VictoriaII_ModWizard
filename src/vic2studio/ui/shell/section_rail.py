@@ -127,9 +127,22 @@ class RailButton(QAbstractButton):
             return QRectF(self.rect()).adjusted(1.5, 1.0, -1.5, -1.0 - self.pointer)
         return QRectF(self.rect()).adjusted(1.5, 2.0, -1.5 - self.pointer, -2.0)
 
+    def badge_text(self) -> str:
+        return "" if not self.badge else (str(self.badge) if self.badge < 100 else "99+")
+
+    def badge_rect(self) -> QRectF:
+        """Donde se pinta el contador: un círculo con una o dos cifras y una píldora más ancha si no caben («99+»,
+        que en el círculo de 18 px se salía por los lados)."""
+        plate = self.plate()
+        size = 18.0 if self.horizontal else 20.0
+        label = self.badge_text()
+        text = QFontMetricsF(theme.font("badge", 8.5)).horizontalAdvance(label)
+        width = size if len(label) <= 1 else max(size, text + 8.0)
+        return QRectF(plate.right() - 8 - width, plate.center().y() - size / 2, width, size)
+
     def _trailing_width(self) -> float:
         if self.badge:
-            return 24.0 if self.horizontal else 26.0
+            return self.badge_rect().width() + 6.0
         if self.tag:
             return QFontMetricsF(theme.font("badge", 8.0)).horizontalAdvance(self.tag) + 12
         return 0.0
@@ -206,14 +219,14 @@ class RailButton(QAbstractButton):
 
     def _paint_trailing(self, p: QPainter, plate: QRectF, checked: bool) -> None:
         if self.badge:
-            size = 18.0 if self.horizontal else 20.0
-            rect = QRectF(plate.right() - 8 - size, plate.center().y() - size / 2, size, size)
+            rect = self.badge_rect()
             p.setPen(QPen(C("wood_dark"), 1.0))
             p.setBrush(C("gold") if not checked else C("gold_pale"))
-            p.drawEllipse(rect)
+            radius = rect.height() / 2
+            p.drawRoundedRect(rect, radius, radius)   # con una o dos cifras, un círculo
             p.setFont(theme.font("badge", 8.5))
             p.setPen(C("wood_dark"))
-            p.drawText(rect, Qt.AlignmentFlag.AlignCenter, str(self.badge) if self.badge < 100 else "99+")
+            p.drawText(rect, Qt.AlignmentFlag.AlignCenter, self.badge_text())
         elif self.tag:
             font = theme.font("badge", 8.0)
             width = QFontMetricsF(font).horizontalAdvance(self.tag) + 10

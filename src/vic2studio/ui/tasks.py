@@ -90,12 +90,15 @@ GC_FREEZE_MIN_OBJECTS = 100_000
 # muestra y aún tiene que maquetarlo y pintarlo, y con otro hilo ocupado cada llamada a Python esperaría el GIL.
 RELEASE_DELAY = 0.1
 
-# Grupos de hilos: vistas previas y editores (scripts, JSON, CSV), imágenes, validación del mod y
-# liberación de resultados grandes que ya no se usan (``release_in_background``).
+# Grupos de hilos: vistas previas y editores (scripts, JSON, CSV), imágenes, validación del mod,
+# liberación de resultados grandes que ya no se usan (``release_in_background``) y el índice de símbolos
+# (construcción y reextracción incremental, wizard §7).
 POOL_PREVIEW, POOL_IMAGES, POOL_VALIDATION, POOL_RELEASE = "preview", "images", "validation", "release"
-POOL_THREADS = {POOL_PREVIEW: 2, POOL_IMAGES: 1, POOL_VALIDATION: 1, POOL_RELEASE: 1}
+POOL_INDEX = "index"
+POOL_THREADS = {POOL_PREVIEW: 2, POOL_IMAGES: 1, POOL_VALIDATION: 1, POOL_RELEASE: 1, POOL_INDEX: 1}
 
 _FINISHED, _FAILED, _PROGRESS = "finished", "failed", "progress"
+_STEPS_DONE = object()  # fin de los pasos de un ``dismantle`` (sus pasos dan None)
 
 
 class _Dispatcher(QObject):
@@ -165,15 +168,26 @@ _gc_tasks = 0
 _gc_paused = False
 _gc_delivered: list[weakref.ref] = []  # resultados de las tareas que terminaron con el recolector parado
 _gc_watched: dict[int, weakref.ref] = {}  # resultados vivos congelados (por id de la referencia)
+_gc_released = 0  # lo que release_in_background descontó del contador de la generación joven mientras estaba parado
 
 
 def _pause_gc() -> None:
-    global _gc_tasks, _gc_paused
+    global _gc_tasks, _gc_paused, _gc_released
     with _gc_lock:
         if _gc_tasks == 0 and gc.isenabled():
             gc.disable()
             _gc_paused = True
+            _gc_released = 0
         _gc_tasks += 1
+
+
+def _count_released(before: int) -> None:
+    """Suma lo que soltar un trozo (``release_in_background``) descontó del contador de la generación joven."""
+    global _gc_released
+    dropped = before - gc.get_count()[0]
+    if dropped > 0:
+        with _gc_lock:
+            _gc_released += dropped
 
 
 def _resume_gc(result: Any = None) -> None:
@@ -188,12 +202,11 @@ def _resume_gc(result: Any = None) -> None:
                 pass  # no admite referencias débiles: no se puede vigilar
         if _gc_tasks == 0 and _gc_paused:
             _gc_paused = False
-            # Sin congelarlos, la primera pasada tras reactivarlo recorrería todos los objetos nuevos de golpe.
-            young = gc.get_count()[0]
-            if young < GC_FREEZE_MIN_OBJECTS and any(ref() is not None for ref in _gc_delivered):
-                # Lo que suelta a la vez otra tarea (release_in_background) descuenta del contador aunque no fuera
-                # nuevo. Con el recolector parado todo lo nuevo sigue en la generación 0: se cuenta de verdad.
-                young = len(gc.get_objects(0))
+            # Sin congelarlos, la primera pasada tras reactivarlo recorrería todos los objetos nuevos de golpe. Lo que
+            # suelta a la vez release_in_background descuenta del contador aunque no fuera nuevo: se le devuelve.
+            # Nunca gc.get_objects() aquí: su lista retendría cada objeto joven, y si la interfaz suelta mientras uno
+            # suyo (un QPainter, un QBrush), moriría en este hilo y dejaría corrupto el motor de pintado.
+            young = gc.get_count()[0] + _gc_released
             if young >= GC_FREEZE_MIN_OBJECTS:
                 gc.freeze()
                 for ref in _gc_delivered:
@@ -389,9 +402,14 @@ def release_in_background(value: Any, dismantle: Callable[[Any], Iterable[Any]])
     def release(context: TaskContext) -> None:
         time.sleep(RELEASE_DELAY)  # sin el GIL
         item = holder.pop()
-        for _ in dismantle(item):
-            pass
-        # ``item`` muere aquí con lo poco que quede (y avisa a la vigilancia del recolector si la tenía).
+        steps, done = iter(dismantle(item)), False
+        while not done:
+            before = gc.get_count()[0]   # lo que cada trozo descuenta, para _resume_gc
+            done = next(steps, _STEPS_DONE) is _STEPS_DONE
+            _count_released(before)
+        before = gc.get_count()[0]
+        del item, steps   # muere aquí con lo poco que quede (y avisa a la vigilancia del recolector si la tenía)
+        _count_released(before)
 
     def report(handoff: list) -> None:
         kind, outcome = handoff.pop()

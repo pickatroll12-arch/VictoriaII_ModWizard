@@ -13,7 +13,12 @@
   "project.recovery_unreadable": "There is a save journal that cannot be read; it was left untouched. Check the mod's .vic2studio/journal folder.",
   "project.recovery_completed": "An interrupted save was finished: the files already had their changes.",
   "project.recovery_incomplete": "An interrupted save could not be fully resolved: some files were left as they were. Check the trash (.vic2studio/trash).",
+  "project.recovery_foreign": "An interrupted save refers to files in another folder (was the mod copied or renamed after the crash?): nothing was touched. Check the mod's .vic2studio/journal folder.",
   "undo.revert_file": "Discard the changes to {rel}",
   "undo.project_settings": "Change the project settings",
-  "undo.restore_session": "Restore the autosave {session}"
+  "undo.restore_session": "Restore the autosave {session}",
+  "project.not_writable_binary": "it is a binary file",
+  "project.not_writable_invalid_json": "it is not valid JSON: line {line}, column {column}",
+  "project.not_writable_invalid": "its content cannot be written without losses",
+  "project.save_journal_pending": "An earlier save was cut short and could not be resolved, so nothing is saved on top of it: the files of that save were left as they were. Check {journal} (and the trash, .vic2studio/trash) or close and reopen the mod to retry the recovery."
 }

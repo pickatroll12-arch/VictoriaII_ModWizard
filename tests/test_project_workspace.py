@@ -354,8 +354,8 @@ class UndoTests(WorkspaceCase):
         with self.assertRaises(FileNotFoundError):
             ws.open(DECISIONS)
         ws.undo()
-        self.assertFalse(ws.peek(DECISIONS).deleted)
-        self.assertFalse(ws.peek(DECISIONS).dirty)
+        self.assertIsNone(ws.peek(DECISIONS), "no estaba abierto: deshacer lo deja como estaba")
+        self.assertFalse(ws.open(DECISIONS).dirty)
 
     def test_trash_on_save_and_undo_after_saving(self):
         game = self.minigame()
@@ -412,6 +412,161 @@ class UndoTests(WorkspaceCase):
         self.assertIn(b"months = 40", snapshot(ws, CB))
         ws.redo()
         self.assertFalse(handle.dirty)
+
+
+PICTURE = "gfx/pictures/tst_picture.dds"
+PICTURE_BYTES = b"DDS \x7c\x00\x00\x00" + bytes(range(256)) * 40
+
+
+class UnopenedDeleteTests(WorkspaceCase):
+    """Borrar un archivo que no estaba abierto no lo decodifica (``trash_identical_copies`` borra miles)."""
+
+    def setUp(self):
+        super().setUp()
+        self.game = self.minigame(mod_files={PICTURE: PICTURE_BYTES})
+        self.ws = self.workspace(self.game)
+
+    def delete(self, *rels):
+        with self.ws.transaction("undo.delete"):
+            for rel in rels:
+                self.ws.delete(rel)
+
+    def test_nothing_is_decoded_and_undo_redo_stay_cheap(self):
+        self.delete(DECISIONS, PICTURE)
+        for rel in (DECISIONS, PICTURE):
+            self.assertTrue(self.ws.peek(rel).deleted)
+            self.assertTrue(self.ws.peek(rel).unread, rel)
+        self.assertEqual(len(self.ws.dirty()), 2)
+        self.ws.changeset()
+        self.assertTrue(self.ws.peek(DECISIONS).unread, "el diff no decodifica")
+        self.ws.undo()
+        self.assertIsNone(self.ws.peek(DECISIONS))
+        self.assertIsNone(self.ws.peek(PICTURE))
+        self.assertEqual(self.ws.dirty(), [])
+        # Memoria: tras deshacer la limpieza de VSM, sus 8462 instantáneas no deben quedarse en la caché.
+        self.assertNotIn(VPath.of(DECISIONS).key, self.ws._snap)
+        self.ws.redo()
+        self.assertTrue(self.ws.peek(DECISIONS).deleted)
+        self.assertTrue(self.ws.peek(DECISIONS).unread)
+        self.assertTrue(self.ws.save().ok)
+        self.assertFalse(self.game.mod(DECISIONS).exists())
+        self.assertFalse(self.game.mod(PICTURE).exists())
+
+    def test_the_diff_is_the_same_as_for_an_opened_file(self):
+        opened = self.minigame(mod_files={PICTURE: PICTURE_BYTES})
+        ws = self.workspace(opened)
+        with ws.transaction("undo.delete"):
+            for rel in (DECISIONS, PICTURE):
+                ws.open(rel)
+                ws.delete(rel)
+        self.delete(DECISIONS, PICTURE)
+        expected = {w.rel: w.diff for w in ws.changeset().writes}
+        self.assertEqual({w.rel: w.diff for w in self.ws.changeset().writes}, expected)
+        self.assertIn(f"({len(PICTURE_BYTES)} -> - bytes)", expected[VPath.of(PICTURE)])
+        self.assertIn("-\ttst_reform = {", expected[VPath.of(DECISIONS)])
+
+    def test_undo_after_an_external_change_restores_what_was_read(self):
+        original = self.game.mod(DECISIONS).read_bytes()
+        self.delete(DECISIONS)
+        self.game.mod(DECISIONS).write_bytes(b"# cambiado fuera\r\n")
+        self.ws.undo()
+        self.assertFalse(self.ws.peek(DECISIONS).deleted)
+        self.assertEqual(snapshot(self.ws, DECISIONS), original)
+
+    def test_a_failed_transaction_leaves_it_unopened(self):
+        with self.assertRaises(RuntimeError):
+            with self.ws.transaction("undo.delete"):
+                self.ws.delete(DECISIONS)
+                raise RuntimeError("falla a mitad")
+        self.assertIsNone(self.ws.peek(DECISIONS))
+        self.assertEqual(self.ws.history(), [])
+
+    def test_reviving_and_undoing_step_by_step(self):
+        original = self.game.mod(DECISIONS).read_bytes()
+        self.delete(DECISIONS)
+        deletion = [w.diff for w in self.ws.changeset().writes]
+        with self.ws.transaction("undo.create"):
+            self.ws.open(DECISIONS, create=True).model.document.append("a", "1")
+        self.assertEqual(snapshot(self.ws, DECISIONS), b"a = 1\r\n")
+        self.ws.undo()
+        self.assertTrue(self.ws.peek(DECISIONS).deleted)
+        self.assertEqual([w.diff for w in self.ws.changeset().writes], deletion, "otra vez la lápida de antes")
+        self.ws.undo()
+        self.assertIsNone(self.ws.peek(DECISIONS))
+        self.ws.redo()
+        self.ws.redo()
+        self.assertEqual(snapshot(self.ws, DECISIONS), b"a = 1\r\n")
+        self.ws.undo()
+        self.ws.undo()
+        self.assertEqual(self.ws.open(DECISIONS) and snapshot(self.ws, DECISIONS), original)
+
+    def test_undo_never_drops_unsaved_edits(self):
+        """Volver a «sin abrir» solo vale para el estado guardado: un estado con ediciones se restaura entero."""
+        self.delete(DECISIONS)
+        with self.ws.transaction("undo.create"):
+            self.ws.open(DECISIONS, create=True).model.document.append("a", "1")
+        self.delete(DECISIONS)
+        self.ws.undo()
+        self.ws.redo()
+        self.ws.undo()
+        self.assertEqual(snapshot(self.ws, DECISIONS), b"a = 1\r\n")
+        self.assertTrue(self.ws.peek(DECISIONS).dirty)
+
+    def test_undoing_a_saved_deletion_of_a_binary_saves_it_back(self):
+        """Regresión (bloqueante de la revisión): tras guardar la papelera y deshacer, la imagen volvía como un
+        documento sin códec de escritura y ningún guardado funcionaba (ni el de otras ediciones)."""
+        self.delete(PICTURE)
+        self.assertTrue(self.ws.save().ok)
+        self.assertFalse(self.game.mod(PICTURE).exists())
+        self.ws.undo()
+        with self.ws.transaction("undo.edit"):
+            set_months(self.ws, months="30")                     # otra edición cualquiera
+        writes = {str(w.rel): w.action for w in self.ws.changeset().writes}
+        self.assertEqual(writes[PICTURE], WriteAction.CREATE)
+        report = self.ws.save()
+        self.assertTrue(report.ok, report.problems)
+        self.assertEqual(self.game.mod(PICTURE).read_bytes(), PICTURE_BYTES, "la imagen vuelve tal cual")
+        self.assertIn(b"months = 30", self.game.mod(CB).read_bytes())
+
+    def test_an_opened_file_keeps_its_instance(self):
+        handle = self.ws.open(DECISIONS)
+        self.delete(DECISIONS)
+        self.ws.undo()
+        self.assertIs(self.ws.peek(DECISIONS), handle)
+        self.assertFalse(handle.deleted or handle.dirty)
+
+    def test_delete_many_is_the_same_as_deleting_one_by_one(self):
+        """``delete_many`` lee y comprime en paralelo (revisión it3): el resultado es el de borrar uno a uno."""
+        files = {f"events/tst_copy_{n}.txt": f"country_event = {{ id = {7000 + n} }}\r\n" for n in range(12)}
+        results = []
+        for many in (False, True):
+            game = self.minigame(mod_files={**files, PICTURE: PICTURE_BYTES})
+            ws = self.workspace(game)
+            rels = [*sorted(files), PICTURE, DECISIONS]
+            with ws.transaction("undo.delete"):
+                if many:
+                    ws.delete_many(rels)
+                else:
+                    for rel in rels:
+                        ws.delete(rel)
+            results.append([(str(w.rel), w.action, w.diff, w.lines) for w in ws.changeset().writes])
+            self.assertTrue(all(ws.peek(rel).unread for rel in rels))
+            ws.undo()
+            self.assertEqual(ws.dirty(), [])
+            self.assertTrue(ws.save().ok)
+            self.assertEqual(game.mod(PICTURE).read_bytes(), PICTURE_BYTES)
+        self.assertEqual(results[0], results[1])
+        with self.ws.transaction("undo.delete"):
+            with self.assertRaises(FileNotFoundError):
+                self.ws.delete_many([DECISIONS, "events/no_existe.txt"])
+
+    def test_game_files_and_missing_files_are_refused_without_opening_them(self):
+        with self.ws.transaction("undo.delete"):
+            with self.assertRaises(PermissionError):
+                self.ws.delete(CB)
+            with self.assertRaises(FileNotFoundError):
+                self.ws.delete("decisions/no_existe.txt")
+        self.assertIsNone(self.ws.peek(CB))
 
 
 class SaveTests(WorkspaceCase):
@@ -517,6 +672,9 @@ class SaveTests(WorkspaceCase):
         self.assertIn("+\ttst_more = yes", writes[DECISIONS].diff)
         self.assertIn("+a = 1", writes[NEW].diff)
         self.assertIn("-tst_reform;", writes["localisation/00_TST_decisions.csv"].diff)
+        self.assertEqual(writes[NEW].lines, (1, 0), "las líneas del diff entero viajan con la escritura")
+        self.assertEqual(writes["localisation/00_TST_decisions.csv"].lines, (0, 1))
+        self.assertEqual(writes[DECISIONS].lines[0], 1)
         self.assertEqual(writes[NEW].data, b"a = 1\r\n", "archivo nuevo en cp1252 con CRLF")
         self.assertIsNone(writes[NEW].expected)
         self.assertIsNotNone(writes[DECISIONS].expected)

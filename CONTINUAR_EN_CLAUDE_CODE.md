@@ -8,7 +8,7 @@ preparar el entorno y qué hacer después, en orden.
 > 1. `docs/diseno/wizard.md`, el diseño del objetivo ampliado (iteraciones 2 a 10). Empieza por §0 (el diseño en
 >    una página), §20 (trabajo con 2 agentes), §22 (plan de iteraciones) y §24 (decisiones del usuario, que mandan
 >    sobre todo lo demás).
-> 2. `ARCHITECTURE.md`: la arquitectura del código (al día con la iteración 2 integrada).
+> 2. `ARCHITECTURE.md`: la arquitectura del código (al día con la iteración 3 integrada).
 > 3. `README.md`: qué funciona hoy y cómo ejecutar, probar, capturar y usar las CLI.
 > 4. `docs/requisitos/prompt_maestro_creador_de_mods_victoria_ii.md`: los requisitos originales del usuario.
 
@@ -41,12 +41,47 @@ arreglarlo, deja una prueba de regresión que falle sin el arreglo y pasa la bat
     punta de la interfaz contra el `Project` real (`59e8847`), que destapó cinco fallos de integración, todos
     corregidos con prueba de regresión y mutación (§3, «Iteración 2»).
   - La batería entera pasa por primera vez con **PySide6 6.5.0**, el mínimo declarado (`563a709`).
-- **Pruebas** (sin corpus): 978 OK con 4 omitidas, con Python 3.13.17 + PySide6 6.12.0, con Python 3.10.20 +
-  PySide6 6.11.3 y con Python 3.10 + PySide6 6.5.0 (sin `XDG_RUNTIME_DIR`). Las 4 omitidas necesitan el corpus.
-- **En curso al escribir esto**: la revisión adversarial de la iteración 2 (criterio 11), con el guion
-  `docs/handoff/workflow_iteracion2_revision.js` sobre `59e8847`. Si la sesión se cortó antes de corregir sus
-  hallazgos, es el paso 1 de §5.
-- **Queda**, en orden: §5.
+  - **Revisión adversarial de la iteración 2, primera ronda** (criterio 11). Se hizo con
+    `docs/handoff/workflow_iteracion2_revision.js` sobre `59e8847`: 5 componentes, un revisor y un verificador
+    por componente.
+    - Salieron 53 hallazgos confirmados con reproducción: 4 altos, 18 medios y 31 bajos.
+    - Todos están corregidos en el commit «Correcciones de la revisión adversarial de la iteración 2», cada
+      uno con su prueba de regresión.
+    - Las pruebas están en `tests/test_review_*.py`: 12 archivos y 86 pruebas.
+    - 24 mutaciones, todas detectadas.
+    - El detalle está en ARCHITECTURE.md §6.1.
+- **Iteración 3 (índice, validación, textos y Ctrl+K): hecha.** §3 («Iteración 3») y ARCHITECTURE.md §6.1 traen
+  el detalle:
+  - contrato (`914e5ed`), agente A con el núcleo (`7f8e814`) y agente B con `LocSync`, `Session` y la interfaz
+    (`c577135`);
+  - integración contra el núcleo real con la prueba de punta a punta de la ventana (`61589b1`, `9e38e45`,
+    `e7cc27f`), que destapó cinco fallos de integración;
+  - revisión adversarial en tres partes (escritura, núcleo e interfaz) y sus correcciones: `4eb166d`, `f148061`,
+    `4c1df81`, `c3b1410` y `6d568c7`, todas con prueba de regresión y mutantes;
+  - capturas 21 a 26 en `docs/capturas/`.
+
+  Los 8 criterios de wizard.md §22 se cumplen, los del corpus con los archivos reales del usuario.
+- **Pruebas**: 1494 en 97 archivos.
+  - Con el corpus real del usuario (release `recursos-v1`, descomprimido fuera del repositorio según §4, y copias
+    de VSM y de la plantilla: nunca se abren las reales) pasan las 1494 sin omitir ninguna, y no queda ningún
+    `.vic2studio` en el corpus real.
+  - Sin corpus pasan con 31 omitidas en tres combinaciones: Python 3.13.17 + PySide6 6.12.0, Python 3.10.20 +
+    PySide6 6.11.3 y Python 3.10.20 + PySide6 6.5.0 con Pillow 10.0 y numpy 1.24 (sin `XDG_RUNTIME_DIR`).
+- **Queda**: la iteración 4, el motor de esquemas (§5.4). Lo que la iteración 3 deja sin código, con su motivo,
+  está en §6.
+- **Segunda tanda de Gemini (G4–G7): hecha por Claude.** La plataforma de Gemini se cayó y el usuario pidió
+  asumirlas. Son piezas del núcleo para iteraciones futuras, en archivos nuevos:
+  - G4 (`8c33ae6`): `core/tablecsv.py` y `core/map/definition.py`;
+  - G5 (`e3bae3e`): el códec BMP, `core/map/bmp.py`;
+  - G6 (`b412730` y `b973bb9`): DDS A8R8G8B8, `core/gfx/dds.py`;
+  - G7 (`ac3df50`): banderas TGA, `core/gfx/flags.py`.
+
+  El detalle (corpus y mutaciones) está en el estado de `docs/handoff/PARA_GEMINI.md`. Todas pasan en Python 3.13
+  y 3.10 con Pillow 12.3, en 3.10 con Pillow 10.0 y PySide6 6.5, y en 3.10 con Pillow 10.3, con y sin corpus
+  (`VIC2_GAME`).
+  - **Hecho en la integración.** El visor de imágenes (`ui/viewers/image_viewer.py`) ya decodifica con
+    `core/gfx/dds.read_dds` los DDS sin comprimir de 24 y 32 bits. Con Pillow 10.0–10.1, X8R8G8B8 se veía con
+    los colores corridos. Lo que ese lector no admite sigue yendo a Pillow.
 
 ---
 
@@ -146,8 +181,9 @@ Mandan sobre cualquier otra parte del diseño. En resumen:
 ## 3. Qué hay implementado
 
 La ventana tiene 7 salas (Ctrl+1 a Ctrl+7): Proyecto, Mapa, Naciones, Guerra, Eventos, Interfaz y Textos. En
-Proyecto funcionan Inicio, Descriptor .mod, Archivos y Cambios pendientes; el resto de secciones son tarjetas que
-dicen qué harán y en qué iteración llegan. Desde la iteración 2 la interfaz **sí escribe en el mod**, siempre a
+Proyecto funcionan Inicio, Descriptor .mod, Archivos, Validación y Cambios pendientes. En Textos funcionan Todos
+los textos, Pendientes de traducir y Archivos CSV. Además están el panel Problemas y Ctrl+K. El resto de
+secciones son tarjetas que dicen qué harán y en qué iteración llegan. Desde la iteración 2 la interfaz **sí escribe en el mod**, siempre a
 través de `Session` y del diario: el descriptor `.mod` (crear y editar), «Nuevo mod» y, en general, cualquier
 documento abierto en el `Workspace`. Lo de la iteración 1 sigue igual salvo lo que dice «Iteración 2» más abajo.
 Los mensajes de los commits resumen cada ronda: `fadf29e` (núcleo), `899ecca` (parser), `606811e` (interfaz), los
@@ -293,17 +329,76 @@ dos de la última ronda de T4 y los de §0.
   se ofrecía al reabrir; deshacerlo todo no borraba el autoguardado anterior; las etiquetas `undo.*` del núcleo
   no tenían texto; sin `.mod` no se podía crear el descriptor (`FileNotFoundError` al guardar); el formulario
   aceptaba carpetas como «CON .x» que el guardado rechaza.
+- **Revisión adversarial** (primera ronda): 53 hallazgos corregidos. Los cuatro altos:
+  - `<juego>/mod` se aceptaba como carpeta del mod. Ahora la rechaza `mod_root_problem`, y `VirtualFS` lanza
+    `InvalidModRootError`.
+  - Un diario pendiente se aplicaba a medias al reabrir. Ahora la recuperación no toca nada si no puede
+    llevarlo entero a un lado, y no se guarda encima: `save_journal_pending`.
+  - Ctrl+S o cerrar perdían lo tecleado en el descriptor. Ahora lo confirma `MainWindow.commit_edits`.
+  - Restaurar un autoguardado y sufrir otro corte lo perdía. Ahora `restore_session` escribe el autoguardado
+    nuevo antes de borrar el huérfano.
+
+  La lista completa está en ARCHITECTURE.md §6.1, y cada regresión en su `tests/test_review_*.py`.
 - **Fallos de Qt 6.5** (`563a709`), ya corregidos: etiquetas que se mostraban un instante como ventana suelta
   (`setVisible` antes de tener padre; prueba `StrayWindowTests`), botón «Resolver» que `QDialogButtonBox` volvía a
   mostrar, flecha de orden que recortaba los títulos de la tabla de diagnósticos.
 
+### Iteración 3 (índice, validación, textos y Ctrl+K)
+
+El detalle de diseño está en ARCHITECTURE.md §2.3, §2.6, §2.7 y §8.1.1, y los criterios y la revisión en §6.1.
+
+- **`core/index/`**: `SymbolIndex` de la vista efectiva, con 9 familias de extractores (`@extractor`, por
+  descubrimiento) y caché `FactsCache` (JSON-lines con gzip por capa en `<cache_dir>/index/`). Es incremental
+  (`apply`) y admite varias dependencias. La búsqueda va por id y por nombre localizado, sin acentos (`fold`), y
+  `short_name` da el id que ve el usuario. Vanilla se indexa en unos 2,3 s en frío y en 0,3 s desde la caché.
+- **`core/validate/`**: `ValidationContext` (inmutable, con lo sin guardar, `None` si está borrado), 9 familias y
+  91 códigos (`@rule`), `Validator` con `check_failed`, línea base del juego y las dependencias a la fecha de
+  trabajo (`baseline_for`, caché en `<cache_dir>/baseline/`), 5 arreglos con plan = aplicación (`FixError`, 12
+  motivos con texto ES/EN), explicador con título y frase propios por código, textos en `texts/issues.{es,en}.json`.
+- **`core/rules/`** (`GameRules`, `ids`, `names`, `colors`) y **`core/lua_defines.py`** (editor de `defines.lua`
+  sin pérdidas).
+- **`core/locsync.py`**: `LocSync`, la política de dónde se escribe cada texto. Si gana el mod, la fila se edita
+  en su sitio; si gana el juego, va a `00_<P>_overrides.csv`; las claves nuevas van a `00_<P>_<área>.csv`. Tiene
+  vista efectiva e indicadores, y lee en segundo plano.
+- **`core/csvloc/degraded.py`**: la única definición de fila degradada (H15), que comparten la regla
+  `loc_copy_degraded` y el filtro de Textos.
+- **Interfaz**:
+  - `Session` construye el índice, lee los textos y valida en segundo plano.
+  - Proyecto › Validación: tabla con heredados ocultos, [Arreglar ▾] con `FixPlanDialog`, [¿Por qué?] con el
+    explicador en segundo plano, informe desfasado y «Reintentar la línea base».
+  - El panel Problemas.
+  - Textos › Todos los textos y Pendientes de traducir, editables, con filtros y «Añadir clave».
+  - Ctrl+K con la ficha en su línea.
+  - `ui/widgets/busy.py`, el cursor de espera de lo síncrono.
+- **Herramientas**: `tools/screenshot.py --check --explain N --palette TEXTO --texts-search --texts-filter
+  --demo-index`. Cada captura comprueba el explicador y guarda en el informe lo que se vería mal
+  (`checks.explainer_shots`).
+- **Fallos que destapó la prueba de punta a punta** (`9e38e45`, `e7cc27f`), ya corregidos:
+  - lo borrado sin guardar no llegaba al índice ni al validador;
+  - un borrado hacía que el archivo del juego pareciera ausente;
+  - F7 tras Ctrl+Z validaba con el índice viejo;
+  - «Validando…» se quedaba en la barra de estado;
+  - los partidos salían en Ctrl+K con la ruta del archivo.
+- **Revisión adversarial** en tres partes: escritura, núcleo (16 hallazgos) e interfaz (21). Todo está corregido
+  con prueba de regresión y mutantes. El resumen está en ARCHITECTURE.md §6.1. Las pruebas son
+  `tests/test_index_review_it3.py`, `test_validate_review_it3.py` y `test_ui_review_it3.py`, además de las
+  ampliaciones de los módulos de cada pieza.
+
 ### Pruebas
 
-978 pruebas en 55 archivos `tests/test_*.py` (las de la iteración 1 más `test_vfs_*`, `test_project_*`,
+1494 pruebas en 97 archivos `tests/test_*.py`. Las de la iteración 3 son `test_index_*`, `test_validate_*`,
+`test_rules_*`, `test_lua_defines`, `test_locsync`, `test_loc_effective`, `test_ui_loc_edit`, `test_ui_validation`,
+`test_ui_palette`, `test_contract_it3`, `test_e2e_it3` y los tres `test_*_review_it3`; las de G4–G7,
+`test_tablecsv`, `test_map_*` y `test_gfx_*`. Sin corpus se omiten 31 (las que necesitan vanilla, VSM o la
+plantilla reales). Antes de la iteración 3 eran 1089 pruebas en 70 archivos (las de la iteración 1 más `test_vfs_*`, `test_project_*`,
 `test_journal_*`, `test_undo_*`, `test_workspace_*`, `test_recovery_autosave`, `test_lock`, `test_arch_writes`,
 `test_texts`, `test_appdirs`, `test_modfile_write`, `test_ui_shell`, `test_ui_session`, `test_ui_descriptor`,
-`test_ui_new_mod`, `test_ui_roadmap`, `test_ui_real_project`…). Sin corpus se omiten 4: valores pegados al token
-siguiente, el `.csv.bak`, la carpeta vanilla y el criterio 3 de la iteración 2 sobre vanilla + VSM.
+`test_ui_new_mod`, `test_ui_roadmap`, `test_ui_real_project`, de Gemini `test_no_paradox_data`,
+`test_cr_line_counts` y `test_pickle_errors`, y los doce `test_review_*` de la revisión adversarial…). Las que
+lanzan un proceso hijo (cortes con `os._exit`) calculan `tests/` desde `__file__`, así que funcionan con
+`discover -s tests` desde la raíz. Sin corpus se omiten 5: valores pegados al token siguiente, el
+`.csv.bak`, la carpeta vanilla, las líneas de vanilla en el repositorio y el criterio 3 de la iteración 2 sobre
+vanilla + VSM.
 `tests/_qt.py` aísla preferencias, datos y caché en carpetas temporales y crea un `XDG_RUNTIME_DIR` si falta.
 
 Antes de la iteración 2 eran 593 pruebas en 22 archivos `tests/test_*.py` (parser `test_clausewitz_*`, CSV `test_csvloc_*`, `test_encoding`,
@@ -412,15 +507,37 @@ Con PySide6 6.5 o 6.6 y numpy 2, cada import de PySide6 escribe una traza falsa 
 
 ## 5. Próximas tareas, en orden
 
-### 1. Cerrar la revisión adversarial de la iteración 2 (criterio 11)
+### 0. Hecho: fallo de segmentación al pintar y segunda ronda de la revisión (27-10-2026)
 
-Guion: `docs/handoff/workflow_iteracion2_revision.js` (5 componentes: VFS y arquitectura, diario, `Workspace` y
-deshacer, descriptor y `Session`, interfaz con capturas; cada uno con un verificador que intenta refutar). Las
-rutas del guion son de la sesión del 27-10-2026: cámbialas por tu carpeta temporal. Para cada hallazgo
-confirmado: reprodúcelo, prueba de regresión que falle sin el arreglo, arreglo, mutación, batería completa (al
-menos con 3.13 y con PySide6 6.5.0). Después, una segunda ronda sobre los arreglos.
+**Fallo de segmentación intermitente.** Estaba en la iteración 1 desde `9040839` y ya está corregido.
 
-### 2. Capturas e informe de la iteración 2 (criterio 10)
+- *Síntoma.* Con varias baterías a la vez, `test_ui_integration` con corpus moría al pintar un degradado en el
+  hilo de la interfaz.
+- *Causa.* `tasks._resume_gc` contaba los objetos jóvenes con `len(gc.get_objects(0))` desde el hilo de la última
+  tarea. Esa lista retenía también objetos de la interfaz. Si la interfaz soltaba entretanto su `QPainter` o su
+  `QBrush`, la última referencia moría en la tarea y el objeto de Qt se destruía fuera de su hilo.
+- *Cómo se encontró:*
+  - `faulthandler`;
+  - la traza nativa de `gdb`, con los demás hilos quietos;
+  - en 3 de 12 fallos, un hilo de tarea estaba justo en esa línea.
+- *Arreglo.* Ahora se cuenta con `gc.get_count()[0]` más lo que `release_in_background` descontó del contador
+  (`_gc_released`).
+- *Pruebas.* La prueba determinista es
+  `test_tasks.test_resuming_the_collector_holds_nothing_the_interface_owns`. En la prueba de esfuerzo, el código
+  antiguo reventó unas 12 veces en unas 130 ejecuciones, y el nuevo 0 en 78.
+- *Regla:* **nada que retenga objetos ajenos (`gc.get_objects`, `gc.get_referrers`…) en un hilo de tarea.**
+
+**Segunda ronda de la revisión adversarial.** Fue una lectura de los arreglos de `57e4365`. Dejó dos cambios:
+
+- **F4 (media).** Un mod copiado o renombrado tras un guardado cortado no se podía volver a guardar nunca: su
+  diario ajeno bloqueaba con `save_journal_pending`. Ahora un diario ajeno no bloquea.
+- **F2 (baja).** `create_mod_skeleton` se tragaba un `KeyboardInterrupt` llegado tras confirmar.
+
+Cada uno tiene su prueba y su mutación. Otros dos quedan sin código, con su motivo en ARCHITECTURE.md §6.1. Si
+quieres otra ronda con varios agentes, el guion es `docs/handoff/workflow_iteracion2_revision.js`, apuntado al
+commit de las correcciones; pero solo si el usuario lo pide (ultracode u «usa un workflow»).
+
+### 1. Capturas, README e informe de la iteración 2 (criterio 10): hechos
 
 Capturas ES/EN a 1100×700 y 1920×1080 de Inicio, Descriptor .mod, Archivos, Cambios pendientes y el diálogo de
 revisión, revisadas a mano (textos cortados, claves crudas, columnas estrechas):
@@ -431,20 +548,50 @@ python3 tools/screenshot.py --out DIR --lang all --size 1100x700 --mod tests/fix
     --page project:home,project:descriptor,project,project:pending --dialog save_review
 ```
 
-El 27-10-2026 se generaron y revisaron las 20 (sin defectos); se suben a `docs/capturas/` con las correcciones de
-la revisión. Informe al usuario en español: qué entrega la iteración 2, resultado de las pruebas y qué queda.
+**Hecho (27-10-2026).**
 
-### 3. Criterios con corpus (cuando el usuario suba los zips)
+- Las 20 capturas se regeneraron después de las correcciones y se revisaron una a una, sin defectos.
+- Se subieron 10 a `docs/capturas/` (de la 11 a la 20): las 5 vistas, en español a 1100×700 y en inglés a
+  1920×1080. Las texturas no se comprimen, y las 20 pesarían unos 20 MB; la orden de arriba regenera todas.
+- El README describe ya la iteración 2: 7 salas, proyecto, descriptor, guardado con diario, deshacer y
+  recuperación.
+- El informe de la iteración 2 se dio al usuario en el chat.
 
-El usuario dijo que subirá los zips del corpus más adelante (§4, «Corpus»). Con ellos: criterio 1 (la batería
-con `VIC2_CORPUS` completo y la ida y vuelta byte a byte) y criterio 3 sobre vanilla + VSM
-(`test_project_workspace.test_acceptance_criterion_3_with_the_corpus`, que usa `_corpus.vanilla_root()`).
+### 2. Criterios con corpus: hechos (27-10-2026)
 
-### 4. Iteración 3 (wizard.md §22)
+El usuario subió el corpus a la release `recursos-v1` del repositorio. Se descarga por la API de GitHub (la URL
+directa da 404 porque el repositorio es privado; el proxy de la nube pone la autenticación):
 
-Índice de símbolos, validación con reglas y localización editable sincronizada. Mismo ritmo: contrato, 2 agentes
-con archivos disjuntos, integración, prueba de punta a punta contra el núcleo real (no solo contra falsos),
-verificación adversarial, capturas e informe.
+```bash
+curl -sSL -H "Accept: application/octet-stream" -o <nombre> \
+    https://api.github.com/repos/pickatroll12-arch/VictoriaII_ModWizard/releases/assets/<id>
+```
+
+(los `id` y los sha256 salen de la release). Se descomprime fuera del repositorio como dice §4. Con él, los
+criterios 1 y 3 se cumplen: 1089 pruebas OK sin omitir ninguna, ida y vuelta de 12 054 archivos y el criterio 3
+sobre vanilla real + VSM. Además, el Shago Mod completo abre sobre vanilla en 0,12 s, su `somaliland_shago.txt`
+roto se abre en solo lectura y guardar sin cambios no escribe nada.
+
+### 3. Iteración 3 (wizard.md §22): hecha (27-10-2026)
+
+Índice de símbolos, validación con línea base, localización editable sincronizada y Ctrl+K. Contrato, 2 agentes,
+integración contra el núcleo real con la prueba de punta a punta de la ventana, revisión adversarial en tres
+partes con sus correcciones, capturas 21 a 26 e informe. Los 8 criterios se cumplen (ARCHITECTURE.md §6.1). Lo
+que quedó sin código, con su motivo, está en §6.
+
+### 4. Iteración 4 (wizard.md §22): lo siguiente
+
+Motor de esquemas y editor genérico: gobiernos, casus belli, bookmarks, culturas, unidades terrestres y navales
+(capacidades 4, 9, 10, 11, 12 y 13). Mismo ritmo. Lo que la iteración 3 deja preparado:
+
+- `SymbolIndex` y `GameRules` son la fuente de los selectores (`SymbolPicker`) y de las validaciones de
+  esquema.
+- `LocSync.ensure` crea las claves de cada entidad, y `Session.edit` hace la transacción.
+- Ctrl+K ya emite `symbol_activated`: con la iteración 4 tiene que abrir el editor de la entidad en vez del
+  archivo (`MainWindow.open_symbol`).
+- Las reglas nuevas se registran con `@rule` y necesitan `issue.<código>`, `explain.title.<código>` y
+  `explain.outcome.<código>` en ES y EN. `test_validate_rules` exige un caso por código y una frase propia en el
+  explicador.
 
 ### Método de trabajo (wizard.md §20)
 
@@ -484,6 +631,11 @@ Medidos sobre una máquina de 4 CPU compartidas.
 | `ClausewitzViewer.cancel()` solo para el JSON | El análisis sigue con la vista oculta | Un reanálisis debe terminar aunque la vista esté oculta; el JSON se rehace al volver. |
 | Tabla de validación con el divisor al mínimo | Con VSM queda barra horizontal y «Mensaje» mide 100 px | A ese ancho no caben las cuatro columnas; la ayuda emergente muestra la ruta entera. |
 | `SourceMismatchError` no se puede pasar por `pickle` | Su `__init__` pide 3 argumentos | Hoy no se usan procesos. Hay que arreglarlo antes de que un error de guardado cruce al proceso trabajador del taller de mapas (wizard.md §18.4). |
+| Deshacer tras guardar una copia hecha desde el juego (iteración 3) | Deja en el mod una copia idéntica en vez de quitarla | Inofensivo, y la validación la señala (`mod_shadow_identical`, con su arreglo). Quitarla al deshacer exige que el diario sepa borrar lo que creó un guardado anterior. |
+| Planear, aplicar y guardar en el hilo de la interfaz (iteración 3) | Con VSM, la papelera de 8 462 copias: unos 3 s al aplicar y 4,7 s al guardar | Tocan el `Workspace`, que es de un solo hilo (I12). Hay cursor de espera y la barra de estado dice lo que se hace (`ui/widgets/busy.py`). |
+| Primera edición del `text.csv` de VSM (iteración 3) | Unos 0,1 s analizando 3,6 MB en el hilo de la interfaz | Por debajo del límite de 0,5 s; una API para adoptar un modelo leído en segundo plano no compensa todavía. |
+| `LocSync.entries()` con VSM (iteración 3) | 0,15–0,3 s por edición (21 661 claves) | Se reutiliza mientras nada cambia, y la página oculta no se refresca. Trocearlo sería un índice de localización incremental. |
+| Construir la ventana | Unos 0,65 s | Hallazgo opcional 23 de la revisión de la iteración 3; se reducirá con el empaquetado (iteración 10). |
 
 ## 7. Problemas detectados en el mod del usuario (Shago Mod)
 
@@ -516,10 +668,12 @@ completo del corpus.
     «Mundo», seguirían cargándose sus 2 705 historias de provincia, 358 archivos de POPs, 265 OOB, 5 guerras y 4
     diplomacias. Por eso el diseño los manda a la papelera antes de exportar (paso 0 de wizard.md §18.8, regla
     `replace_path_mod_files_remain`) y recomienda el destino «Mod nuevo» (§18.1).
-- El `text.csv` de VSM (3,6 MB, igual que el de `Plantilla Mod`) sustituye al de vanilla, y 3 430 de sus claves
-  tienen un texto distinto. En 3 242 hay un `?` donde vanilla tiene una letra acentuada, así que esos textos salen
-  rotos en francés, alemán y español (`loc_copy_degraded`, con el arreglo «Recuperar las filas de vanilla» en la
-  iteración 3).
+- El `text.csv` de VSM (3,6 MB, igual que el de `Plantilla Mod`) sustituye al de vanilla. Tiene 3 438 filas
+  degradadas, de 3 430 claves: un `?` donde vanilla tiene una letra acentuada, a veces junto a 1 o 2 caracteres
+  más. 3 de esas claves las gana otro archivo que carga antes, así que en partida salen rotas 3 427 en francés,
+  alemán y español. Lo señala `loc_copy_degraded`, con el arreglo «Recuperar las filas de vanilla» (3 438 filas).
+- CSR solo tiene sus 5 banderas (`gfx/flags/CSR*.tga`, que vanilla no trae), sin registro, historia ni textos
+  (`flag_tag_not_registered`, información).
 - `history/units/v2dd2.txt` (un diario en prosa) y `history/units/1861/HAI_oob.txt` (en UTF-8) son idénticos a los
   de vanilla: son problemas heredados del juego, no del mod.
 - Erratas en los textos en español: «Tecnoligias», «modernizal», «Formameros» y «Uncivilizef».

@@ -30,10 +30,12 @@ proyecto: no están en la VFS (``scan`` no las recorre) y se leen y guardan en
 from __future__ import annotations
 
 import itertools
+import json
 import logging
 import os
 import threading
 import time
+import zlib
 from collections.abc import Callable, Iterable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -49,16 +51,19 @@ from ..vfs.model import DocKind, FileEntry, Fingerprint, LayerKind
 from ..vfs.paths import VPath
 from ..vfs.vfs import VirtualFS
 from . import journal
-from .codecs import codec_for, kind_for
-from .diffing import unified_diff
+from .codecs import BinaryCodec, codec_for, kind_for
+from .diffing import binary_summary, counted_diff, is_binary, unified_diff
 from .documents import DocumentStore
 from .model import (
+    NOT_WRITABLE_INVALID,
+    NOT_WRITABLE_INVALID_JSON,
     READ_ONLY_BINARY,
     READ_ONLY_LOCKED,
     READ_ONLY_PARSE_ERRORS,
     READ_ONLY_UNREADABLE,
     SAVE_CONFLICT,
     SAVE_FAILED,
+    SAVE_JOURNAL_PENDING,
     SAVE_NOT_WRITABLE,
     SAVE_OUTSIDE_MOD,
     SAVE_READ_ONLY,
@@ -124,6 +129,90 @@ class _State:
     rel: VPath
 
 
+_UNREAD = object()
+
+
+class _Tombstone(DocHandle):
+    """Lápida de un archivo que no estaba abierto al borrarlo: no decodifica el modelo hasta que alguien lo pide.
+
+    Guarda los bytes del archivo comprimidos (``packed``), que son también su instantánea gracias a la ida y vuelta
+    exacta (I3). Así, mandar a la papelera miles de copias (``trash_identical_copies``: 8462 en el mod del usuario,
+    449 MB) ni analiza miles de archivos ni los tiene decodificados en memoria.
+    """
+
+    def __init__(self, rel: VPath, kind: DocKind, packed: bytes, length: int, **fields) -> None:
+        self.packed: bytes | None = packed
+        self._read: tuple[bytes | None, int | None] = (packed, length)   # lo leído del disco y su tamaño
+        super().__init__(rel, kind, _UNREAD, **fields)
+
+    @property
+    def unread(self) -> bool:
+        return self.__dict__["_model"] is _UNREAD
+
+    def head(self, size: int = 8192) -> bytes:
+        """Los primeros ``size`` bytes (de una lápida sin decodificar), sin descomprimir el resto."""
+        return zlib.decompressobj().decompress(self.packed, size)
+
+    def size(self) -> int:
+        """Tamaño en bytes (de una lápida sin decodificar); sin descomprimir si es lo leído del disco."""
+        packed, length = self._read
+        return length if self.packed is packed else len(decompress(self.packed))
+
+    @property
+    def model(self) -> object:
+        if self.__dict__["_model"] is _UNREAD:
+            model, diagnostics = codec_for(self.kind).load(decompress(self.packed), self.rel)
+            self.__dict__["_model"] = model
+            self.diagnostics = diagnostics
+        return self.__dict__["_model"]
+
+    @model.setter
+    def model(self, value: object) -> None:
+        self.__dict__["_model"] = value
+        if value is not _UNREAD:
+            self.packed = None
+            self._read = (None, None)
+
+    def unload(self, packed: bytes) -> None:
+        """Vuelve a lápida sin decodificar con la instantánea ``packed``."""
+        self.__dict__["_model"] = _UNREAD
+        self.packed = packed
+
+    def raw(self) -> bytes:
+        """Bytes del documento (sin decodificar si no hace falta)."""
+        return decompress(self.packed) if self.unread else codec_for(self.kind).snapshot(self.model)
+
+
+def _pack_entry(entry: FileEntry) -> tuple | None:
+    """(entrada, tamaño, huella, bytes comprimidos) de un archivo del disco; None si no se puede leer (``delete``
+    lo volverá a intentar y dará su error). Solo bytes y rutas: apto para un hilo de fondo."""
+    try:
+        data = entry.path.read_bytes()
+        stat = os.stat(entry.path)
+    except OSError:
+        return None
+    return entry, len(data), Fingerprint.of_bytes(data, stat), compress(data)
+
+
+def _pack_entries(entries: list[FileEntry]) -> dict[str, tuple]:
+    """``_pack_entry`` de cada entrada, en paralelo cuando son muchas (``rel.key`` → resultado)."""
+    if len(entries) < 8:
+        packed = [_pack_entry(entry) for entry in entries]
+    else:
+        from concurrent.futures import ThreadPoolExecutor
+
+        with ThreadPoolExecutor(max_workers=min(4, os.cpu_count() or 1)) as pool:
+            packed = list(pool.map(_pack_entry, entries, chunksize=16))
+    return {entry.rel.key: item for entry, item in zip(entries, packed) if item is not None}
+
+
+def _packed_snapshot(handle: DocHandle) -> bytes:
+    """Instantánea comprimida del modelo de ``handle`` (la de una lápida sin decodificar, tal cual)."""
+    if isinstance(handle, _Tombstone) and handle.unread:
+        return handle.packed
+    return compress(codec_for(handle.kind).snapshot(handle.model))
+
+
 class Txn:
     """Transacción abierta: ``label`` y ``fmt`` dan el nombre del paso de deshacer."""
 
@@ -139,6 +228,7 @@ class Txn:
         self._states: dict[str, _State] = {}
         self._replaced: set[str] = set()
         self._reverted: dict[str, bytes] = {}
+        self._revert_saved: dict[str, int | None] = {}
 
     def touched(self) -> list[VPath]:
         return [state.rel for state in self._states.values()]
@@ -177,6 +267,10 @@ class Workspace:
             raise WrongThreadError("el Workspace solo se usa desde el hilo que lo posee (I12)")
         if self._closed:
             raise RuntimeError("el Workspace está cerrado")
+
+    def check_thread(self) -> None:
+        """``WrongThreadError`` si se llama desde otro hilo (o ``RuntimeError`` si está cerrado), sin tocar nada."""
+        self._check()
 
     def bind_to_current_thread(self) -> None:
         """Hace dueño al hilo actual (``Project.open`` se construye en segundo plano y se entrega a la interfaz).
@@ -267,7 +361,8 @@ class Workspace:
         if handle is not None:
             if handle.deleted:
                 if create:
-                    return self.create(rel, kind or handle.kind)
+                    kind = kind or handle.kind
+                    return self.create(rel, kind, self._underlying_model(rel, kind))
                 raise FileNotFoundError(str(rel))
             return handle
         entry = self._disk_entry(rel)
@@ -291,6 +386,15 @@ class Workspace:
         self._store.add(handle, len(data))
         self._evict(keep=handle.rel.key)
         return handle
+
+    def _underlying_model(self, rel: VPath, kind: DocKind) -> object | None:
+        """Modelo del archivo que el juego cargaría sin la copia del mod (juego o dependencia), o None: revivir
+        una lápida con ``create=True`` no debe tapar ese archivo con uno vacío."""
+        for entry in self._vfs.stack(rel):
+            if entry.layer.kind is not LayerKind.MOD and not self._vfs.hidden_by_replace_path(entry):
+                data, _ = self._read_entry(entry)
+                return codec_for(kind).load(data, entry.rel)[0]
+        return None
 
     def peek(self, rel: str | VPath) -> DocHandle | None:
         self._check()
@@ -344,11 +448,14 @@ class Workspace:
     def _capture(self, handle: DocHandle | None, rel: VPath) -> _State:
         if handle is None:
             return _State(None, None, False, 0, None, rel)
+        if handle.is_new and not handle.dirty and not handle.deleted:
+            # Vacío de open(create=True) sin tocar: no existía (deshacer lo quita, o lo borra si ya se guardó).
+            return _State(handle, None, False, handle.version, handle.kind, handle.rel)
         cached = self._snap.get(handle.rel.key)
         if cached is not None and cached[0] == handle.version:
             data = cached[1]
         else:
-            data = compress(codec_for(handle.kind).snapshot(handle.model))
+            data = _packed_snapshot(handle)
             self._snap[handle.rel.key] = (handle.version, data)
         return _State(handle, data, handle.deleted, handle.version, handle.kind, handle.rel)
 
@@ -401,6 +508,23 @@ class Workspace:
         model, diagnostics = codec_for(handle.kind).load(bytes(data), handle.rel)
         self.replace_model(handle, model, diagnostics=diagnostics)
 
+    def restore_bytes(self, handle: DocHandle, data: bytes) -> None:
+        """Pone en ``handle`` los bytes de un autoguardado (dentro de una transacción). Como ``replace_text``, pero
+        vale también para un binario, que no se edita pero sí se restaura tal cual (y se guarda tal cual)."""
+        self._check()
+        if codec_for(handle.kind).writable:
+            self.replace_text(handle, data)
+            return
+        self._require_txn()
+        self._require_live(handle)
+        self._require_writable_workspace(handle.rel)
+        if handle.deleted:
+            raise FileNotFoundError(f"{handle.rel}: está borrado")
+        self._begin_change(handle, handle.rel)
+        handle.model, handle.diagnostics = codec_for(handle.kind).load(bytes(data), handle.rel)
+        for frame in self._frames:
+            frame._replaced.add(handle.rel.key)
+
     def create(self, rel: str | VPath, kind: DocKind, model: object | None = None) -> DocHandle:
         """Documento nuevo (dentro de una transacción); ``model=None`` usa ``codec.empty``.
 
@@ -438,14 +562,18 @@ class Workspace:
             frame._replaced.add(rel.key)
         return handle
 
-    def delete(self, rel: str | VPath) -> None:
+    def delete(self, rel: str | VPath, *, _prepared: tuple | None = None) -> None:
         """Lápida (dentro de una transacción): al guardar, el archivo del mod va a la papelera. Uno del juego no se
-        puede borrar (``PermissionError``)."""
+        puede borrar (``PermissionError``). Un archivo que no estaba abierto no se decodifica (``_Tombstone``)."""
         self._check()
         self._require_txn()
         rel = VPath.of(rel)
         self._require_writable_workspace(rel)
-        handle = self.open(rel)
+        handle = self._store.get(rel)
+        if handle is None:
+            handle = self._unread_tombstone(rel, _prepared)
+        elif handle.deleted:
+            raise FileNotFoundError(str(rel))
         if handle.origin is not None and handle.origin.layer.kind is not LayerKind.MOD:
             raise PermissionError(f"{rel}: es del juego base (o de una dependencia) y no se puede borrar")
         self._begin_change(handle, handle.rel)
@@ -454,9 +582,60 @@ class Workspace:
         else:
             handle.deleted = True
 
+    def delete_many(self, rels: Iterable[str | VPath]) -> None:
+        """``delete`` de varias rutas (dentro de una transacción, en orden). Los archivos que no estaban abiertos
+        se leen, se resumen y se comprimen antes, en paralelo: solo viajan bytes y rutas (I12), y zlib y hashlib
+        sueltan el GIL. Mandar a la papelera las 8462 copias de VSM tardaba 5 s solo en comprimir 449 MB."""
+        self._check()
+        self._require_txn()
+        rels = [VPath.of(rel) for rel in rels]
+        entries = {}
+        for rel in rels:
+            if self._store.get(rel) is None:
+                entry = self._disk_entry(rel)
+                if entry is not None and entry.layer.kind is LayerKind.MOD:
+                    entries[rel.key] = entry
+        prepared = _pack_entries(list(entries.values()))
+        for rel in rels:
+            self.delete(rel, _prepared=prepared.get(rel.key))
+
+    def _unread_tombstone(self, rel: VPath, prepared: tuple | None = None) -> _Tombstone:
+        """Documento de ``rel`` (que no está abierto) listo para borrarse: sus bytes, sin decodificar ni expulsar
+        a nadie de la LRU (eso lo hace el cierre de la transacción, una vez). ``prepared``: lo que ya leyó
+        ``delete_many`` (entrada, tamaño, huella y bytes comprimidos)."""
+        entry = self._disk_entry(rel)
+        if entry is None:
+            raise FileNotFoundError(str(rel))
+        if entry.layer.kind is not LayerKind.MOD:
+            raise PermissionError(f"{rel}: es del juego base (o de una dependencia) y no se puede borrar")
+        if prepared is not None and prepared[0].path == entry.path:
+            _, length, fingerprint, packed = prepared
+        else:
+            data, fingerprint = self._read_entry(entry)
+            packed, length = compress(data), len(data)
+        kind = kind_for(entry.rel)
+        version = next(self._versions)
+        handle = _Tombstone(entry.rel, kind, packed, length, origin=entry, base=fingerprint, version=version,
+                            saved_version=version)
+        handle.read_only_reason = self._reason(kind, None, [])
+        self._store.add(handle, len(packed))
+        return handle
+
+    def _same_on_disk(self, handle: DocHandle) -> bool:
+        """True si el archivo de ``handle`` sigue en el mod tal como se leyó (``base``)."""
+        entry = self._disk_entry(handle.rel)
+        if (entry is None or entry.layer.kind is not LayerKind.MOD or handle.origin is None or handle.base is None
+                or os.path.normcase(str(entry.path)) != os.path.normcase(str(handle.origin.path))):
+            return False
+        try:
+            return handle.base.matches(Fingerprint.of_path(entry.path), entry.path)
+        except OSError:
+            return False
+
     def _remove(self, handle: DocHandle) -> None:
         self._store.discard(handle.rel)
         self._ghosts[handle.rel.key] = handle
+        self._versioned.discard(handle.rel.key)   # otro DocHandle de la misma ruta recibirá versión nueva
 
     def _apply(self, rel: VPath, data: bytes | None, deleted: bool, version: int, kind: DocKind | None,
                handle: DocHandle | None = None) -> DocHandle | None:
@@ -468,6 +647,17 @@ class Workspace:
         """
         key = rel.key
         live = self._store.get(rel)
+        if (data is not None and not deleted and isinstance(live, _Tombstone) and live.unread
+                and version == live.saved_version and self._same_on_disk(live)):
+            # Deshacer el borrado de un archivo que no estaba abierto: vuelve a no estarlo, sin decodificarlo
+            # (lo que hay en disco es justo ese estado guardado).
+            self._remove(live)
+            self._snap.pop(key, None)
+            return None
+        if data is not None and deleted:
+            entry = self._disk_entry(rel)
+            if entry is None or entry.layer.kind is not LayerKind.MOD:
+                data = None    # lápida sin archivo del mod debajo: no queda nada que borrar
         if data is None:
             entry = self._disk_entry(rel)
             if entry is not None and entry.layer.kind is LayerKind.MOD:
@@ -485,12 +675,15 @@ class Workspace:
         if live is None:
             self._ghosts.pop(key, None)
             self._store.add(target, len(data))
-        model, diagnostics = codec_for(target.kind).load(decompress(data), target.rel)
-        target.model = model
-        target.diagnostics = diagnostics
+        if deleted and isinstance(target, _Tombstone):
+            target.unload(data)    # rehacer un borrado no necesita el modelo
+        else:
+            model, diagnostics = codec_for(target.kind).load(decompress(data), target.rel)
+            target.model = model
+            target.diagnostics = diagnostics
+            target.read_only_reason = self._reason(target.kind, model, diagnostics)
         target.deleted = deleted
         target.version = version
-        target.read_only_reason = self._reason(target.kind, model, diagnostics)
         self._snap[key] = (version, data)
         return target
 
@@ -523,8 +716,7 @@ class Workspace:
                     frame._replaced.discard(key)
             if not any(key in frame._states for frame in self._frames):
                 self._versioned.discard(key)
-            if state.data is not None:
-                events.append(DocReplaced(state.rel))
+            events.append(DocReplaced(state.rel) if state.data is not None else DocDeleted(state.rel))
         if not self._frames:
             self._versioned.clear()
         for event in events:
@@ -533,23 +725,33 @@ class Workspace:
     def _finish(self, txn: Txn) -> None:
         """Cierra la transacción exterior: calcula los ``after``, apila el paso y avisa."""
         snapshots: list[Snapshot] = []
+        saved: list[tuple[DocHandle, int]] = []
+        swapped: list[VPath] = []
         try:
             for key, state in txn._states.items():
                 handle = self._store.get(state.rel)
                 if handle is None:
                     after, deleted, version, kind = None, False, 0, state.kind
                 else:
-                    after = compress(codec_for(handle.kind).snapshot(handle.model))
+                    after = _packed_snapshot(handle)
                     deleted, version, kind = handle.deleted, handle.version, handle.kind
                 if after == state.data and deleted == state.deleted:
                     if handle is not None:
                         handle.version = state.version    # sin cambios: ni versión nueva ni paso
+                        if key in txn._replaced:
+                            swapped.append(handle.rel)    # mismo texto, otro objeto: hay que re-resolver
                     continue
                 if handle is not None:
-                    self._snap[key] = (version, after)
                     reverted = txn._reverted.get(key)
-                    if reverted is not None and reverted == after:
-                        handle.saved_version = version    # «Revertir» deja el documento como en disco
+                    if reverted is not None and reverted == after and not deleted:
+                        # «Revertir» deja el documento como en disco: si el disco no cambió desde lo leído o
+                        # guardado, es el mismo estado que el punto guardado (deshacer hasta él queda limpio).
+                        same = txn._revert_saved.get(key)
+                        if same is not None:
+                            handle.version = version = same
+                        else:
+                            saved.append((handle, version))
+                    self._snap[key] = (version, after)
                 snapshots.append(Snapshot(
                     handle.rel if handle is not None else state.rel, state.data, after,
                     before_deleted=state.deleted, after_deleted=deleted,
@@ -559,6 +761,10 @@ class Workspace:
             raise
         finally:
             self._versioned.clear()
+        for handle, version in saved:
+            handle.saved_version = version
+        for rel in swapped:
+            self._emit(DocReplaced(rel))
         if not snapshots:
             return
         self._undo.push(UndoStep(txn.label, dict(txn.fmt), snapshots, merge_key=txn.merge_key))
@@ -668,7 +874,20 @@ class Workspace:
             return handle.origin.path
         return self._vfs.mod_target(handle.rel)
 
+    def _trash_diff(self, handle: DocHandle) -> tuple[str, tuple[int, int] | None]:
+        """(diff, líneas) de mandar ``handle`` a la papelera; de una lápida sin decodificar, sin descomprimir un
+        binario."""
+        if isinstance(handle, _Tombstone) and handle.unread:
+            if is_binary(handle.head()):
+                return binary_summary(handle.rel, handle.size(), None), None
+            before = handle.raw()
+        else:
+            before = codec_for(handle.kind).snapshot(handle.model)
+        return counted_diff(handle.rel, before, None, encoding=self._encoding(handle))
+
     def _encoding(self, handle: DocHandle) -> str | None:
+        if isinstance(handle, _Tombstone) and handle.unread:
+            return None    # el diff la detecta de los bytes, como al leerlos: sin decodificar la lápida
         return getattr(handle.model, "encoding", None)
 
     def _plan(self, handles: list[DocHandle], *, with_diff: bool
@@ -685,15 +904,16 @@ class Workspace:
                 if not mod_file:
                     unchanged.append(handle)
                     continue
-                diff = ""
-                if with_diff:
-                    diff = unified_diff(handle.rel, codec.snapshot(handle.model), None,
-                                        encoding=self._encoding(handle))
-                plans.append((handle, PlannedWrite(handle.rel, target, WriteAction.TRASH, None, handle.base, diff)))
+                diff, lines = self._trash_diff(handle) if with_diff else ("", None)
+                plans.append((handle, PlannedWrite(handle.rel, target, WriteAction.TRASH, None, handle.base, diff,
+                                                   lines)))
                 continue
-            if not codec.writable:
+            if not codec.writable and not isinstance(codec, BinaryCodec):
                 problems.append(SaveProblem(SAVE_NOT_WRITABLE, handle.rel, {"reason": READ_ONLY_BINARY}))
                 continue
+            # Un binario no se edita (touch, replace_model y create lo rechazan): si está sucio es que deshacer o
+            # rehacer lo devolvió a unos bytes que ya tuvo (deshacer la papelera después de guardarla, con 4570
+            # imágenes en el mod del usuario). Se escriben tal cual: sin esto, ningún guardado volvía a funcionar.
             try:
                 data = codec.render(handle.model, rel=handle.rel)
             except UnencodableTextError as exc:
@@ -707,8 +927,12 @@ class Workspace:
                     "entry": exc.params.get("entry", ""), "line": exc.params.get("line", 0),
                     "near_errors": bool(exc.params.get("near_errors"))}))
                 continue
-            except (ValueError, LookupError) as exc:
-                problems.append(SaveProblem(SAVE_NOT_WRITABLE, handle.rel, {"reason": str(exc)}))
+            except json.JSONDecodeError as exc:
+                problems.append(SaveProblem(SAVE_NOT_WRITABLE, handle.rel, {
+                    "reason": NOT_WRITABLE_INVALID_JSON, "line": exc.lineno, "column": exc.colno}))
+                continue
+            except (ValueError, LookupError):
+                problems.append(SaveProblem(SAVE_NOT_WRITABLE, handle.rel, {"reason": NOT_WRITABLE_INVALID}))
                 continue
             if mod_file:
                 action, expected = WriteAction.MODIFY, handle.base
@@ -722,8 +946,9 @@ class Workspace:
             if before is not None and before == data:
                 unchanged.append(handle)    # I4: un archivo del juego solo se copia al mod si cambió
                 continue
-            diff = unified_diff(handle.rel, before, data, encoding=self._encoding(handle)) if with_diff else ""
-            plans.append((handle, PlannedWrite(handle.rel, target, action, data, expected, diff)))
+            diff, lines = (counted_diff(handle.rel, before, data, encoding=self._encoding(handle)) if with_diff
+                           else ("", None))
+            plans.append((handle, PlannedWrite(handle.rel, target, action, data, expected, diff, lines)))
         return plans, problems, unchanged
 
     def changeset(self, rels: Iterable[VPath] | None = None) -> ChangeSet:
@@ -745,13 +970,17 @@ class Workspace:
         handles = self._selected(rels)
         if not handles:
             return SaveReport(nothing_to_save=True)
+        journal_dir = self._project_dir / journal.JOURNAL_DIR
+        pending = self._unresolved_journal(journal_dir)
+        if pending is not None:
+            # Un guardado anterior quedó a medias: otro encima cambiaría las .bak y los archivos que su diario usa.
+            return SaveReport(problems=(SaveProblem(SAVE_JOURNAL_PENDING, None, {"journal": str(pending)}),))
         plans, problems, unchanged = self._plan(handles, with_diff=False)
         if problems:
             return SaveReport(problems=tuple(problems))
         if not plans:
             self._mark_unchanged(unchanged)
             return SaveReport(nothing_to_save=True)
-        journal_dir = self._project_dir / journal.JOURNAL_DIR
         transaction = journal.SaveTransaction(self._vfs.guard, journal_dir, label=LABEL_SAVE,
                                               backup_bak=self._settings.backup_bak)
         for _, write in plans:
@@ -774,11 +1003,31 @@ class Workspace:
                 return SaveReport(problems=(SaveProblem(SAVE_FAILED, None, {"error": str(exc)}),))
         self._mark_saved(plans)
         self._mark_unchanged(unchanged, emit=False)
+        self._undo.seal()
         if not self._dirty_handles():
             self.clear_recovery()      # todo guardado: el autoguardado de esta sesión ya no sirve
         self._emit(Saved(tuple(h.rel for h, _ in plans)))
         self._emit_dirty()
         return SaveReport(result=result, problems=tuple(checks))
+
+    def _unresolved_journal(self, journal_dir: Path) -> Path | None:
+        """Intenta cerrar los diarios pendientes (``recover_all``); devuelve el primero que siga sin resolver.
+
+        Uno que nombra rutas de otra carpeta (el mod se copió o se renombró tras el corte, ``NOTE_FOREIGN``) no
+        cuenta: ningún guardado de este mod toca esas rutas, y la recuperación nunca lo resolvería.
+        """
+        from .recovery import NOTE_FOREIGN, pending_journals, recover_all
+
+        if not journal_dir.is_dir() or not pending_journals(journal_dir):
+            return None
+        foreign: set[str] = set()
+        try:
+            foreign = {result.txid for result in recover_all(journal_dir, self._vfs.guard)
+                       if NOTE_FOREIGN in result.notes}
+        except Exception:
+            _log.exception("no se pudo recuperar un guardado pendiente")
+        remaining = [state for state in pending_journals(journal_dir) if state.txid not in foreign]
+        return remaining[0].path if remaining else None
 
     def _after_failed_commit(self, transaction, plans, exc) -> SaveResult | None:
         """Tras una excepción en ``commit``: deja el disco coherente con ``recover`` y dice si quedó guardado."""
@@ -844,8 +1093,12 @@ class Workspace:
             self._remove(handle)
             return
         data, fingerprint = self._read_entry(entry)
+        unchanged_disk = (handle.origin is not None and handle.base is not None
+                          and os.path.normcase(str(handle.origin.path)) == os.path.normcase(str(entry.path))
+                          and handle.base.matches(fingerprint, entry.path))
         codec = codec_for(handle.kind)
         model, diagnostics = codec.load(data, entry.rel)
+        saved_point = handle.saved_version if unchanged_disk else None
         handle.model = model
         handle.diagnostics = diagnostics
         handle.deleted = False
@@ -858,6 +1111,7 @@ class Workspace:
         txn._reverted[rel.key] = reverted
         outer = self._frames[0]
         outer._reverted[rel.key] = reverted
+        outer._revert_saved[rel.key] = saved_point
 
     # --- cambios externos -----------------------------------------------------------------
 
@@ -933,6 +1187,7 @@ class Workspace:
         handle.read_only_reason = self._reason(handle.kind, model, diagnostics)
         self._snap.pop(rel.key, None)
         self._store.resize(rel, len(data))
+        self._undo.seal()
         self._emit(DocReplaced(handle.rel))
         self._emit_dirty()
 
@@ -960,10 +1215,14 @@ class Workspace:
                     handle.saved_version = handle.version
                     self._remove(handle)
                     self._emit_dirty()
+                else:
+                    handle.saved_version = next(self._versions)   # el disco ya no tiene ningún estado del historial
             return
         handle.origin = self._disk_entry(rel) if self._project_path(rel) is not None else (
             self._vfs.entry(rel, LayerKind.MOD) or handle.origin)
         handle.base = fingerprint
+        handle.saved_version = next(self._versions)   # ningún estado del historial es ya el del disco
+        self._undo.seal()
 
     def external_diff(self, rel: str | VPath) -> str:
         """«Comparar»: diff entre lo que hay ahora en disco y el documento en memoria."""
@@ -996,10 +1255,13 @@ class Workspace:
         self._autosave_time = time.monotonic()
         if self._read_only or self._session_id is None:
             return
-        documents: dict[VPath, bytes] = {}
+        documents: dict[VPath, bytes | None] = {}
         signature: dict[str, int] = {}
         for handle in self._dirty_handles():
             if handle.deleted:
+                if handle.origin is not None and handle.origin.layer.kind is LayerKind.MOD:
+                    documents[handle.rel] = None        # borrado sin guardar: se recupera como borrado
+                    signature[handle.rel.key] = handle.version
                 continue
             try:
                 documents[handle.rel] = codec_for(handle.kind).snapshot(handle.model)

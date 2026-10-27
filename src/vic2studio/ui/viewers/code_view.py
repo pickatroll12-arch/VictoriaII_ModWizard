@@ -354,13 +354,19 @@ class TextView(QPlainTextEdit):
 
 
 class CodeView(TextView):
-    """``set_source(texto, marcas)``; las marcas son ``{línea: gravedad}`` (``error``/``warning``/``info``)."""
+    """``set_source(texto, marcas)``; las marcas son ``{línea: gravedad}`` (``error``/``warning``/``info``).
+
+    ``first_line`` numera un extracto que no empieza en la línea 1 (la ficha de un archivo sin visor propio
+    muestra las líneas que rodean la pedida): el margen, ``go_to_line``, ``current_line`` y las marcas usan los
+    números del archivo.
+    """
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
         self.setObjectName("codeView")
         self._gutter = _Gutter(self)
         self._gutter_width = 0
+        self._first_line = 1
         self._markers: dict[int, str] = {}
         self._continuations: frozenset[int] = frozenset()
         self._target: tuple[int, int | None] | None = None  # cursor pedido antes de colgar el documento
@@ -374,17 +380,19 @@ class CodeView(TextView):
     # --- API -----------------------------------------------------------------------------
 
     def set_source(self, text: str, markers: dict[int, str] | None = None, *, highlight: bool = True,
-                   continuations: frozenset[int] | None = None, document: QTextDocument | None = None) -> None:
+                   continuations: frozenset[int] | None = None, document: QTextDocument | None = None,
+                   first_line: int = 1) -> None:
         """Muestra ``text`` (ya normalizado con ``display_text``).
 
         ``document`` (de ``document_factory`` con ese texto) y ``continuations`` (ver
         ``string_continuations``) pueden llegar precalculados desde un hilo; si no,
-        se calculan aquí.
+        se calculan aquí. ``first_line``: el número de la primera línea de ``text``.
         """
         if self._highlighter is not None:
             self._highlighter.detach()
             self._highlighter.deleteLater()
             self._highlighter = None
+        self._first_line = max(1, first_line)
         self._markers = dict(markers or {})
         self.highlighted = highlight
         if highlight and continuations is None:
@@ -403,13 +411,18 @@ class CodeView(TextView):
         """Líneas ya coloreadas (el resto se colorea al hacerse visible)."""
         return len(self._highlighter.done) if self._highlighter is not None else 0
 
+    def first_line(self) -> int:
+        return self._first_line
+
     def go_to_line(self, line: int, column: int | None = None) -> bool:
-        """Coloca el cursor en ``line`` (1-based) y la centra; ``False`` si no existe."""
-        block = self.text_document().findBlockByNumber(max(0, line - 1))
+        """Coloca el cursor en ``line`` (1-based, con la numeración del archivo) y la centra; ``False`` si no está."""
+        if line < self._first_line:
+            return False
+        block = self.text_document().findBlockByNumber(max(0, line - self._first_line))
         if not block.isValid():
             return False
         if self._pending is not None:
-            self._target = (block.blockNumber() + 1, column)
+            self._target = (block.blockNumber() + self._first_line, column)
             return True
         cursor = QTextCursor(block)
         if column:
@@ -422,8 +435,8 @@ class CodeView(TextView):
 
     def current_line(self) -> int:
         if self._pending is not None:
-            return self._target[0] if self._target is not None else 1
-        return self.textCursor().blockNumber() + 1
+            return self._target[0] if self._target is not None else self._first_line
+        return self.textCursor().blockNumber() + self._first_line
 
     def _document_changing(self, document: QTextDocument) -> None:
         # Cambiar el margen después obligaría a maquetar otra vez el documento nuevo.
@@ -448,7 +461,8 @@ class CodeView(TextView):
         return self._gutter_width
 
     def _update_gutter_width(self, lines: int | None = None) -> None:
-        digits = max(3, len(str(max(1, self.blockCount() if lines is None else lines))))
+        last = (self.blockCount() if lines is None else lines) + self._first_line - 1
+        digits = max(3, len(str(max(1, last))))
         width = int(QFontMetricsF(self.font()).horizontalAdvance("9") * digits) + 30
         if width != self._gutter_width:
             self._gutter_width = width
@@ -488,7 +502,7 @@ class CodeView(TextView):
         bold.setWeight(QFont.Weight.Bold)
         while block.isValid() and top <= event.rect().bottom():
             if block.isVisible() and bottom >= event.rect().top():
-                line = number + 1
+                line = number + self._first_line
                 severity = self._markers.get(line)
                 if severity is not None:
                     icon = QRectF(3, top + (line_height - 13) / 2, 13, 13)
@@ -522,7 +536,7 @@ class CodeView(TextView):
             rect = self.blockBoundingGeometry(block).translated(offset)
             if rect.top() > area.bottom():
                 break
-            severity = self._markers.get(block.blockNumber() + 1)
+            severity = self._markers.get(block.blockNumber() + self._first_line)
             if severity is not None and block.isVisible() and rect.bottom() >= area.top():
                 p.fillRect(QRectF(left, rect.top(), right - left, rect.height()), MARKER_TINTS[severity])
             block = block.next()

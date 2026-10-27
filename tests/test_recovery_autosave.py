@@ -122,6 +122,50 @@ class AutosaveTests(unittest.TestCase):
         reopened.ws.undo()
         self.assertEqual(reopened.ws.dirty(), [], "restaurar se deshace en un paso")
 
+    def test_deletions_and_binaries_survive_a_crash(self):
+        """Un borrado sin guardar y una imagen devuelta por deshacer (tras guardar la papelera) se recuperan: antes
+        el autoguardado se saltaba los borrados y la recuperación descartaba los binarios sin avisar."""
+        from vic2studio.core.project import WriteAction
+
+        picture = "gfx/pictures/tst_picture.dds"
+        data = b"DDS \x7c\x00\x00\x00" + bytes(range(256)) * 8
+        self.game.mod(picture).parent.mkdir(parents=True, exist_ok=True)
+        self.game.mod(picture).write_bytes(data)
+        project = self.open()
+        with project.edit("undo.delete"):
+            project.ws.delete(picture)
+        self.assertTrue(project.save().ok)
+        project.ws.undo()                                       # la imagen vuelve, sin guardar
+        with project.edit("undo.delete"):
+            project.ws.delete(DECISIONS)
+        project.ws.write_recovery()
+        session = project.ws.session_id
+        self.kill(project)
+        self.assertEqual(load_session(self.recovery_root(project), session),
+                         {VPath.of(DECISIONS): None, VPath.of(picture): data})
+        reopened = self.open()
+        self.assertEqual(reopened.orphan_sessions, [session])
+        restored = reopened.restore_session(session)
+        self.assertEqual(sorted(str(r) for r in restored), sorted([DECISIONS, picture]))
+        self.assertTrue(reopened.ws.peek(DECISIONS).deleted)
+        writes = {str(w.rel): w.action for w in reopened.ws.changeset().writes}
+        self.assertEqual(writes, {DECISIONS: WriteAction.TRASH, picture: WriteAction.CREATE})
+        self.assertTrue(reopened.save().ok)
+        self.assertEqual(self.game.mod(picture).read_bytes(), data)
+        self.assertFalse(self.game.mod(DECISIONS).exists())
+
+    def test_a_session_with_only_deletions_is_offered(self):
+        project = self.open()
+        with project.edit("undo.delete"):
+            project.ws.delete(DECISIONS)
+        project.ws.write_recovery()
+        session = project.ws.session_id
+        self.kill(project)
+        reopened = self.open()
+        self.assertEqual(reopened.orphan_sessions, [session])
+        self.assertEqual(reopened.restore_session(session), [VPath.of(DECISIONS)])
+        self.assertTrue(reopened.ws.peek(DECISIONS).deleted)
+
     def test_discard_orphan_session(self):
         project = self.open()
         self.edit(project)

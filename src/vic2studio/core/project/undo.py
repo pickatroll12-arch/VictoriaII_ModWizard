@@ -31,8 +31,10 @@ def decompress(data: bytes | None) -> bytes | None:
 
 
 def step_size(step: UndoStep) -> int:
-    """Bytes comprimidos que ocupa un paso."""
-    return sum(len(s.before or b"") + len(s.after or b"") for s in step.snapshots)
+    """Bytes comprimidos que ocupa un paso. ``before`` y ``after`` que son el mismo objeto (una lápida guarda sus
+    bytes una vez) cuentan una vez: contados dos, el paso de la papelera en el mod del usuario (161 MB) pasaba de
+    ``max_bytes`` y la edición siguiente lo echaba de la pila."""
+    return sum(len(s.before or b"") + (0 if s.after is s.before else len(s.after or b"")) for s in step.snapshots)
 
 
 class UndoStack:
@@ -84,6 +86,10 @@ class UndoStack:
         self._undo.append(step)
         self._mergeable = None
         return step
+
+    def seal(self) -> None:
+        """El próximo paso no se funde con el anterior (tras guardar o recargar: el punto guardado sigue alcanzable)."""
+        self._mergeable = None
 
     def can_undo(self) -> bool:
         return bool(self._undo)

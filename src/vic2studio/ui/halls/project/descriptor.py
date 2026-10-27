@@ -42,6 +42,7 @@ from PySide6.QtWidgets import (
 from ....core.clausewitz import Severity, to_source
 from ....core.modcheck import GAME_FOLDERS
 from ....core.modfile import (
+    FIELD_ENCODING,
     FIELD_NEWLINE,
     FIELD_QUOTE,
     DescriptorFieldError,
@@ -63,7 +64,9 @@ from ...widgets.flow import FlowLayout
 SEVERITY_LEVELS = {Severity.ERROR: "error", Severity.WARNING: "warning", Severity.INFO: "neutral"}
 # Subcarpetas de primer nivel que también se ofrecen para replace_path (las que los mods suelen sustituir).
 SPLIT_FOLDERS = ("history", "gfx", "map", "interface")
-FIELD_CODES = (FIELD_QUOTE, FIELD_NEWLINE)
+FIELD_CODES = (FIELD_QUOTE, FIELD_NEWLINE, FIELD_ENCODING)
+# UTF-16: el juego no lo lee, pero el formulario lo reescribe en cp1252 (render_descriptor).
+UNREADABLE = "unreadable_encoding"
 
 
 def candidate_folders(game_root: Path | None) -> list[str]:
@@ -116,6 +119,7 @@ class DescriptorPage(BasePage):
         self._candidates_game: Path | None = None
         self._counts: dict[str, int] = {}
         self._filling = False
+        self._typed = False                         # hay texto tecleado que aún no se confirmó (commit_pending)
         self._read_only = True
         self._read_only_reason: str | None = None
         self._empty_reason: tuple[str, dict] = (N_("descriptor.empty_text"), {})
@@ -381,7 +385,7 @@ class DescriptorPage(BasePage):
             self._candidates = candidate_folders(project.game_root)
             self._candidates_game = project.game_root
             self._counts = {}
-        read_only = bool(project.read_only) or (handle is not None and handle.read_only_reason is not None)
+        read_only = bool(project.read_only) or (handle is not None and handle.read_only_reason not in (None, UNREADABLE))
         for widget in (self.name_edit, self.folder_edit, self.user_dir_edit, self.dependencies_edit,
                        self.same_button, self.suggest_button):
             widget.setEnabled(not read_only)
@@ -400,6 +404,7 @@ class DescriptorPage(BasePage):
 
     def _fill(self, spec: DescriptorSpec) -> None:
         self._filling = True
+        self._typed = False
         try:
             for edit, value in ((self.name_edit, spec.name), (self.folder_edit, spec.folder),
                                 (self.user_dir_edit, spec.user_dir)):
@@ -454,18 +459,26 @@ class DescriptorPage(BasePage):
         """
         if self._filling or self._spec is None or self._project() is None or self._read_only:
             return False
+        self._typed = False
         spec = self.form_spec()
-        if spec == self._spec and (self._exists or not force):
+        # Sin cambios no hay nada que confirmar, salvo «Crear el descriptor» (force) si falta o está en UTF-16, que el
+        # juego no lee: confirmarlo lo reescribe en cp1252.
+        convert = force and (not self._exists or self._read_only_reason == UNREADABLE)
+        if spec == self._spec and not convert:
             return False
         if any(issue.code in FIELD_CODES for issue in self.problems(spec)):
             self._refresh_feedback()  # un valor que no se puede escribir no llega al documento
             return False
+        # «all» (crear el descriptor o confirmar el formulario entero) no es una clave del .mod: sin nombre de campo.
+        label = N_("descriptor.undo_edit_all") if field == "all" else N_("descriptor.undo_edit")
         try:
-            with self.session.edit(N_("descriptor.undo_edit"), merge_key=f"descriptor.{field}", field=field):
+            with self.session.edit(label, merge_key=f"descriptor.{field}", field=field):
                 ws = self._project().ws
                 handle = ws.open(DESCRIPTOR_REL, create=True)
                 if not self._exists:
                     ws.replace_text(handle, render_descriptor(spec))
+                elif handle.read_only_reason == UNREADABLE:
+                    ws.replace_text(handle, render_descriptor(spec, handle.model))   # pasa a cp1252
                 else:
                     ws.touch(handle)
                     apply_descriptor(handle.model.document, spec)
@@ -473,15 +486,22 @@ class DescriptorPage(BasePage):
             self._refresh_feedback()
             return False
         self.reload()
-        self.request_status("descriptor.status_edited", field=field)
+        self.request_status(N_("descriptor.status_edited_all") if field == "all" else N_("descriptor.status_edited"),
+                            field=field)
         return True
 
     def commit(self, *, force: bool = False) -> bool:
         """Confirma todo el formulario de una vez (lo que hacen los campos al perder el foco)."""
         return self._commit("all", force=force)
 
+    def commit_pending(self) -> bool:
+        """Confirma lo tecleado que aún no llegó al documento: Ctrl+S o cerrar la ventana no quitan el foco del
+        campo. Sin nada tecleado no hace nada (el formulario entero normalizaría, p. ej., el orden de replace_path)."""
+        return self._typed and self._commit("all")
+
     def _on_typing(self, *args) -> None:
         if not self._filling:
+            self._typed = True
             self._refresh_feedback()
 
     def _on_replace_changed(self, checked: bool) -> None:

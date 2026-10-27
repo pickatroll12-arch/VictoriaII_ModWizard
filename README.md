@@ -20,49 +20,114 @@ puede usar en **español o inglés**, cambiando de idioma en tiempo real.
 
 ## Estado del proyecto
 
-Versión **0.1.0**, pre-alfa. La **iteración 1 está cerrada salvo dos tareas**.
-Además del núcleo y la ventana principal, se revisó la integración del parser y
-la localización con la interfaz, las pruebas dejaron de depender del corpus
-completo, cada componente pasó una verificación adversarial y los hallazgos se
-corrigieron con pruebas de regresión y una segunda ronda de verificación
-(tareas T1–T4 del [documento de traspaso](CONTINUAR_EN_CLAUDE_CODE.md)),
-incluida la última ronda de T4. Quedan la segunda revisión adversarial de la
-última ronda de la interfaz, que está en curso, y T5, el informe final al
-usuario con capturas nuevas.
+Versión **0.1.0**, pre-alfa.
+
+- **Iteración 1**: cerrada. Incluye el motor de archivos, el visor y la
+  validación.
+- **Iteración 2** (los cimientos): integrada y revisada. Llegan:
+  - un sistema de archivos virtual juego base + mod;
+  - el proyecto transaccional, con guardado todo o nada, deshacer y
+    recuperación tras un corte;
+  - el generador del descriptor `.mod`;
+  - la ventana de 7 salas.
+
+- **Iteración 3** (índice, validación y textos): integrada y revisada. Llegan:
+  - el índice de símbolos de la vista efectiva (juego, dependencias, mod y
+    cambios sin guardar), con caché e incremental;
+  - la validación cruzada con línea base, que no culpa al mod de los fallos
+    del juego, con arreglos de un clic y el explicador «¿Por qué?»;
+  - la localización editable y sincronizada en la sala Textos;
+  - el buscador universal Ctrl+K.
+
+La iteración 2 pasó dos rondas de revisión adversarial: 55 hallazgos
+confirmados, todos corregidos con su prueba de regresión. La iteración 3 pasó
+la suya, por componentes, con las correcciones también probadas con
+mutaciones. Lo siguiente es la
+[iteración 4](docs/diseno/wizard.md#22-plan-de-iteraciones), el motor de
+esquemas. El estado detallado está en el
+[documento de traspaso](CONTINUAR_EN_CLAUDE_CODE.md).
 
 ### Qué funciona hoy
 
-La aplicación tiene cinco módulos en la barra de navegación (Ctrl+1 … Ctrl+5):
+La ventana tiene **7 salas** (Ctrl+1 … Ctrl+7): Proyecto, Mapa, Naciones,
+Guerra, Eventos, Interfaz y Textos. Cada sala tiene sus secciones en una barra
+lateral, o en una franja si la ventana es estrecha. Lo que aún no existe es una
+tarjeta que dice qué hará y en qué iteración llega.
 
-- **Proyecto y Archivos**: rutas del juego base (solo lectura) y del mod, con
-  comprobación de ambas carpetas y del descriptor `.mod`, y un explorador con
-  filtro. La vista previa elige visor según el archivo:
+- **Proyecto › Inicio**: el juego base (solo lectura) y los mods de su carpeta
+  `mod/` como tarjetas.
+  - Un clic abre el mod.
+  - «Crear mod nuevo» crea la carpeta, el descriptor y las carpetas básicas
+    sin copiar nada del juego, todo o nada; una plantilla es opcional.
+  - «Abrir otra carpeta» abre un mod que está fuera de `mod/`.
+  - Debajo, «¿Qué quieres hacer?» y la hoja de ruta de las 10 iteraciones.
+- **Proyecto › Descriptor .mod**: un formulario para `name`, `path`,
+  `user_dir`, `dependencies` y `replace_path`.
+  - Muestra cómo quedará el archivo y sus problemas mientras escribes.
+  - Editar un campo conserva los comentarios y el resto del archivo.
+  - Un `.mod` en UTF-16, que el juego no lee, se pasa a Windows-1252.
+- **Proyecto › Archivos**: las rutas del juego y del mod, un explorador con la
+  capa de cada archivo (juego, dependencia o mod) y la vista previa:
   - scripts Clausewitz (`.txt`, `.mod`, `.gfx`, `.gui`, `.sfx`, `.asset`,
-    `.map`): pestañas Estructura, Código fuente, Diagnósticos y JSON, con
-    buscador; doble clic en un diagnóstico salta a su línea y a su nodo; un
-    archivo en UTF-16, que el juego no puede leer, sale en rojo («Ilegible
-    para el juego»);
-  - imágenes (`.tga`, `.dds`, `.bmp`, `.png`, `.jpg`, `.jpeg`, `.gif`),
-    decodificadas con Pillow;
-  - los `.csv` de `localisation/` se abren en Localización.
-- **Validar mod** (en Proyecto y Archivos): analiza todos los scripts y CSV
-  del mod y su descriptor, con progreso y cancelación, y lista los
-  diagnósticos en una tabla filtrable; doble clic abre el archivo en esa línea.
-- **Localización (CSV)**: tabla de solo lectura con una columna por idioma,
-  buscador, conmutadores para mostrar comentarios y todas las columnas, y los
-  diagnósticos del lint traducidos.
-- **Mapa, Países y Eventos**: tarjetas con lo planificado y la hoja de ruta de
-  [wizard.md §22](docs/diseno/wizard.md#22-plan-de-iteraciones), con sus 10
-  hitos: el mapa llega en la iteración 5, los países en la 6 y los eventos en
-  la 7. El aviso de solo lectura de Localización anuncia la edición para la 3.
+    `.map`), con las pestañas Estructura, Código fuente, Diagnósticos y JSON, y
+    buscador. Un archivo en UTF-16 sale en rojo («Ilegible para el juego»);
+  - imágenes (`.tga`, `.dds`, `.bmp`, `.png`, `.jpg`, `.jpeg`, `.gif`);
+  - los `.csv` de `localisation/`, que se abren en Textos.
+  - «Validar mod» (F7) lanza el validador del núcleo y lleva a Proyecto ›
+    Validación. La pestaña «Validación» del panel izquierdo conserva el
+    análisis de la iteración 1, archivo a archivo, sobre el disco.
+- **Proyecto › Validación** (F7): el informe del validador sobre la vista
+  efectiva, con los cambios sin guardar, en segundo plano y cancelable.
+  - Columnas de gravedad, mensaje, entidad, archivo y línea; doble clic abre el
+    archivo en esa línea.
+  - Los problemas que ya tiene el juego base salen como **heredados** y se
+    ocultan; un conmutador los enseña, en cursiva.
+  - **[Arreglar]** enseña antes el plan de cambios con su diff y pide
+    confirmación. Arreglos de esta iteración: registrar un TAG antes de
+    `dynamic_tags`, convertir a Windows-1252, añadir la `}` que falta,
+    recuperar las filas de vanilla de una copia degradada de `text.csv` y
+    mandar a la papelera las copias idénticas al juego. Todo se deshace con
+    Ctrl+Z y nada se escribe hasta guardar.
+  - **[¿Por qué?]** abre el explicador: las capas en el orden en que las carga
+    el juego, cada una con su línea real y su veredicto, y lo que verá el
+    jugador.
+  - El panel acoplable **Problemas** da lo mismo en compacto.
+- **Proyecto › Cambios pendientes**: lo que escribirá Guardar, archivo a
+  archivo, con su diff. Se puede descartar un archivo.
+- **Textos › Todos los textos** y **Pendientes de traducir**: la localización
+  efectiva, editable en la tabla, con los textos en inglés, español, francés y
+  alemán, su archivo ganador y su origen.
+  - Editar una clave sigue la regla del juego (gana la primera clave por orden
+    alfabético de archivo): si gana un CSV del mod, se edita en su sitio; si
+    gana el juego, se escribe en `localisation/00_<prefijo>_overrides.csv`, sin
+    copiar nunca el CSV del juego.
+  - «Añadir clave», filtros («creadas por el Studio», «sin traducir»,
+    «sustituyen a vanilla» y «degradadas») y buscador sin mayúsculas ni
+    acentos.
+- **Textos › Archivos CSV**: cada CSV en una tabla de solo lectura, con
+  buscador y el lint traducido.
+- **Ctrl+K**: busca cualquier símbolo del índice (países, provincias, partidos,
+  culturas, eventos, decisiones, claves de localización…) por su id o por su
+  nombre en el idioma de la interfaz («549», «Berlín», «PRU»,
+  «north_german»), y también las salas y secciones. Intro abre el archivo en
+  su línea.
 
-El análisis, las imágenes y la validación corren en segundo plano, en grupos
-de hilos propios (`ui/tasks.py`): la interfaz sigue respondiendo con archivos de
-varios MB, abrir otro archivo cancela el análisis anterior (y suelta su
-memoria por trozos en un hilo aparte) y la validación tiene un botón
-«Cancelar». La aplicación todavía no modifica archivos del juego
-ni del mod: la escritura existe en el núcleo y en la CLI `fromjson`, y la
-edición desde la interfaz empieza en la iteración 2.
+**Editar, guardar y deshacer.** Cada cambio es un paso con nombre que se
+deshace (Ctrl+Z) y se rehace (Ctrl+Y, o Ctrl+Mayús+Z); el Historial lista los
+pasos. Guardar (Ctrl+S) escribe todo o nada a través de un diario:
+
+- un corte a mitad (el disco lleno, cerrar el proceso) deja el mod como antes o
+  como después;
+- se guarda la copia `.bak` y el original en `.vic2studio/originals/`;
+- antes de copiar un archivo del juego al mod o de mandar algo a la papelera,
+  se pide confirmación;
+- si un archivo cambió fuera del Studio, se pregunta («Conservar mis cambios»,
+  «Recargar del disco» o «Comparar»);
+- el trabajo sin guardar se autoguarda, y al reabrir se ofrece recuperarlo;
+- abrir el mismo mod en otra instancia lo deja en solo lectura.
+
+El Studio solo escribe en la carpeta del mod y en su `.mod`, nunca en el juego
+base.
 
 El núcleo (`vic2studio.core`, sin Qt) se puede usar desde Python o desde la
 terminal:
@@ -91,6 +156,24 @@ terminal:
   uno nuevo en cp1252 con CRLF) y `modcheck` (validación de un mod completo).
 - `cancel`: cancelación cooperativa; las funciones largas aceptan
   `cancelled=` y lanzan `Cancelled`.
+- `index`: el índice de símbolos (`SymbolIndex`). Hay extractores registrados
+  por descubrimiento para países, partidos, provincias de tierra y de mar,
+  regiones, continentes, climas, culturas, religiones, gobiernos, ideologías,
+  asuntos, tecnologías, invenciones, bienes, edificios, tipos de POP,
+  unidades, CB, eventos, decisiones, bookmarks, guerras, sprites, imágenes y
+  claves de localización. Guarda en caché los hechos de cada archivo, en
+  JSON-lines comprimido por capa (nunca `pickle`), y solo reprocesa lo que
+  cambia.
+- `validate`: la validación cruzada.
+  - Reglas por familia: sintaxis, archivos, descriptor, países, provincias,
+    localización, eventos, decisiones y `peace_order`.
+  - Línea base del juego en caché, para marcar los heredados.
+  - Arreglos con plan previo (`FixError` con código y texto ES/EN).
+  - Explicador para cada código.
+- `rules` (`GameRules`, ids, nombres y colores) y `lua_defines`, que lee y
+  cambia `defines.lua` sin perder ni un byte de lo demás.
+- `locsync`: edita la localización con la política del juego, sobre la vista
+  efectiva (también lo que no se ha guardado).
 
 ### Qué viene
 
@@ -100,13 +183,11 @@ a las partes planificadas de ARCHITECTURE.md. Cubre las iteraciones 2 a 10 (la
 9 dividida en 9a y 9b), con el plan en
 [§22](docs/diseno/wizard.md#22-plan-de-iteraciones) y las decisiones del
 usuario en [§24](docs/diseno/wizard.md#24-decisiones-del-usuario-26-10-2026).
-La interfaz pasará a 7 salas (Proyecto, Mapa, Naciones, Guerra, Eventos,
-Interfaz y Textos) sobre una VFS vanilla + mod con guardado transaccional y
-deshacer. Estas son las
-[15 capacidades](docs/diseno/wizard.md#14-las-15-capacidades), con la
-iteración en que llegan:
+Las salas y el proyecto transaccional de la iteración 2 son la base de las
+[15 capacidades](docs/diseno/wizard.md#14-las-15-capacidades). Esta es la
+iteración en que llega cada una:
 
-1. Generar el archivo `.mod` (2).
+1. Generar el archivo `.mod` (2, hecha).
 2. Países: asistente, ficha, banderas `.tga` e historial (6).
 3. Provincias (5; las nuevas, 9).
 4. Unidades terrestres (4).
@@ -124,9 +205,10 @@ iteración en que llegan:
     Fantasy Map Generator o importación de bitmaps, con todos sus archivos
     dependientes (9a y 9b).
 
-La iteración 3 añade el índice de símbolos, la validación con línea base y la
-localización editable sincronizada; la 10, el pulido, la exportación a zip y
-el empaquetado final. Los prototipos del taller de mapas están en
+La iteración 3 (hecha) añadió el índice de símbolos, la validación con línea
+base, la localización editable sincronizada y Ctrl+K, que necesitan todas las
+capacidades. La 4 trae el motor de esquemas y la 10, el pulido, la exportación
+a zip y el empaquetado final. Los prototipos del taller de mapas están en
 [docs/diseno/prototipos/mapforge/](docs/diseno/prototipos/mapforge/README.md).
 
 ## Requisitos
@@ -150,10 +232,9 @@ el empaquetado final. Los prototipos del taller de mapas están en
   PySide6 de la distribución con el numpy de pip (`venv --system-site-packages`):
   `python3 -m pip install "numpy<2"` lo arregla. Desde PySide6 6.7 no pasa.
 
-Sin corpus, la batería entera se pasó con Python 3.13.17 y PySide6 6.12.0; con
-Python 3.10.20 y PySide6 6.11.3, las 593 pruebas anteriores al aviso y a la
-nueva hoja de ruta y, aparte, las 16 que llegaron con ellos (numpy 2,
-Pillow 12).
+Sin corpus, la batería entera pasa en tres combinaciones: Python 3.13.17 y
+PySide6 6.12.0, Python 3.10.20 y PySide6 6.11.3 (numpy 2, Pillow 12), y
+PySide6 6.5.0, el mínimo, con Python 3.10, numpy 1.24 y Pillow 10.
 
 En Linux las dependencias pueden venir del gestor de paquetes (en Fedora:
 `python3-pyside6`, `python3-numpy`, `python3-pillow`) o de pip:
@@ -233,11 +314,12 @@ pruebas que necesitan archivos que la muestra no tiene (un `text.csv` grande,
 una historia de provincia) usan una plantilla sintética generada por código
 (`tests/_corpus.py`).
 
-Resultado actual: **609 pruebas** en 24 archivos, **todas OK con 3 omitidas**
-sin `VIC2_CORPUS`. Con el corpus completo, la última ejecución fue con 593
-pruebas, antes de `test_compat.py`, `test_ui_roadmap.py` y los archivos de país
-sintéticos de la muestra, y pasaron todas. Con el corpus, el parser recorre
-12 054 archivos Clausewitz (27,4 MB) con ida y vuelta byte a byte.
+Resultado actual: **1494 pruebas** en 97 archivos, **todas OK con 31
+omitidas** sin `VIC2_CORPUS`, y todas OK sin omitir ninguna con el corpus
+completo (la instalación de vanilla, la plantilla y el Shago Mod). Sin corpus
+pasan con Python 3.13 y PySide6 6.12, con Python 3.10 y PySide6 6.11, y con
+PySide6 6.5 y Pillow 10.0, los mínimos declarados. Con el corpus, el parser
+recorre 12 054 archivos Clausewitz (27,4 MB) con ida y vuelta byte a byte.
 
 Algunas pruebas miden las pausas de la interfaz: en una máquina cargada (por
 ejemplo, con dos baterías a la vez) pueden fallar. Repítelas antes de darlas
@@ -401,15 +483,21 @@ configuración del usuario. Opciones:
 |---|---|
 | `--out DIR` | Carpeta de salida (obligatoria). |
 | `--lang es\|en\|all` | Idioma; por defecto, los dos. |
-| `--page all\|project\|map\|countries\|events\|localisation` | Página; por defecto, todas. |
+| `--page PÁGINA` | `all`, `project`, `localisation`, una sala o `sala:sección` (`project:validation`, `localisation:all`…); repetible o con comas. |
+| `--hall SALAS`, `--section CLAVE` | Salas (separadas por comas) y una sección de la sala de `--hall`. |
+| `--dialog NOMBRE` | Captura además un diálogo: `save_review`, `new_mod`, `conflict` o `recovery`. |
 | `--size ANCHOxALTO` | Tamaño de la ventana; por defecto `1440x900`. |
 | `--mod RUTA`, `--game RUTA` | Carpetas del mod y del juego base. |
+| `--demo-game`, `--demo-changes`, `--no-game-art` | Un juego sintético temporal con una copia de `--mod`, dos cambios sin guardar y solo la estética procedural (siempre en `docs/capturas`). |
+| `--check`, `--explain N` | Valida con el validador del núcleo (F7) antes de capturar y abre el explicador del problema N. |
+| `--palette TEXTO` | Abre Ctrl+K con `TEXTO` en cada captura. |
+| `--texts-search TEXTO`, `--texts-filter FILTRO` | Buscador y filtro de Textos › Todos los textos (`all`, `studio`, `untranslated`, `overrides`, `degraded`). |
 | `--open-file RUTA` | Abre un archivo (relativo al mod) en su visor, o un CSV en Localización. |
 | `--line N`, `--search TEXTO` | Línea a mostrar y texto del buscador del archivo abierto. |
 | `--tab structure\|source\|diagnostics\|json` | Pestaña del visor Clausewitz (solo con un script). |
 | `--validate` | Ejecuta «Validar mod» y espera a que termine. |
 | `--left-tab files\|validation` | Pestaña del panel izquierdo de «Proyecto y Archivos». |
-| `--report ESTADO.json` | Guarda en JSON lo que muestran las capturas. |
+| `--report ESTADO.json` | Guarda en JSON lo que muestran las capturas; con el explicador abierto, también lo que se vería mal (`checks.explainer_shots`, que además avisa en stderr). |
 
 Sale con 1 si no puede abrir el archivo o la línea pedidos o si no puede
 validar (sin un `--mod` válido, o si la validación no termina a tiempo), y con
@@ -421,9 +509,38 @@ python3 tools/screenshot.py --out capturas --lang es --page project \
     --mod tests/fixtures/shago_mod_min/VSM --validate --left-tab validation
 ```
 
-Las 10 capturas de `docs/capturas/` (T5, 26-10-2026) se generaron con esta
-herramienta sobre la muestra del repositorio, en español e inglés, a 1100x700,
-1440x900 y 1920x1080; su nombre dice la página, el idioma y el tamaño.
+Las capturas de `docs/capturas/` se generaron con esta herramienta sobre la
+muestra del repositorio, en español e inglés; su nombre dice la página, el
+idioma y el tamaño. Son de dos tandas:
+
+- **01 a 10** (T5, iteración 1, 26-10-2026): a 1100x700, 1440x900 y
+  1920x1080.
+- **11 a 20** (iteración 2, 27-10-2026): Inicio, Descriptor .mod, Archivos,
+  Cambios pendientes y la revisión antes de guardar, en español a 1100x700 y
+  en inglés a 1920x1080.
+- **21 a 26** (iteración 3, 27-10-2026): Proyecto › Validación con el
+  explicador abierto, Textos › Todos los textos y Ctrl+K, en español a
+  1100x700 y en inglés a 1920x1080.
+
+Las de la iteración 2 salen con un juego sintético y dos cambios sin guardar:
+
+```bash
+python3 tools/screenshot.py --out capturas --lang all --size 1100x700 \
+    --mod tests/fixtures/shago_mod_min/VSM --demo-game --demo-changes --no-game-art \
+    --page project:home,project:descriptor,project,project:pending --dialog save_review
+```
+
+Las de la iteración 3, con el validador y el índice del núcleo sobre ese juego
+sintético:
+
+```bash
+python3 tools/screenshot.py --out capturas --lang all --size 1100x700 \
+    --mod tests/fixtures/shago_mod_min/VSM --demo-game --no-game-art \
+    --check --explain 2 --page project:validation --page localisation:all
+python3 tools/screenshot.py --out capturas/paleta --lang all --size 1100x700 \
+    --mod tests/fixtures/shago_mod_min/VSM --demo-game --no-game-art \
+    --palette SOM --page project:home
+```
 
 ## Empaquetado
 
@@ -452,16 +569,31 @@ src/vic2studio/
 ├── core/              núcleo sin Qt
 │   ├── clausewitz/    parser .txt sin pérdidas, edición, JSON y CLI
 │   ├── csvloc/        CSV de localización: modelo, lint, LocalisationDB y CLI
+│   ├── vfs/           sistema de archivos virtual juego + dependencias + mod, WriteGuard
+│   ├── project/       Project, Workspace, códecs, deshacer, diario, recuperación y bloqueo
+│   ├── index/         índice de símbolos: modelo, caché, construcción y extractores
+│   ├── validate/      validación con línea base: reglas, arreglos y explicador
+│   ├── rules/         reglas del juego: GameRules, ids, nombres y colores
+│   ├── locsync.py     edición sincronizada de la localización
+│   ├── lua_defines.py defines.lua sin pérdidas
+│   ├── map/, gfx/     piezas del mapa y de imágenes para iteraciones futuras (BMP, definition.csv, DDS, banderas)
+│   ├── tablecsv.py    CSV de tablas sin pérdidas (definition.csv y compañía)
 │   ├── encoding.py    detección de codificaciones y códecs sin pérdidas
 │   ├── fileio.py      lectura con huella y escritura atómica con .bak
 │   ├── modfile.py     descriptor .mod
-│   ├── modcheck.py    validación de un mod completo
+│   ├── modcheck.py    validación de un mod completo (la de la iteración 1)
+│   ├── appdirs.py     carpetas de datos y caché del Studio
+│   ├── texts.py       textos ES/EN del núcleo
 │   └── cancel.py      cancelación cooperativa (cancelled=)
-├── i18n/              traductor y textos es.json / en.json
+├── i18n/              traductor, catálogos es.json / en.json y fragmentos por sala
 ├── ui/
-│   ├── pages/         páginas de los 5 módulos
+│   ├── halls/         las 7 salas y sus secciones (registro por descubrimiento)
+│   ├── shell/         armazón: sala, barra de secciones, Cambios pendientes, Historial, Problemas y Ctrl+K
+│   ├── dialogs/       revisión del guardado, conflicto, recuperación, nuevo mod, plan de un arreglo y nueva clave
+│   ├── pages/         páginas de Archivos, Archivos CSV y la tarjeta «en desarrollo»
 │   ├── viewers/       visor Clausewitz, código, diagnósticos, imágenes, localización y validación
 │   ├── widgets/       estandarte, tarjetas, iconos, navegación, ornamentos, superficies y diseño en flujo
+│   ├── session.py     Session: el único puente entre el proyecto y Qt
 │   ├── tasks.py       tareas en segundo plano: grupos de hilos y cancelación
 │   ├── theme.py       tema procedural (con style.qss)
 │   └── main_window.py ventana principal
@@ -474,9 +606,9 @@ tools/screenshot.py    capturas sin pantalla
 packaging/             PyInstaller y lanzador de Linux
 docs/
 ├── diseno/            wizard.md (iteraciones 2 a 10) y prototipos del taller de mapas
-├── capturas/          10 capturas ES/EN de la muestra (T5)
+├── capturas/          26 capturas ES/EN de la muestra (T5 e iteraciones 2 y 3)
 ├── requisitos/        requisitos originales del usuario
-└── handoff/           workflow de la iteración 1 (contratos de API)
+└── handoff/           encargos de los agentes, guiones de workflow y tareas para otros asistentes
 ```
 
 El árbol detallado y la arquitectura están en [ARCHITECTURE.md](ARCHITECTURE.md).
@@ -518,33 +650,69 @@ Interactive: the app works on each user's own copy of the game and ships no
 game graphics or fonts (see the licence notes below for the vanilla content
 that the repository still holds).
 
-**Status**: version 0.1.0, pre-alpha. Iteration 1 is done except for two
-tasks: tasks T1–T4 are done (integration review, corpus-independent tests,
-adversarial verification and fixes with a second verification round,
-including the last T4 round); the second adversarial review of the last UI
-round is in progress, and T5, the final report with new screenshots, is
-pending. Today the
-app has a project page (paths, file explorer, Clausewitz viewer with
-structure, source, diagnostics and JSON tabs, image preview, `.mod`
-descriptor check and a background "Validate mod" with progress and
-cancellation), a read-only localisation table with search and lint, and
-placeholder pages for the map, countries and events with the roadmap of
-wizard.md §22 (map in iteration 5, countries in 6, events in 7; localisation
-editing in 3). Long tasks run in background thread pools, and a large file's
-analysis is freed in chunks off the UI thread. The app does not modify game or
-mod files yet; writing exists in the core and in the `csvloc fromjson` CLI,
-and editing from the UI starts in iteration 2. The Qt-free core provides
+**Status**: version 0.1.0, pre-alpha.
+
+- Iteration 1 (file engine, viewer, validation) is closed.
+- Iteration 2 (foundations) is integrated, and two adversarial review rounds
+  fixed 55 confirmed findings, each with a regression test.
+- Iteration 3 (symbol index, validation with a baseline, synchronised
+  localisation editing and Ctrl+K) is integrated and reviewed.
+
+The window has 7 halls (Ctrl+1 … Ctrl+7): Project, Map, Nations, War, Events,
+Interface and Texts. Planned sections are cards that say which iteration
+brings them. Project has five sections:
+
+- **Home**: the base game and the mods in its `mod/` folder; a new mod is
+  created all-or-nothing, with an optional template.
+- **.mod descriptor**: a form that keeps comments and converts UTF-16 to
+  cp1252.
+- **Files**: the paths, an explorer that shows the layer of each file, and the
+  Clausewitz, image and CSV previews, plus a background "Validate mod" (F7).
+- **Validation** (F7): cross-file validation of the effective view (unsaved
+  edits included), in the background. Problems the base game already has are
+  marked as inherited and hidden by default. **Fix** shows the planned diff
+  before applying an undoable one-click fix. The five fixes are: register a
+  TAG before `dynamic_tags`, convert to cp1252, add the missing `}`, restore
+  vanilla rows in a degraded `text.csv` copy, and trash files identical to the
+  game. **Why?** explains which layer wins and what the player will see. A
+  dockable Problems panel shows the same report.
+- **Pending changes**: the diff of each file.
+
+Texts › All texts is the effective localisation, editable in place. A key won
+by a mod CSV is edited where it is, and a key won by the game goes to
+`localisation/00_<prefix>_overrides.csv`; the game's CSV is never copied. It
+has filters for keys created by the Studio, untranslated keys, keys that
+override vanilla and degraded keys. Texts › CSV files keeps the read-only
+per-file table. Ctrl+K finds any indexed symbol by id or by its localised name
+("549", "Berlín", "PRU", "north_german") and opens it at its line.
+
+Edits are named, undoable steps. Saving (Ctrl+S) goes through a journal, so a
+crash leaves the mod either before or after:
+
+- it keeps `.bak` copies and the originals;
+- saves that copy game files or trash files are reviewed first;
+- external changes are detected;
+- unsaved work is autosaved and offered back after a crash;
+- a second instance opens the mod read-only.
+
+The Studio only ever writes to the mod folder and its `.mod`.
+
+The Qt-free core provides
 lossless encoding detection (cp1252, UTF-8, UTF-16 with or without BOM,
 repeated BOMs), a lossless Clausewitz parser with a format-preserving edit API,
 encoding diagnostics (an error for UTF-16, which the game cannot read) and
 public end positions for tree nodes, a lossless CSV model with lint and a
 localisation database that merges folders the way the game does, `.mod`
-descriptor handling, whole-mod validation and cooperative cancellation.
+descriptor handling, whole-mod validation and cooperative cancellation. Since
+iteration 3 it also has the symbol index, which caches per-file facts as
+compressed JSON lines and rebuilds incrementally. It also has rule-based
+validation with a cached base-game baseline, one-click fixes and a conflict
+explainer, game rules, a lossless `defines.lua` editor and `LocSync`.
 
 **Roadmap**: iterations 2 to 10 in
 [docs/diseno/wizard.md](docs/diseno/wizard.md) (Spanish), which replaces the
-roadmap in ARCHITECTURE.md. The UI will move to 7 rooms on top of a vanilla +
-mod virtual file system with transactional saving and undo, and will cover 15
+roadmap in ARCHITECTURE.md. On top of the 7 halls and the vanilla + mod
+virtual file system with transactional saving and undo, they will cover 15
 capabilities: `.mod` generation, countries, provinces, land units, decisions,
 an interface (`.gui`/`.gfx`) suite, events, starting wars, casus belli,
 bookmarks, governments, naval units, cultures, regions and a new-map workshop
@@ -562,16 +730,15 @@ Qt fail when importing `tests/_qt.py` with the same message;
 numpy must be older than 2 (their shiboken6 wheels were built against NumPy 1.x;
 with numpy 2 every PySide6 import prints a bogus traceback): `pip install
 "numpy<2"`. Without a corpus, the whole
-suite was run with Python 3.13.17 + PySide6 6.12.0; with Python 3.10.20 +
-PySide6 6.11.3,
-the 593 earlier tests and, separately, the 16 new ones.
+suite passes with Python 3.13.17 + PySide6 6.12.0, with Python 3.10.20 +
+PySide6 6.11.3 and with PySide6 6.5.0, the declared minimum.
 
 ```bash
 PYTHONPATH=src python3 -m vic2studio                    # run from source
 pip install -e . && vic2studio                          # or install, then run
 QT_QPA_PLATFORM=offscreen VIC2STUDIO_SETTINGS_DIR="$(mktemp -d)" \
-    python3 -m unittest discover -s tests               # 609 tests, 3 skipped without a corpus
-VIC2_CORPUS="/path/to/vanilla:/path/to/mod" ...         # enable real-corpus tests (last run: 593 of 593 OK)
+    python3 -m unittest discover -s tests               # 1494 tests, 31 skipped without a corpus
+VIC2_CORPUS="/path/to/vanilla:/path/to/mod" ...         # enable real-corpus tests (last run: 1494 of 1494 OK)
 PYTHONPATH=src python3 -m vic2studio.core.clausewitz check /path/to/mod --lang en
 PYTHONPATH=src python3 -m vic2studio.core.csvloc check /path/to/mod/localisation
 python3 tools/screenshot.py --out capturas --lang all   # offscreen screenshots

@@ -213,7 +213,7 @@ def _fsync_file(path: str | os.PathLike) -> None:
         os.close(fd)
 
 
-def copy_file(source: str | os.PathLike, target: str | os.PathLike) -> None:
+def copy_file(source: str | os.PathLike, target: str | os.PathLike, *, token: str | None = None) -> None:
     """Copia con metadatos (``copy2``) y fsync, creando las carpetas intermedias (``.bak``, ``originals/``).
 
     Es atómica: copia a un temporal junto a ``target`` y lo renombra, así que un
@@ -221,7 +221,9 @@ def copy_file(source: str | os.PathLike, target: str | os.PathLike) -> None:
     """
     target = Path(target)
     make_dirs(target.parent)
-    fd, name = _create_temp(target)
+    if token is not None:
+        remove_file(target.with_name(f".{target.name}.{token}.tmp"))   # resto de un corte anterior
+    fd, name = _create_temp(target, token)
     os.close(fd)
     try:
         shutil.copy2(source, name)
@@ -251,6 +253,9 @@ def remove_file(path: str | os.PathLike) -> None:
         os.remove(path)
     except FileNotFoundError:
         pass
+    except OSError as exc:
+        if exc.errno != errno.ENAMETOOLONG:
+            raise   # un nombre que el sistema no admite no puede existir
 
 
 def make_dirs(folder: str | os.PathLike) -> None:

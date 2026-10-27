@@ -1,4 +1,5 @@
-"""Vista previa de imágenes (TGA, DDS, BMP, PNG, JPG, GIF) decodificadas con Pillow en segundo plano.
+"""Vista previa de imágenes (TGA, DDS, BMP, PNG, JPG, GIF) decodificadas en segundo plano con Pillow (los DDS sin
+comprimir, con ``core.gfx.dds``).
 
 Pillow se usa también para formatos que Qt lee, porque con archivos dañados
 falla limpiamente en vez de llenar el registro de avisos. ``QImage`` (no
@@ -32,6 +33,7 @@ from PySide6.QtWidgets import (
 )
 
 from ...core.cancel import CancelCheck, Cancelled, raise_if_cancelled
+from ...core.gfx.dds import DDPF_ALPHAPIXELS, DDS_UNSUPPORTED, HEADER_SIZE, DdsError, dds_info, read_dds
 from ...i18n import tr
 from .. import theme
 from ..tasks import POOL_IMAGES, TaskRunner
@@ -82,6 +84,32 @@ def try_load_image(path: str | os.PathLike, *, cancelled: CancelCheck = None) ->
         return ImageFailure(Path(path), str(exc), stamp, exc)
 
 
+def _open_image(file, path: Path, cancelled: CancelCheck) -> Image.Image:
+    """``Image.open``, salvo los DDS sin comprimir de 24 y 32 bits, que decodifica ``core.gfx.dds``: Pillow 10.0 y
+    10.1 (dentro del mínimo del proyecto) leen X8R8G8B8 como si fuera de 24 bits y muestran los colores corridos.
+    Lo que ese lector no admite (16 bits, máscaras raras) sigue yendo a Pillow; uno que admite pero está roto
+    (truncado) falla aquí, porque esas versiones de Pillow lo mostrarían igual de mal."""
+    if path.suffix.lower() == ".dds":
+        head = file.read(HEADER_SIZE)
+        file.seek(0)
+        try:
+            info = dds_info(head)
+        except DdsError:
+            info = None
+        if info is not None and info.fourcc is None:
+            raise_if_cancelled(cancelled)  # antes de decodificar, como con Pillow
+            try:
+                rgba = read_dds(file.read()).rgba
+            except DdsError as exc:
+                if exc.code != DDS_UNSUPPORTED:
+                    raise
+                file.seek(0)
+            else:
+                image = Image.fromarray(rgba, "RGBA")
+                return image if info.pf_flags & DDPF_ALPHAPIXELS and info.masks[3] else image.convert("RGB")
+    return Image.open(file)
+
+
 def load_image(path: str | os.PathLike, *, cancelled: CancelCheck = None) -> ImageLoad:
     """Decodifica ``path``; si ``cancelled()`` ya es True tras leer la cabecera, lanza ``Cancelled``.
 
@@ -91,7 +119,7 @@ def load_image(path: str | os.PathLike, *, cancelled: CancelCheck = None) -> Ima
     stat = path.stat()
     with open(path, "rb") as file:
         try:
-            with Image.open(file) as im:
+            with _open_image(file, path, cancelled) as im:
                 width, height = im.size
                 mode, fmt = im.mode, im.format or path.suffix[1:].upper()
                 raise_if_cancelled(cancelled)  # antes de decodificar, que es lo que tarda

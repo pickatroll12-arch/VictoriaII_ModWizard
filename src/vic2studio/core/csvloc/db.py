@@ -120,6 +120,19 @@ class LocalisationDB:
         db.dirs, db.replaced_files, db.errors = dirs, replaced, errors
         return db
 
+    @classmethod
+    def from_entries(cls, files: Iterable[LocalisationFile], *, dirs: Iterable[PathLike] = ()) -> LocalisationDB:
+        """Base sobre archivos ya leídos (los ganadores de la VFS y los documentos sin guardar, wizard §21).
+
+        Quien llama ya resolvió qué archivo gana cada nombre (la VFS lo hace por ruta): aquí solo se ordenan
+        por orden de carga (``load_order_key`` del nombre; los que no tienen ruta, al final). ``dirs`` (mod
+        primero) permite a ``origin`` decir de qué carpeta viene cada clave.
+        """
+        ordered = sorted(files, key=lambda f: (f.path is None, load_order_key(f.path.name) if f.path else ("", "")))
+        db = cls(ordered)
+        db.dirs = [Path(d) for d in dirs]
+        return db
+
     def rebuild(self) -> None:
         first: dict[str, tuple[LocalisationFile, LocRow]] = {}
         later: dict[str, list[tuple[LocalisationFile, LocRow]]] = {}

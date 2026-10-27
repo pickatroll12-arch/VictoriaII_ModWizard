@@ -5,6 +5,11 @@ añadidas y quitadas) y, debajo, el diff del archivo seleccionado con las línea
 coloreadas. Lo usan la sección «Cambios pendientes» de la sala Proyecto y el
 diálogo de revisión antes de guardar. No calcula nada: quien lo usa le pasa el
 ``ChangeSet`` (``Session.changeset``).
+
+Las cuentas son las del diff entero (``PlannedWrite.lines``): el diff que se muestra
+viene recortado a ``MAX_DIFF_LINES`` y, contadas sobre él, «Recuperar las filas» de VSM
+decía +134 −134 en vez de +3 438 −3 438. La línea de recorte del núcleo
+(«... (+N lines)») se dice en el idioma de la interfaz («… y N líneas más»).
 """
 
 from __future__ import annotations
@@ -24,9 +29,11 @@ from PySide6.QtWidgets import (
 )
 
 from ...core.project import ChangeSet, PlannedWrite, WriteAction
+from ...core.project.diffing import split_truncation
 from ...core.vfs import DESCRIPTOR_REL
 from ...i18n import N_, tr
 from .. import theme
+from ..viewers.common import format_number
 from ..widgets import make_icon, mark_data
 
 ACTION_KEYS = {
@@ -50,15 +57,24 @@ def write_label(write: PlannedWrite) -> str:
     return str(write.rel)
 
 
+def shown_diff(diff: str) -> str:
+    """El diff con la línea de recorte del núcleo traducida: «… y 12 177 líneas más»."""
+    body, hidden = split_truncation(diff or "")
+    if not hidden:
+        return diff or ""
+    return body + "\n" + tr("pending.diff_more", count=format_number(hidden))
+
+
 def display_diff(write: PlannedWrite) -> str:
-    """El diff tal como se muestra: en las cabeceras del descriptor, su nombre de archivo y no la ruta reservada."""
+    """El diff tal como se muestra: en las cabeceras del descriptor, su nombre de archivo y no la ruta reservada, y
+    el recorte en el idioma de la interfaz."""
     if str(write.rel) != str(DESCRIPTOR_REL) or not write.diff:
-        return write.diff
+        return shown_diff(write.diff)
     lines = write.diff.split("\n")
     for index, line in enumerate(lines[:2]):
         if line.startswith(("---", "+++")):
             lines[index] = line.replace(str(DESCRIPTOR_REL), write_label(write))
-    return "\n".join(lines)
+    return shown_diff("\n".join(lines))
 
 
 def changed_lines(diff: str) -> tuple[int, int]:
@@ -70,6 +86,25 @@ def changed_lines(diff: str) -> tuple[int, int]:
         elif line.startswith("-") and not line.startswith("---"):
             removed += 1
     return added, removed
+
+
+def line_counts(diff: str, lines: tuple[int, int] | None) -> tuple[int, int] | None:
+    """(añadidas, quitadas) del cambio entero: las que da el núcleo (``lines``) o, si no las trae, las del diff, solo
+    si no viene recortado (contar sobre el recortado daba cifras falsas). None: binario, sin diff o desconocidas."""
+    if lines is not None:
+        return tuple(lines)
+    if not diff or diff.startswith("Binary files "):
+        return None
+    body, hidden = split_truncation(diff)
+    return None if hidden else changed_lines(body)
+
+
+def lines_text(diff: str, lines: tuple[int, int] | None) -> str:
+    """«+3 438 −3 438» (o vacío si no se sabe)."""
+    counts = line_counts(diff, lines)
+    if counts is None:
+        return ""
+    return tr("pending.lines", added=format_number(counts[0]), removed=format_number(counts[1]))
 
 
 class DiffHighlighter(QSyntaxHighlighter):
@@ -190,8 +225,7 @@ class PendingChangesPanel(QWidget):
             item.setText(0, write_label(write))
             item.setToolTip(0, str(write.target))
             item.setText(1, tr(ACTION_KEYS[write.action]))
-            added, removed = changed_lines(write.diff)
-            item.setText(2, tr("pending.lines", added=added, removed=removed)
+            item.setText(2, lines_text(write.diff, getattr(write, "lines", None))
                          if write.action is not WriteAction.TRASH else "")
 
     def _on_current_changed(self, current, previous) -> None:

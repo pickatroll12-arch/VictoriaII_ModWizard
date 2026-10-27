@@ -9,6 +9,8 @@ Uso:
                                 [--open-file RUTA [--line N] [--tab structure|source|diagnostics|json]
                                  [--search TEXTO]]
                                 [--validate] [--left-tab files|validation] [--report ESTADO.json]
+                                [--demo-index] [--check] [--explain N] [--palette TEXTO]
+                                [--texts-search TEXTO] [--texts-filter FILTRO]
 
 Genera ``<lang>_<n>_<sala>[_<sección>].png`` (``n`` es el atajo Ctrl+n de la sala) y,
 con ``--dialog``, ``<lang>_dialog_<nombre>.png``. ``--page`` (repetible o separado por
@@ -27,7 +29,7 @@ descriptor sus problemas, sin datos de Paradox. ``--demo-changes`` hace dos camb
 través de la sesión (el ``user_dir`` del descriptor y un archivo del juego base, que se
 copiará al mod) para que «Cambios pendientes» y el diálogo de revisión tengan qué
 mostrar. ``--fake-project`` abre el proyecto con el ``Project`` falso de las pruebas
-(``tests/_fake_project.py``), mientras ``core/project`` es del contrato. ``--no-game-art``
+(``tests/_fake_project.py``) en lugar del real. ``--no-game-art``
 dibuja solo con la estética procedural (wizard D12): es lo que se hace siempre que
 ``--out`` está dentro de ``docs/capturas``, y hoy el Studio aún no usa arte del juego.
 
@@ -43,6 +45,19 @@ se vacía para mostrarla y se avisa en stderr). ``--validate`` ejecuta «Validar
 espera a que termine antes de capturar. ``--report`` guarda en JSON lo que muestran las
 capturas (archivo de cada visor, búsqueda, línea y resumen de la validación): así una
 prueba puede comprobarlo.
+
+Iteración 3: ``--demo-index`` abre la sesión con el índice, la validación y la línea base
+de demostración (los falsos de ``tests/_fake_index.py``, con sus textos ES/EN), para
+capturar Validación y Ctrl+K aunque el núcleo aún no los tenga. ``--check`` valida con el
+validador del núcleo (Proyecto › Validación, F7) y espera el informe; ``--explain N``
+además abre el explicador del problema N de la tabla (empezando en 0) y espera a que llegue
+(se explica en segundo plano); ``--report`` dice en ``checks.explainer_layout`` lo que se
+vería mal en él (vacío si nada: veredictos, alto de las capas, frase final) y, en
+``checks.explainer_shots``, lo mismo para cada captura en que se ve (por idioma: el estado
+final ya puede estar en otra sala); si algo se ve mal se avisa en stderr. ``--palette TEXTO``
+abre Ctrl+K con ese texto en cada captura (``<lang>_<n>_<sala>_palette.png``).
+``--texts-search`` y ``--texts-filter`` (``all``, ``studio``, ``untranslated``,
+``overrides``, ``degraded``) preparan Textos › Todos los textos.
 """
 
 from __future__ import annotations
@@ -63,6 +78,7 @@ from vic2studio.core.modcheck import KIND_CLAUSEWITZ, KIND_CSV, file_kind  # noq
 
 DOCS_CAPTURES = ROOT / "docs" / "capturas"
 DIALOGS = ("save_review", "new_mod", "conflict", "recovery")
+TEXTS_FILTERS = ("all", "studio", "untranslated", "overrides", "degraded")
 # Juego sintético de --demo-game: carpetas que reconoce evaluate_game y unos pocos archivos inventados.
 DEMO_GAME_FILES = {
     "v2game.exe": b"MZ",
@@ -72,7 +88,9 @@ DEMO_GAME_FILES = {
     "decisions/demo_decisions.txt": b"political_decisions = {\r\n}\r\n",
     "gfx/flags/AAA.tga": b"",
     "interface/demo.gui": b"guiTypes = {\r\n}\r\n",
-    "localisation/demo.csv": b"DEMO_KEY;Demo;;;;Demo;;;;;;;;;x\r\n",
+    "localisation/demo.csv": (b"DEMO_KEY;Demo;;;;Demo;;;;;;;;;x\r\n"
+                              b"AAA;Aland;Alande;Aland;;Alandia;;;;;;;;x\r\n"
+                              b"BBB;Borea;Bor\xe9e;Borea;;Borea;;;;;;;;x\r\n"),
     "map/default.map": b"max_provinces = 4\r\n",
     # Misma ruta que un archivo del mod de muestra: en «Archivos» sale con la insignia M⊃J.
     "history/countries/SOM - Somalia.txt": b"capital = 1\r\n",
@@ -114,6 +132,13 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--validate", action="store_true", help="ejecutar «Validar mod» antes de capturar")
     parser.add_argument("--left-tab", choices=("files", "validation"), help="pestaña del panel izquierdo")
     parser.add_argument("--report", type=Path, help="JSON con el estado de la ventana capturada")
+    parser.add_argument("--demo-index", action="store_true",
+                        help="índice, validación y línea base de demostración (tests/_fake_index.py)")
+    parser.add_argument("--check", action="store_true", help="validar con el validador del núcleo (F7) antes")
+    parser.add_argument("--explain", type=int, metavar="N", help="abrir el explicador del problema N (con --check)")
+    parser.add_argument("--palette", metavar="TEXTO", help="abrir Ctrl+K con TEXTO en cada captura")
+    parser.add_argument("--texts-search", metavar="TEXTO", help="buscador de Textos › Todos los textos")
+    parser.add_argument("--texts-filter", choices=TEXTS_FILTERS, help="filtro de Textos › Todos los textos")
     return parser
 
 
@@ -233,6 +258,34 @@ def window_state(window) -> dict:
         "project": None if session.project is None else {
             "mod": os.fspath(session.project.mod_root), "dirty": session.dirty_count(),
         },
+        **iteration3_state(window),
+    }
+
+
+def iteration3_state(window) -> dict:
+    """Lo de la iteración 3 en ``--report``: el informe del validador, la tabla de Textos y Ctrl+K."""
+    session = window.session
+    report = session.report
+    checks = window.page("project:validation")
+    texts = window.page("localisation:all")
+    palette = window.palette
+    return {
+        "checks": None if report is None else {
+            "state": session.validation_state(), "shown": checks.model.rowCount(),
+            "own": len(report.visible()), "inherited": report.inherited_count(),
+            "explained": checks.explainer.title.text() if checks.explainer.isVisible() else None,
+            # Lo que se vería mal en el explicador (veredictos fuera, capas sin su alto, frase cortada…): vacío si nada.
+            "explainer_layout": checks.explainer.layout_problems() if checks.explainer.isVisible() else None,
+            "stale": session.report_stale(),
+        },
+        "texts": None if not session.texts_ready() else {
+            "rows": len(texts.model.entries), "visible": texts.proxy.rowCount(), "filter": texts.proxy.filter(),
+            "search": texts.search_edit.text(),
+        },
+        "palette": None if not palette.isVisible() else {
+            "text": palette.edit.text(), "results": palette.result_texts(),
+        },
+        "index": session.index_state(),
     }
 
 
@@ -356,6 +409,38 @@ def demo_changes(window) -> None:
     window.page("descriptor").reload()
 
 
+def _prepare_iteration3(app, window, args: argparse.Namespace) -> str | None:
+    """``--check``/``--explain`` y ``--texts-search``/``--texts-filter``; devuelve el error, si lo hay."""
+    session = window.session
+    if args.check or args.explain is not None:
+        if session.project is None:
+            return "no hay un mod abierto que validar (usa --mod)"
+        settle(app, window)
+        window.validate_mod()
+        settle(app, window)
+        if session.validation_state() != "ready":
+            return f"la validación no terminó: {session.validation_state()} {session.validation_error() or ''}"
+        if args.explain is not None:
+            page = window.page("project:validation")
+            if not 0 <= args.explain < page.model.rowCount():
+                return f"no hay problema {args.explain} (la tabla tiene {page.model.rowCount()})"
+            page.view.setCurrentIndex(page.model.index(args.explain, 0))
+            if not page.show_explanation():
+                return "no se pudo abrir el explicador"
+            settle(app, window)   # se explica en segundo plano: settle espera a la sesión
+            if not page.explainer.isVisible():
+                return f"el explicador no llegó a mostrarse: {window.status_label.text()}"
+        settle(app, window)
+    if args.texts_search is not None or args.texts_filter:
+        page = window.page("localisation:all")
+        if args.texts_filter:
+            page.filter_combo.setCurrentIndex(TEXTS_FILTERS.index(args.texts_filter))
+        if args.texts_search is not None:
+            page.search_edit.setText(args.texts_search)
+        settle(app, window)
+    return None
+
+
 def dialog_for(window, name: str):
     from vic2studio.core.project import ChangeSet
     from vic2studio.ui.dialogs import ConflictDialog, NewModDialog, RecoveryDialog, SaveReviewDialog
@@ -390,11 +475,19 @@ def _run(args: argparse.Namespace) -> int:
         print(f"valores desconocidos: {', '.join(unknown)}", file=sys.stderr)
         return 2
     session = None
+    engines: dict = {}
+    if args.demo_index:
+        sys.path.insert(0, str(ROOT / "tests"))
+        from _fake_index import fake_engines
+
+        engines = fake_engines()
     if args.fake_project:
         sys.path.insert(0, str(ROOT / "tests"))
         from _fake_project import FakeOpener
 
-        session = Session(opener=FakeOpener())
+        session = Session(opener=FakeOpener(), **engines)
+    elif engines:
+        session = Session(**engines)
     os.environ["VIC2STUDIO_NO_GAME_ART"] = "1" if no_game_art(args) else ""
 
     window = MainWindow(session=session)
@@ -432,19 +525,33 @@ def _run(args: argparse.Namespace) -> int:
     if args.left_tab:
         project.left_tabs.setCurrentIndex(project.LEFT_TABS.index(args.left_tab))
         settle(app, window)
+    error = _prepare_iteration3(app, window, args)
+    if error:
+        print(error, file=sys.stderr)
+        return 1
 
     args.out.mkdir(parents=True, exist_ok=True)
     width, height = args.size
+    explainer = window.page("project:validation").explainer
+    explainer_shots: dict[str, list[str]] = {}
     for code in lang_list:
         set_language(code)
         for key, name in shots:
             window.show_page(key)
             settle(app, window)
+            if args.palette:
+                window.open_palette(args.palette)
+                settle(app, window)
+                name = f"{name}_palette"
             target = args.out / f"{code}_{name}.png"
             if not window.grab().save(os.fspath(target)):
                 print(f"no se pudo guardar {target}", file=sys.stderr)
                 return 1
             print(target)
+            if args.explain is not None and explainer.isVisible():
+                problems = explainer_shots[target.name] = explainer.layout_problems()
+                for problem in problems:
+                    print(f"aviso: el explicador de {target.name} se ve mal: {problem}", file=sys.stderr)
         for name in args.dialog:
             dialog = dialog_for(window, name)
             if name == "save_review":  # el diff aprovecha el sitio; los demás tienen su tamaño
@@ -460,7 +567,10 @@ def _run(args: argparse.Namespace) -> int:
                 return 1
             print(target)
     if args.report:
-        args.report.write_text(json.dumps(window_state(window), ensure_ascii=False, indent=2), encoding="utf-8")
+        state = window_state(window)
+        if state["checks"] is not None:
+            state["checks"]["explainer_shots"] = explainer_shots
+        args.report.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
     window.ask_unsaved = lambda: "discard"  # las capturas nunca guardan lo que hayan cambiado
     window.close()
     return 0

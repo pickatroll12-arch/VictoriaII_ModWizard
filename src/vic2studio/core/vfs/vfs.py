@@ -27,7 +27,7 @@ from types import MappingProxyType
 
 from ..cancel import CancelCheck, raise_if_cancelled
 from ..modfile import DESCRIPTOR_SUFFIX, ModDescriptor, read_descriptor
-from .guard import WriteGuard
+from .guard import InvalidModRootError, WriteGuard, mod_root_problem
 from .model import FileEntry, Fingerprint, Layer, LayerKind, VfsSnapshot, matching_keys, winner
 from .paths import DESCRIPTOR_REL, VPath, folder_key
 
@@ -79,9 +79,14 @@ class VirtualFS:
         """``descriptor`` es el ``.mod`` (lo admite ``guard``); ``game_root=None``: solo el mod (pruebas, mods sueltos).
 
         ``extra_roots`` pasa al ``WriteGuard`` (la carpeta de proyecto de un mod de solo lectura, §5.4).
+        Lanza ``InvalidModRootError`` si ``mod_root`` no puede ser un mod de ``game_root`` (I1: el núcleo no
+        confía en que la interfaz lo haya filtrado).
         """
         self._game_root = None if game_root is None else Path(game_root)
         self._mod_root = Path(mod_root)
+        problem = mod_root_problem(self._mod_root, self._game_root)
+        if problem is not None:
+            raise InvalidModRootError(self._mod_root, problem)
         self._descriptor = None if descriptor is None else Path(descriptor)
         self._replace = tuple(sorted({k for k in (folder_key(p) for p in replace_paths) if k}))
         self._replace_recursive = replace_recursive
@@ -314,16 +319,18 @@ class VirtualFS:
                     changed.add(stack[0].rel if stack else names[key])
             return changed
         changed = set()
+        listings: dict[Path, list[str] | None] = {}   # una lectura por carpeta en toda la llamada
         for rel in rels:
             rel = VPath.of(rel)
             before = self._signature(rel.key)
             for index, layer in enumerate(self._layers):
-                self._refresh_one(index, layer, rel)
+                self._refresh_one(index, layer, rel, listings)
             if before != self._signature(rel.key):
                 changed.add(rel)
         return changed
 
-    def _refresh_one(self, index: int, layer: Layer, rel: VPath) -> None:
+    def _refresh_one(self, index: int, layer: Layer, rel: VPath,
+                     listings: dict[Path, list[str] | None] | None = None) -> None:
         layer_files = self._files[index]
         key = rel.key
         if rel == DESCRIPTOR_REL:
@@ -336,7 +343,7 @@ class VirtualFS:
         if layer.kind is LayerKind.GAME and top in GAME_IGNORED_TOP_FOLDERS:
             return
         candidates = {e.path for e in layer_files.get(key, ())}
-        candidates.add(_case_path(layer.root, rel))
+        candidates.add(_case_path(layer.root, rel, listings))
         unique: dict[str, FileEntry] = {}
         for path in sorted(candidates):
             try:
@@ -408,11 +415,20 @@ def _scan_tree(layer: Layer, top: os.DirEntry, found: _LayerFiles, cancelled: Ca
             FileEntry(rel, layer, Path(item.path), Fingerprint(stat.st_size, stat.st_mtime_ns)))
 
 
-def _existing_case(folder: Path, name: str, *, want_dir: bool) -> str:
-    """``name`` con la mayúscula de una entrada que ya exista en ``folder`` (la exacta si la hay)."""
-    try:
-        names = os.listdir(folder)
-    except OSError:
+def _existing_case(folder: Path, name: str, *, want_dir: bool,
+                   listings: dict[Path, list[str] | None] | None = None) -> str:
+    """``name`` con la mayúscula de una entrada que ya exista en ``folder`` (la exacta si la hay). ``listings``:
+    lo ya leído de cada carpeta (refrescar las 8462 rutas de la papelera de VSM leía 67 898 carpetas)."""
+    if listings is not None and folder in listings:
+        names = listings[folder]
+    else:
+        try:
+            names = os.listdir(folder)
+        except OSError:
+            names = None
+        if listings is not None:
+            listings[folder] = names
+    if names is None:
         return name
     if name in names:
         return name
@@ -421,10 +437,10 @@ def _existing_case(folder: Path, name: str, *, want_dir: bool) -> str:
     return matches[0] if matches else name
 
 
-def _case_path(root: Path, rel: VPath) -> Path:
+def _case_path(root: Path, rel: VPath, listings: dict[Path, list[str] | None] | None = None) -> Path:
     """Ruta de ``rel`` bajo ``root`` con la mayúscula de cada componente que ya exista."""
     current = root
     parts = rel.parts
     for index, part in enumerate(parts):
-        current = current / _existing_case(current, part, want_dir=index < len(parts) - 1)
+        current = current / _existing_case(current, part, want_dir=index < len(parts) - 1, listings=listings)
     return current

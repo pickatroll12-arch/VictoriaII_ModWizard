@@ -1,8 +1,35 @@
-"""Sala Textos (Ctrl+7): los CSV de localización hoy; todos los textos y los pendientes de traducir, editables y
-sincronizados, en la iteración 3 (wizard §8)."""
+"""Sala Textos (Ctrl+7): todos los textos editables y sincronizados, los pendientes de traducir y los CSV del mod
+(wizard §8, §13.1)."""
 
 from ....i18n import N_
 from ..registry import HallSpec, SectionSpec
+
+
+def _all_texts(session):
+    from .texts import TextsPage
+
+    return TextsPage(session)
+
+
+def _pending(session):
+    from .texts import FILTER_UNTRANSLATED, TextsPage
+
+    return TextsPage(session, preset=FILTER_UNTRANSLATED)
+
+
+def _pending_badge(session) -> int | None:
+    """Claves del mod sin traducir a algún idioma del proyecto (cuando los textos ya están leídos); el recuento se
+    guarda mientras ``LocSync.entries()`` no cambie (``texts.pending_count``)."""
+    locsync = session.locsync
+    if locsync is None or not session.texts_ready():
+        return None
+    from .texts import pending_count
+
+    try:
+        count = pending_count(locsync)
+    except Exception:  # noqa: BLE001 - el contador nunca rompe el índice lateral
+        return None
+    return count or None
 
 
 def _csv_files(session):
@@ -20,13 +47,8 @@ HALL = HallSpec("localisation", 7, N_("hall.localisation.plate"), N_("nav.locali
                 N_("hall.localisation.subtitle"), "localisation")
 
 SECTIONS = [
-    SectionSpec("all", "localisation", 1, N_("section.localisation.all"), "localisation", iteration=3, planned_keys=(
-        N_("section.localisation.all.intro"), N_("section.localisation.all.f1"),
-        N_("section.localisation.all.f2"), N_("section.localisation.all.f3"),
-    )),
-    SectionSpec("pending", "localisation", 2, N_("section.localisation.pending"), "quill", iteration=3, planned_keys=(
-        N_("section.localisation.pending.intro"), N_("section.localisation.pending.f1"),
-        N_("section.localisation.pending.f2"),
-    )),
+    SectionSpec("all", "localisation", 1, N_("section.localisation.all"), "localisation", factory=_all_texts),
+    SectionSpec("pending", "localisation", 2, N_("section.localisation.pending"), "quill", factory=_pending,
+                badge=_pending_badge),
     SectionSpec("csv", "localisation", 3, N_("section.localisation.csv"), "file_table", factory=_csv_files),
 ]

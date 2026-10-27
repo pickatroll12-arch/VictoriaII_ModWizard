@@ -31,7 +31,7 @@ from .clausewitz import (
     render_checked,
     to_source,
 )
-from .encoding import BOM, GAME_ENCODING, GAME_UNREADABLE, encode_text
+from .encoding import BOM, GAME_ENCODING, GAME_UNREADABLE, UnencodableTextError, encode_text
 from .fileio import FileStamp
 
 DESCRIPTOR_SUFFIX = ".mod"
@@ -44,14 +44,17 @@ _TEXT_FIELDS = ("name", "path", "user_dir")
 # Códigos de ``DescriptorFieldError``.
 FIELD_QUOTE = "descriptor_quote"
 FIELD_NEWLINE = "descriptor_newline"
+FIELD_ENCODING = "descriptor_unencodable"
 MESSAGES = {
     "es": {
         FIELD_QUOTE: "«{field}» no puede contener comillas (\"): {value}",
         FIELD_NEWLINE: "«{field}» no puede contener saltos de línea.",
+        FIELD_ENCODING: "«{field}» tiene caracteres que el juego no puede leer (cp1252): {char}",
     },
     "en": {
         FIELD_QUOTE: "“{field}” cannot contain quotes (\"): {value}",
         FIELD_NEWLINE: "“{field}” cannot contain line breaks.",
+        FIELD_ENCODING: "“{field}” has characters the game cannot read (cp1252): {char}",
     },
 }
 
@@ -181,31 +184,45 @@ def descriptor_files(folder: str | os.PathLike) -> list[Path]:
     return _descriptor_files(Path(folder))
 
 
+def _dir_key(path: Path) -> str:
+    """Clave de una carpeta sin distinguir mayúsculas, como el juego en Windows."""
+    return os.path.normcase(os.path.realpath(path)).casefold()
+
+
 def find_descriptor(folder: str | os.PathLike) -> ModDescriptor | None:
     """Descriptor del mod de ``folder``.
 
-    Primero busca en la carpeta superior un ``.mod`` cuyo ``path`` termine en el
-    nombre de la carpeta (o, si ninguno, uno con el mismo nombre que ella); si
-    no hay, el primer ``.mod`` que haya dentro de la propia carpeta. El juego
+    Primero busca en la carpeta superior un ``.mod`` cuyo ``path`` lleve a esta
+    carpeta; si no, uno cuyo ``path`` termine en su nombre o, si ninguno, uno con
+    el mismo nombre que ella, pero nunca uno cuyo ``path`` lleve a otra carpeta que
+    existe (es de otro mod); si no hay, el primer ``.mod`` que haya dentro de la
+    propia carpeta. El juego
     corre en Windows: los nombres se comparan sin distinguir mayúsculas. Los
     ``.mod`` que no se pueden leer (de este o de otros mods) se pasan por alto, y
     uno que el juego no puede leer (``game_readable``) solo se elige si no hay otro.
     """
     folder = Path(folder)
     name = folder.name.casefold()
+    here = _dir_key(folder)
     best, best_rank = None, None
     for file in _descriptor_files(folder.parent):
         descriptor = read_descriptor(file)
         if descriptor is None:
             continue
-        if descriptor.folder_name.casefold() == name:
+        # ``path`` es relativa a la raíz del juego, el abuelo de la carpeta del mod (<juego>/mod/<carpeta>).
+        points_to = folder.parent.parent / descriptor.path.replace("\\", "/") if descriptor.path else None
+        if points_to is not None and _dir_key(points_to) == here:
             rank = 0
-        elif file.stem.casefold() == name:
+        elif points_to is not None and points_to.is_dir():
+            continue   # lleva a otra carpeta que existe: es el descriptor de otro mod (I1)
+        elif descriptor.folder_name.casefold() == name:
             rank = 1
+        elif file.stem.casefold() == name:
+            rank = 2
         else:
             continue
         if not descriptor.game_readable:
-            rank += 2  # después de cualquiera que el juego sí lea
+            rank += 3  # después de cualquiera que el juego sí lea
         if best_rank is None or rank < best_rank:
             best, best_rank = descriptor, rank
             if rank == 0:
@@ -238,11 +255,27 @@ def _new_source(descriptor: ModDescriptor) -> str:
 
 
 def _sync_repeated(doc, key: str, values: tuple[str, ...]) -> None:
-    if tuple(_scalar_text(v) for v in doc.get_all(key)) == values:
+    """Las entradas que siguen se quedan en su sitio (con sus comentarios); se quitan las que sobran y las nuevas
+    van detrás de la última que queda. El orden de ``replace_path`` no cuenta para el juego."""
+    entries = doc.find_all(key)
+    wanted = list(values)
+    if sorted(_scalar_text(e.value) for e in entries) == sorted(wanted):
         return
-    doc.remove(key)
-    for value in values:
-        doc.append(key, _quoted(key, value))
+    anchor = None
+    for entry in entries:
+        text = _scalar_text(entry.value)
+        if text in wanted:
+            wanted.remove(text)
+            anchor = entry
+        else:
+            doc.remove_entry(entry)
+    for value in wanted:
+        scalar = _quoted(key, value)
+        anchor = doc.append(key, scalar) if anchor is None else doc.insert_after(anchor, key, scalar)
+
+
+def _parts(path: str) -> list[str]:
+    return [part for part in path.strip().replace("\\", "/").split("/") if part]
 
 
 def _apply_fields(doc, fields: ModDescriptor, *, archive: bool) -> None:
@@ -251,13 +284,42 @@ def _apply_fields(doc, fields: ModDescriptor, *, archive: bool) -> None:
         value = getattr(fields, key)
         if not value:
             doc.remove(key)
-        elif _scalar_text(doc.get(key)).strip() != value:
+        elif _scalar_text(doc.get(key)).strip() != value and not (
+                key == "path" and _parts(_scalar_text(doc.get(key))) == _parts(value)):
             doc.set(key, _quoted(key, value))
     _sync_repeated(doc, "replace_path", fields.replace_paths)
-    if _dependencies(doc) != fields.dependencies:
+    if _dependencies(doc) != fields.dependencies and not _sync_dependencies(doc, fields.dependencies):
         doc.remove("dependencies")
         if fields.dependencies:
             doc.append("dependencies", [_quoted("dependencies", d) for d in fields.dependencies])
+
+
+def _sync_dependencies(doc, values: tuple[str, ...]) -> bool:
+    """Quita o añade nombres en el único bloque ``dependencies`` sin tocar los que siguen (ni sus comentarios).
+    Solo si los que quedan conservan su orden (el orden de las dependencias sí lo elige el usuario); si no, False
+    y se reescribe el bloque."""
+    blocks = [v for v in doc.get_all("dependencies") if isinstance(v, Block)]
+    if not values or len(blocks) != 1 or len(doc.find_all("dependencies")) != 1:
+        return False
+    block = blocks[0]
+    entries = [e for e in block if e.key is None and isinstance(e.value, Scalar)]
+    if len(entries) != len(block.entries):
+        return False
+    texts = [_scalar_text(e.value) for e in entries]
+    kept = [t for t in texts if t in values]
+    if len(set(texts)) != len(texts) or kept != [v for v in values if v in kept]:
+        return False
+    for entry, text in zip(entries, texts):
+        if text not in values:
+            block.remove_entry(entry)
+    anchor = None
+    for value in values:
+        if value in kept:
+            anchor = next(e for e in block.entries if _scalar_text(e.value) == value)
+            continue
+        scalar = _quoted("dependencies", value)
+        anchor = block.insert(0, None, scalar) if anchor is None else block.insert_after(anchor, None, scalar)
+    return True
 
 
 # --- generador del .mod (wizard §14.1, iteración 2) ---------------------------------------------
@@ -319,7 +381,10 @@ class DescriptorProblemsError(ValueError):
 
     def __init__(self, issues: list):
         self.issues = list(issues)
-        super().__init__(self.issues[0].message("es") if self.issues else "")
+        super().__init__(self.message("es"))
+
+    def message(self, lang: str = "en") -> str:
+        return self.issues[0].message(lang) if self.issues else ""
 
     def __reduce__(self):
         return (type(self), (self.issues,))
@@ -330,7 +395,10 @@ class DescriptorWriteError(OSError):
 
     def __init__(self, problems: list):
         self.problems = list(problems)
-        super().__init__(self.problems[0].message("es") if self.problems else "")
+        super().__init__(self.message("es"))
+
+    def message(self, lang: str = "en") -> str:
+        return self.problems[0].message(lang) if self.problems else ""
 
     def __reduce__(self):
         return (type(self), (self.problems,))
@@ -416,6 +484,12 @@ def _windows_rejects(name: str) -> bool:
     return bool(windows_name_problems(name))
 
 
+def _plain_folder(folder: str) -> bool:
+    """True si ``folder`` es un solo nombre: ni ``/`` ni ``\\`` (``"/x"`` o ``"\\x"`` serían la raíz del disco), ni
+    ``.`` ni ``..``."""
+    return folder not in ("", ".", "..") and "/" not in folder and "\\" not in folder
+
+
 def _has_files(folder: Path) -> bool:
     """True si bajo ``folder`` hay algún archivo que el juego leería (no cuentan ``.bak`` ni temporales)."""
     for _, _, names in os.walk(folder):
@@ -452,7 +526,7 @@ def descriptor_problems(spec: DescriptorSpec, game_root: Path | None, *, creatin
     que no se pueden escribir salen como ``FIELD_QUOTE`` o ``FIELD_NEWLINE``. La iteración 3 los convierte en
     ``Problem``.
     """
-    from .modcheck import DESCRIPTOR_BAD_REPLACE_PATH, KIND_CLAUSEWITZ, Issue, check_descriptor
+    from .modcheck import DESCRIPTOR_BAD_PATH, DESCRIPTOR_BAD_REPLACE_PATH, KIND_CLAUSEWITZ, Issue, check_descriptor
 
     mods = None if game_root is None else Path(game_root) / "mod"
     if descriptor_file is not None:
@@ -474,12 +548,22 @@ def descriptor_problems(spec: DescriptorSpec, game_root: Path | None, *, creatin
             _quoted(key, value)
         except DescriptorFieldError as error:
             add(error.code, Severity.ERROR, error, **error.params)
+            continue
+        try:
+            encode_text(value, GAME_ENCODING)   # el juego lee el descriptor en cp1252 (I9)
+        except UnencodableTextError as unencodable:
+            error = DescriptorFieldError(FIELD_ENCODING, field=key, value=value, char=unencodable.problems[0][3])
+            add(error.code, Severity.ERROR, error, **error.params)
     real_root = mod_root if mod_root is not None else (mods / spec.folder if mods is not None and spec.folder else None)
     for issue in check_descriptor(fields, mod_dir=None if creating else mod_root,
                                   game_dir=None if creating else game_root):
         add(issue.code, issue.severity, issue.diagnostic, **issue.args)
+    if spec.folder and not _plain_folder(spec.folder) and not any(i.code == DESCRIPTOR_BAD_PATH for i in issues):
+        add(DESCRIPTOR_BAD_PATH, Severity.ERROR, path=spec.path)   # check_descriptor admite "mod//x" y "mod/./x"
     if spec.folder and _windows_rejects(spec.folder):
         add(DESCRIPTOR_FOLDER_RESERVED, Severity.ERROR, folder=spec.folder)
+    if spec.user_dir and _windows_rejects(spec.user_dir) and not any(i.args.get("user_dir") for i in issues):
+        add(DESCRIPTOR_FOLDER_RESERVED, Severity.ERROR, folder=spec.user_dir)   # una carpeta de Documentos
     if creating and spec.folder and spec.folder.casefold() in _entry_names(mods):
         add(DESCRIPTOR_FOLDER_TAKEN, Severity.ERROR, folder=spec.folder)
     wanted = spec.name.strip().casefold()
@@ -565,17 +649,21 @@ def create_mod_skeleton(game_root: Path, spec: DescriptorSpec, *, template: Path
 
     game_root = Path(game_root)
     template = None if template is None else Path(template)
+    if spec.folder and _plain_folder(spec.folder):   # «/x» sería otra raíz: nada de recuperar ahí (I1)
+        _recover_new_mod(game_root / "mod" / spec.folder, game_root / "mod" / f"{spec.folder}{DESCRIPTOR_SUFFIX}")
     errors = [i for i in descriptor_problems(spec, game_root, creating=True, template=template)
               if i.severity is Severity.ERROR]
     if errors:
         raise DescriptorProblemsError(errors)
     mods = game_root / "mod"
     mod_root = mods / spec.folder
+    if not _plain_folder(spec.folder) or mod_root.parent != mods:   # defensa: nunca fuera de <juego>/mod (I1)
+        raise ValueError(f"carpeta de mod no válida: {spec.folder!r}")
     file = mods / f"{spec.folder}{DESCRIPTOR_SUFFIX}"
     guard = WriteGuard(mod_root, extra_files=(file,))
     folder = project_dir(mod_root)
     transaction = SaveTransaction(guard, folder / JOURNAL_DIR, label="new_mod", backup_bak=False,
-                                  trash_dir=folder / TRASH_DIR)
+                                  trash_dir=folder / TRASH_DIR, trash_creates=False)
     transaction.add(PlannedWrite(DESCRIPTOR_REL, guard.check(file), WriteAction.CREATE, render_descriptor(spec), None))
     for rel, source in template_files(template) if template is not None else ():
         transaction.add(PlannedWrite(VPath.of(rel), guard.check(mod_root / rel), WriteAction.CREATE,
@@ -586,8 +674,63 @@ def create_mod_skeleton(game_root: Path, spec: DescriptorSpec, *, template: Path
     blocking = [p for p in transaction.prepare() if p.blocking]
     if blocking:
         raise DescriptorWriteError(blocking)
-    transaction.commit()
+    try:
+        transaction.commit()
+    except Exception:
+        # Un fallo tras confirmar (el disco lleno al anotar «confirmado»): si la recuperación completa el mod, está
+        # creado y no es un fallo; si no, lo creado ya se deshizo y el error sigue. Un KeyboardInterrupt no se
+        # traga: el diario que deje lo completa la próxima recuperación.
+        from .project.recovery import OUTCOME_ROLLED_FORWARD, recover
+
+        try:
+            done = recover(folder / JOURNAL_DIR, guard, transaction.txid).outcome == OUTCOME_ROLLED_FORWARD
+        except Exception:  # noqa: BLE001 - se informa del error original
+            done = False
+        if not done:
+            raise
     return read_descriptor(file) or spec.fields(file)
+
+
+def _recover_new_mod(mod_root: Path, file: Path) -> None:
+    """Un «Nuevo mod» anterior que se cortó deja su diario en la carpeta a medio crear: se resuelve antes de
+    comprobar si la carpeta está libre (un corte antes de confirmar la quita, con su temporal)."""
+    from .project.journal import JOURNAL_DIR, project_dir
+    from .project.lock import ProjectLock
+    from .project.recovery import pending_journals, recover_all
+    from .vfs.guard import WriteGuard
+
+    journal_dir = project_dir(mod_root) / JOURNAL_DIR
+    states = pending_journals(journal_dir) if journal_dir.is_dir() else []
+    if not states or file.exists() or any(state.label != "new_mod" for state in states):
+        return      # solo el diario de un «Nuevo mod» sin .mod; el de un mod de verdad lo resuelve Project.open
+    lock = ProjectLock(mod_root)
+    if not lock.acquire():
+        return
+    try:
+        recover_all(journal_dir, WriteGuard(mod_root, extra_files=(file,)))
+    finally:
+        lock.release()
+
+
+def recover_interrupted_new_mods(game_root: str | os.PathLike | None) -> None:
+    """Resuelve los «Nuevo mod» que se cortaron: carpetas de ``<juego>/mod`` sin su ``.mod`` con un diario pendiente
+    (un corte antes de confirmar las quita, con su temporal; después, completa el mod)."""
+    from .project.journal import JOURNAL_DIR, project_dir
+
+    if game_root is None:
+        return
+    mods = Path(game_root) / "mod"
+    try:
+        folders = [entry for entry in mods.iterdir() if entry.is_dir()]
+    except OSError:
+        return
+    for folder in folders:
+        file = mods / f"{folder.name}{DESCRIPTOR_SUFFIX}"
+        if not file.exists() and (project_dir(folder) / JOURNAL_DIR).is_dir():
+            try:
+                _recover_new_mod(folder, file)
+            except OSError:
+                pass
 
 
 def write_descriptor(file: str | os.PathLike, descriptor: ModDescriptor, *, backup: bool = True) -> Path | None:

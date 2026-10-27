@@ -107,6 +107,8 @@ class JournalCommitTests(unittest.TestCase):
         self.assertFalse(self.layers.mod("events/old.txt").exists())
         trashed = self.project / "trash" / result.txid / "events" / "old.txt"
         self.assertEqual(trashed.read_bytes(), b"old = yes\r\n")
+        self.assertFalse((self.project / "originals" / "events" / "old.txt").exists(),
+                         "la papelera ya lo guarda entero: originals/ sería una segunda copia (revisión it3)")
         self.assertEqual(journal.trash_file(self.guard, self.project / "trash", "manual",
                                             VPath.of("common/countries.txt"), self.layers.mod("common/countries.txt")),
                          self.project / "trash" / "manual" / "common" / "countries.txt")
@@ -147,7 +149,7 @@ class JournalCommitTests(unittest.TestCase):
             self.write("events/CON.txt", WriteAction.CREATE, b"x"),
             self.write("events/Case.txt", WriteAction.CREATE, b"x"),
             self.write("events/CASE.txt", WriteAction.CREATE, b"x"),
-            self.write("events/" + "n" * 250 + ".txt", WriteAction.CREATE, b"x"),
+            self.write("events/" + "d" * 120 + "/" + "n" * 120 + ".txt", WriteAction.CREATE, b"x"),
             PlannedWrite(VPath.of("common/cb_types.txt"), self.layers.game("common/cb_types.txt"),
                          WriteAction.MODIFY, b"x", None),
         ]

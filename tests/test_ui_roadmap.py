@@ -25,11 +25,10 @@ PLAN = {
     "war:bookmarks": 4, "war:wars": 6, "war:diplomacy": 6, "war:cb": 4, "war:land": 4, "war:naval": 4,
     "events:events": 7, "events:decisions": 7, "events:modifiers": 7,
     "interface:windows": 8, "interface:sprites": 8, "interface:images": 8,
-    "localisation:all": 3, "localisation:pending": 3,
-    "project:validation": 3,
 }
-# Lo que ya existe en la iteración 2.
-READY = {"project:home", "project:descriptor", "project:files", "project:pending", "localisation:csv"}
+# Lo que ya existe: lo de la iteración 2 y, desde la 3, Validación, Todos los textos y Pendientes de traducir.
+READY = {"project:home", "project:descriptor", "project:files", "project:validation", "project:pending",
+         "localisation:all", "localisation:pending", "localisation:csv"}
 
 
 class ColumnsTests(unittest.TestCase):
@@ -49,9 +48,9 @@ class ColumnsTests(unittest.TestCase):
 
 
 class PlanTests(unittest.TestCase):
-    def test_plan_has_ten_milestones_and_iteration_2_is_current(self):
+    def test_plan_has_ten_milestones_and_iteration_3_is_current(self):
         self.assertEqual(len(ROADMAP_KEYS), 10)
-        self.assertEqual(CURRENT_ITERATION, 2)
+        self.assertEqual(CURRENT_ITERATION, 3)
 
     def test_every_section_is_ready_or_planned_with_its_iteration(self):
         found = {}
@@ -115,11 +114,14 @@ class RoadmapPageTests(unittest.TestCase):
                     self.assertNotIn(done, state)
                     self.assertNotIn(current, state)
 
-    def test_localisation_promises_editing_in_iteration_3(self):
+    def test_the_read_only_csv_viewer_points_to_the_editable_table(self):
+        """La edición llegó en la iteración 3 (Textos › Todos los textos): el visor de CSV ya no la promete."""
         for language in ("es", "en"):
             set_language(language)
-            self.assertIn("3", tr("loc.read_only"))
-            self.assertIn("3", tr("localisation.roadmap"))
+            with self.subTest(language=language):
+                for key in ("loc.read_only", "loc.read_only_tooltip", "localisation.roadmap"):
+                    self.assertIn(tr("section.localisation.all"), tr(key))
+                    self.assertNotIn("3", tr(key))
 
     def test_strip_wraps_at_the_minimum_size_and_not_at_full_hd(self):
         for (width, height), per_row in (((1100, 700), 5), ((1920, 1080), 10)):

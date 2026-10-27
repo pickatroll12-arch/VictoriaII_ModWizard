@@ -31,7 +31,6 @@ from ..vfs.model import DocKind
 from ..vfs.paths import VPath
 from ..vfs.vfs import VirtualFS, resolve_dependencies
 from . import journal
-from .codecs import codec_for
 from .lock import ProjectLock
 from .model import DocChanged, DocCreated, DocDeleted, DocReplaced, ProjectSettings, RecoveryResult, SaveReport
 from .recovery import load_session, orphan_sessions, recover_all
@@ -94,10 +93,12 @@ class Project:
             journal_dir = project_dir / journal.JOURNAL_DIR
             if held and journal_dir.is_dir():
                 recovered = recover_all(journal_dir, vfs.guard)
+                if not mod_root.is_dir():   # la recuperación deshizo un «Nuevo mod» cortado: no hay mod
+                    raise FileNotFoundError(str(mod_root))
             vfs.scan(progress=progress, cancelled=cancelled)
             settings = load_settings(project_dir / journal.SETTINGS_FILE, mod_root=mod_root, descriptor=parsed)
             session = new_session_id()
-            orphans = orphan_sessions(project_dir / journal.RECOVERY_DIR, alive={session}) if held else []
+            orphans = orphan_sessions(project_dir / journal.RECOVERY_DIR, alive={session}, lock_held=True) if held else []
             ws = Workspace(vfs, settings=settings, read_only=not held, session_id=session, project_dir=project_dir)
         except BaseException:
             lock.release()
@@ -144,16 +145,19 @@ class Project:
 
     def set_settings(self, settings: ProjectSettings) -> None:
         """Cambia los ajustes dentro de una transacción: ``project.json`` se escribe con el próximo guardado."""
+        if settings == self.settings:
+            return     # nada cambia: ni paso de deshacer ni project.json
         with self.ws.transaction(LABEL_SETTINGS):
             handle = self.ws.open(SETTINGS_REL, kind=DocKind.JSON, create=True)
             existing = bytes(handle.model) if handle.origin is not None or handle.dirty else None
             self.ws.replace_model(handle, render_settings(settings, existing))
+            self._on_event(DocReplaced(SETTINGS_REL))   # visible ya dentro de una transacción exterior
 
     def _on_event(self, event) -> None:
         if isinstance(event, (DocChanged, DocReplaced, DocCreated, DocDeleted)) and event.rel.key == SETTINGS_REL.key:
             handle = self.ws.peek(SETTINGS_REL)
-            if handle is not None and not handle.deleted:
-                data = bytes(handle.model)
+            if handle is not None:
+                data = None if handle.deleted else bytes(handle.model)   # una lápida es «sin archivo»
             else:
                 try:
                     data = (self.project_dir / journal.SETTINGS_FILE).read_bytes()
@@ -174,11 +178,19 @@ class Project:
         restored: list[VPath] = []
         with self.ws.transaction(LABEL_RESTORE, session=session):
             for rel in sorted(documents, key=lambda r: r.key):
-                handle = self.ws.open(rel, create=True)
-                if not codec_for(handle.kind).writable:
+                data = documents[rel]
+                if data is None:
+                    try:
+                        self.ws.delete(rel)          # estaba borrado sin guardar
+                    except (FileNotFoundError, PermissionError):
+                        continue                     # ya no está en el mod: no queda nada que borrar
+                    restored.append(rel)
                     continue
-                self.ws.replace_text(handle, documents[rel])
+                handle = self.ws.open(rel, create=True)
+                self.ws.restore_bytes(handle, data)  # también un binario (deshacer tras guardar la papelera)
                 restored.append(handle.rel)
+        # Antes de borrar el huérfano, el autoguardado de esta sesión: un corte ahora no debe perder nada (I8).
+        self.ws.write_recovery()
         journal.clear_recovery(self.vfs.guard, root, session)
         if session in self.orphan_sessions:
             self.orphan_sessions.remove(session)
@@ -200,6 +212,7 @@ class Project:
         """
         if self._closed:
             return
+        self.ws.check_thread()     # I12: desde otro hilo lanza sin soltar el bloqueo ni cerrar a medias
         self._closed = True
         try:
             if not self.read_only:
