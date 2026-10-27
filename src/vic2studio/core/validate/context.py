@@ -186,6 +186,8 @@ def build_context(snapshot: VfsSnapshot, index, overrides: Mapping[VPath, bytes]
     overrides = {} if game_only else dict(overrides or {})
     if game_only:
         snapshot = game_only_snapshot(snapshot)
+        if index is not None and any(f.layer is not LayerKind.GAME for f in index.facts()):
+            index = None      # el índice con el mod daría una línea base falsa: se usa el del juego solo
     if index is None:
         from ..index import FactsCache, build_index
 

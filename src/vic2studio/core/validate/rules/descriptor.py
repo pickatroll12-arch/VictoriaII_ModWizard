@@ -11,11 +11,11 @@ carpeta reemplazada (el juego se quedaría sin esos archivos).
 from __future__ import annotations
 
 from ...clausewitz import Severity
+from ...index.model import KIND_COUNTRY_FILE, KIND_FILE, KIND_IMAGE
 from ...modcheck import check_descriptor
 from ...modfile import descriptor_from_result
 from ...vfs.model import LayerKind
 from ...vfs.paths import DESCRIPTOR_REL, VPath, folder_key
-from ...index.model import KIND_COUNTRY_FILE, KIND_FILE, KIND_IMAGE
 from ..registry import make_problem, rule
 
 E, W = Severity.ERROR, Severity.WARNING

@@ -137,6 +137,18 @@ class LayerTests(unittest.TestCase):
             index.apply(extract_bytes(rel, b'YYY = "countries/Y.txt"\r\n', MOD))
             self.assertEqual(index.names(m.KIND_TAG), ["YYY"])
 
+    def test_copy_is_independent_of_later_applies(self):
+        with build_minigame(mod=False) as game:
+            index = build_index(game.snapshot(), None)
+            copy = index.copy()
+            index.apply(extract_bytes(VPath.of(COUNTRIES), b'EEE = "countries/E.txt"\r\n', MOD))
+            self.assertEqual(index.names(m.KIND_TAG), ["EEE"])
+            self.assertEqual(copy.names(m.KIND_TAG), ["AAA", "BBB", "CCC", "D01"], "la copia no cambia")
+            self.assertEqual(copy.generation + 1, index.generation)
+            copy.apply([], removed=[(VPath.of("map/region.txt"), GAME)])
+            self.assertEqual(index.count(m.KIND_REGION), 3, "ni al revés")
+            self.assertEqual(copy.count(m.KIND_REGION), 0)
+
     def test_apply_with_new_snapshot_recomputes_hidden(self):
         with build_minigame(mod=False, mod_files={"history/provinces/x/7 - Vado.txt": "owner = CCC\r\n"}) as game:
             index = build_index(game.snapshot(), None)

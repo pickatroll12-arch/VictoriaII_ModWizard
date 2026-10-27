@@ -50,6 +50,16 @@ class GameOnlyTests(unittest.TestCase):
         self.assertFalse(ctx.index.exists("event", "9"))
         self.assertTrue(ctx.index.exists("event", "1001"), "index=None: se construye el de esa vista")
 
+    def test_game_only_context_never_uses_an_index_with_the_mod(self):
+        snap = self.game.snapshot()
+        full = build_index(snap, None)
+        self.assertTrue(full.exists("decision", "tst_reform"))
+        ctx = build_context(snap, full, game_only=True)
+        self.assertFalse(ctx.index.exists("decision", "tst_reform"), "la línea base solo ve el juego")
+        game = game_only_snapshot(snap)
+        own = build_index(game, None)
+        self.assertIs(build_context(snap, own, game_only=True).index, own)
+
     def test_fingerprint_ignores_positions(self):
         a = Problem("duplicate_field", Severity.WARNING, VPath.of("x.txt"), 3,
                     args=MappingProxyType({"name": "civilized", "first_line": 2}))

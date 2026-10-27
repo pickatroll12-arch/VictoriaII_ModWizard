@@ -545,6 +545,24 @@ class SymbolIndex:
         self._invalidate(kinds)
         self.generation += 1
 
+    def copy(self) -> SymbolIndex:
+        """Copia independiente para otro hilo (ampliación): comparte los ``FileFacts`` (inmutables) pero no las
+        tablas ni las cachés, así que la tarea de validación la consulta mientras el hilo de la interfaz sigue
+        haciendo ``apply`` sobre el original. Cuesta copiar unos diccionarios (milisegundos)."""
+        other = SymbolIndex.__new__(SymbolIndex)
+        other.generation = self.generation
+        other._snapshot = self._snapshot
+        other._hidden = self._hidden
+        other._slots = dict(self._slots)
+        other._layers = {key: set(layers) for key, layers in self._layers.items()}
+        other._effective = dict(self._effective)
+        other._def_sources = {kind: set(sources) for kind, sources in self._def_sources.items()}
+        other._ref_sources = {kind: set(sources) for kind, sources in self._ref_sources.items()}
+        other._defs = {}
+        other._refs = {}
+        other._fold = {}
+        return other
+
     def facts(self) -> list[FileFacts]:
         """Todos los hechos que contiene (para la caché y las pruebas)."""
         return [item for key in sorted(self._slots, key=lambda k: (k[0], k[1].value))

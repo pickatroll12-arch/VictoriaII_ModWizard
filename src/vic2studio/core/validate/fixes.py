@@ -26,12 +26,28 @@ from types import MappingProxyType
 from typing import TYPE_CHECKING
 
 from ..clausewitz.nodes import Scalar
-from ..encoding import STRAY_BOM, GAME_ENCODING, UnencodableTextError, decode_bytes, encode_text, match_bom, \
-    split_bom, split_extra_boms
+from ..encoding import (
+    GAME_ENCODING,
+    STRAY_BOM,
+    UnencodableTextError,
+    decode_bytes,
+    encode_text,
+    match_bom,
+    split_bom,
+    split_extra_boms,
+)
 from ..vfs.model import LayerKind
 from ..vfs.paths import VPath
-from .model import ACTION_COPY_FROM_GAME, ACTION_CREATE, ACTION_MODIFY, ACTION_TRASH, ChangePlan, FixSpec, \
-    PlannedChange, Problem
+from .model import (
+    ACTION_COPY_FROM_GAME,
+    ACTION_CREATE,
+    ACTION_MODIFY,
+    ACTION_TRASH,
+    ChangePlan,
+    FixSpec,
+    PlannedChange,
+    Problem,
+)
 
 if TYPE_CHECKING:
     from ..project import Project

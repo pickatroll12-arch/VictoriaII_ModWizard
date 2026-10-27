@@ -37,8 +37,8 @@ from .model import (
     VERDICT_MISSING,
     VERDICT_NOT_LOADED,
     VERDICT_WINS,
-    Explanation,
     ExplainStep,
+    Explanation,
     Problem,
 )
 
