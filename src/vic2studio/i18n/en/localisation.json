@@ -54,7 +54,7 @@
   "texts.origin.game_tooltip": "Defined by the base game: editing it overrides it in a mod file",
   "texts.origin.mod": "Mod",
   "texts.origin.mod_tooltip": "Defined by your mod (or an unsaved change)",
-  "texts.origin.override": "Mod, replaces the base game",
+  "texts.origin.override": "Mod (overrides)",
   "texts.origin.override_tooltip": "The base game defines it too, but your mod's version wins",
   "texts.read_only": "read-only project",
   "texts.search_placeholder": "Search by key or text…",

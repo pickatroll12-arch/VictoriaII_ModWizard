@@ -31,7 +31,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from PySide6.QtCore import QByteArray, QSize, Qt, QTimer
+from PySide6.QtCore import QByteArray, QEvent, QSize, Qt, QTimer
 from PySide6.QtGui import QAction, QCloseEvent, QGuiApplication, QIcon, QKeySequence
 from PySide6.QtWidgets import (
     QComboBox,
@@ -41,6 +41,7 @@ from PySide6.QtWidgets import (
     QMainWindow,
     QMessageBox,
     QPushButton,
+    QSizePolicy,
     QStackedWidget,
     QToolButton,
     QVBoxLayout,
@@ -76,6 +77,8 @@ COMPACT_RAIL_WIDTH = 1360
 # Márgenes alrededor de las placas y la sala; con la franja, menos arriba y abajo para no robarle alto a la sección.
 BODY_MARGINS = (14, 12, 14, 12)
 COMPACT_BODY_MARGINS = (14, 8, 14, 6)
+LANGUAGE_COMBO_WIDTH = 130   # el estandarte lo ciñe a «Español» si a 1100 px no cabe todo (_fit_banner)
+LANGUAGE_GAP = 14            # entre «Guardar» y el idioma (6 cuando hay que ceñirlo)
 # Dónde vive cada página de la iteración 1 (``page(key)`` y ``show_page(key)``).
 PAGE_SECTIONS = {"project": ("project", "files"), "localisation": ("localisation", "csv")}
 UNSAVED_SAVE, UNSAVED_DISCARD, UNSAVED_CANCEL = "save", "discard", "cancel"
@@ -115,6 +118,7 @@ class MainWindow(QMainWindow):
         self.banner = HeaderBanner()
         column.addWidget(self.banner)
         self._build_banner_actions()
+        self.banner.installEventFilter(self)  # _fit_banner con el ancho ya repartido
 
         self._body = body = QVBoxLayout()
         body.setContentsMargins(*BODY_MARGINS)
@@ -194,7 +198,7 @@ class MainWindow(QMainWindow):
         self.language_label.setFont(theme.font("heading", 10.5))
         self.language_combo = QComboBox()
         self.language_combo.setObjectName("languageCombo")
-        self.language_combo.setMinimumWidth(130)
+        self.language_combo.setMinimumWidth(LANGUAGE_COMBO_WIDTH)
         for code, name in available_languages():
             self.language_combo.addItem(name, code)
         mark_data(self.language_combo)  # endónimos: no se traducen
@@ -227,9 +231,11 @@ class MainWindow(QMainWindow):
         self.problems_button.setIcon(make_icon("warning", "gold_light"))
         self.problems_button.setIconSize(QSize(20, 20))
         self.problems_button.toggled.connect(self._on_problems_toggled)
-        self.search_button = QPushButton()
+        self.search_button = QToolButton()
         self.search_button.setObjectName("searchButton")
         self.search_button.setIcon(make_icon("search", "gold_pale"))
+        self.search_button.setIconSize(QSize(18, 18))
+        self.search_button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
         self.search_button.clicked.connect(lambda: self.open_palette())
         self.save_button = QPushButton()
         self.save_button.setObjectName("saveButton")
@@ -242,10 +248,56 @@ class MainWindow(QMainWindow):
             row.addWidget(widget)
         row.addSpacing(4)
         row.addWidget(self.save_button)
-        row.addSpacing(14)
+        row.addSpacing(LANGUAGE_GAP)
+        self._language_gap = row.itemAt(row.count() - 1).spacerItem()
         row.addWidget(self.language_label)
         row.addWidget(self.language_combo)
+        self._banner_box = box
         self.banner.add_trailing_widget(box)
+
+    def _fit_banner(self) -> None:
+        """Que el estandarte quepa en el ancho de la ventana (1100 px como mínimo, ES y EN).
+
+        Se recoge por pasos, de lo menos a lo más útil, solo hasta que cabe: primero se oculta la etiqueta
+        «Idioma» (el desplegable ya lo dice), después «Buscar… Ctrl+K» queda en su icono (el texto sigue en
+        ``text()``, en la descripción emergente y para la accesibilidad), luego se oculta el lema y, si aún
+        falta (``Guardar (128)``), el desplegable del idioma se ciñe a su texto.
+        """
+        steps = (
+            lambda on: self.language_label.setVisible(not on),
+            lambda on: self.search_button.setToolButtonStyle(
+                Qt.ToolButtonStyle.ToolButtonIconOnly if on else Qt.ToolButtonStyle.ToolButtonTextBesideIcon),
+            lambda on: self.banner.tagline_label.setVisible(not on),
+            lambda on: self._tighten_language(on),
+        )
+        for step in steps:
+            step(False)
+        width = self.banner.width()
+        for step in steps:
+            if self._banner_minimum() <= width:
+                return
+            step(True)
+
+    def _tighten_language(self, on: bool) -> None:
+        self.language_combo.setMinimumWidth(0 if on else LANGUAGE_COMBO_WIDTH)
+        gap = 6 if on else LANGUAGE_GAP
+        self._language_gap.changeSize(gap, 0, QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Minimum)
+        self._banner_box.layout().invalidate()
+
+    def _banner_minimum(self) -> int:
+        """El ancho mínimo del estandarte con lo que está visible ahora.
+
+        Se suma a mano: el ``QWidgetItem`` de la caja de botones en el estandarte guarda su tamaño mínimo
+        hasta que el bucle de eventos reactiva el layout, y aquí hace falta el de este mismo instante.
+        """
+        box = self._banner_box.layout()
+        box.invalidate()
+        banner = self.banner
+        titles = [banner.title_label] + ([banner.tagline_label] if not banner.tagline_label.isHidden() else [])
+        margins = banner.layout().contentsMargins()
+        emblem = banner.emblem.minimumSize().expandedTo(banner.emblem.sizeHint()).width()  # tamaño fijo
+        return (margins.left() + margins.right() + emblem + 2 * banner.layout().spacing()
+                + max(label.minimumSizeHint().width() for label in titles) + box.minimumSize().width())
 
     def _build_actions(self) -> None:
         def action(name: str, shortcuts: list[str], slot) -> QAction:
@@ -756,13 +808,15 @@ class MainWindow(QMainWindow):
         self.redo_button.setToolTip(tr("shell.redo_tooltip", shortcut=self._shortcut_text("Ctrl+Y")))
         self.history_button.setToolTip(tr("shell.history_tooltip"))
         self.search_button.setText(tr("shell.search", shortcut=self._shortcut_text("Ctrl+K")))
-        self.search_button.setToolTip(tr("shell.search_tooltip"))
+        self.search_button.setToolTip(tr("shell.search_tooltip", shortcut=self._shortcut_text("Ctrl+K")))
+        self.search_button.setAccessibleName(self.search_button.text())
         self.palette_action.setText(tr("palette.title"))
         self._retranslate_problems_button()
         self.save_action.setText(tr("shell.save"))
         self.undo_action.setText(tr("shell.undo"))
         self.redo_action.setText(tr("shell.redo"))
         self.validate_action.setText(tr("project.validate"))
+        self._fit_banner()  # «Guardar (n)», el idioma y el lema cambian de ancho
 
     def _render_project(self) -> None:
         key, fmt = self._project_state
@@ -891,6 +945,11 @@ class MainWindow(QMainWindow):
         self._body.setContentsMargins(*(COMPACT_BODY_MARGINS if compact else BODY_MARGINS))
         for hall in self.halls:
             hall.set_compact(compact)
+
+    def eventFilter(self, watched, event) -> bool:
+        if event.type() == QEvent.Type.Resize and watched is getattr(self, "banner", None):
+            self._fit_banner()
+        return super().eventFilter(watched, event)
 
     def closeEvent(self, event: QCloseEvent) -> None:
         discard = False

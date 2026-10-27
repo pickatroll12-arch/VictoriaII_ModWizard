@@ -54,7 +54,7 @@
   "texts.origin.game_tooltip": "Lo define el juego base: editarlo lo sobrescribe en un archivo del mod",
   "texts.origin.mod": "Mod",
   "texts.origin.mod_tooltip": "Lo define tu mod (o un cambio sin guardar)",
-  "texts.origin.override": "Mod, sustituye al juego base",
+  "texts.origin.override": "Mod (sustituye)",
   "texts.origin.override_tooltip": "El juego base también lo define, pero gana el de tu mod",
   "texts.read_only": "proyecto de solo lectura",
   "texts.search_placeholder": "Buscar por clave o por texto…",

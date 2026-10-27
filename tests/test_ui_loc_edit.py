@@ -52,13 +52,17 @@ class TextsWindowCase(UiTestCase):
         isolate_appdirs(self)
         self.dialogs = DialogLog()
 
-    def open_window(self, *, read_only: bool = False, **minigame):
+    def open_window(self, *, read_only: bool = False, engines: dict | None = None, wait_texts: bool = True,
+                    **minigame):
+        """La ventana con el minijuego abierto con el ``Project`` real y los motores falsos (``engines``: opciones
+        de ``fake_engines``, o motores ya hechos con la clave ``"ready"``)."""
         self.game = build_minigame(**minigame)
         self.addCleanup(self.game.cleanup)
         if read_only:
             holder = Project.open(self.game.game_root, self.game.mod_root)   # otra ventana con el mismo mod
             self.addCleanup(holder.close)
-        self.engines = fake_engines()
+        engines = engines or {}
+        self.engines = engines["ready"] if "ready" in engines else fake_engines(**engines)
         window = self.make_window(session=Session(**self.engines))
         window.exec_dialog = self.dialogs
         window.ask_unsaved = mock.Mock(return_value=UNSAVED_DISCARD)
@@ -66,9 +70,12 @@ class TextsWindowCase(UiTestCase):
         page.set_game_path(self.game.game_root)
         page.set_mod_path(self.game.mod_root)
         session = window.session
-        self.assertTrue(_qt.wait_until(lambda: session.project is not None and session.texts_ready()
-                                       and not window.is_busy(), 8000), "el proyecto no llegó a abrirse")
         self.window = window
+        if wait_texts:
+            self.assertTrue(_qt.wait_until(lambda: session.project is not None and session.texts_ready()
+                                           and not window.is_busy(), 8000), "el proyecto no llegó a abrirse")
+        else:
+            self.assertTrue(_qt.wait_until(lambda: session.project is not None, 8000), "el proyecto no se abrió")
         return window
 
     def texts(self, section: str = "all"):
@@ -114,6 +121,18 @@ class TextsTableTests(TextsWindowCase):
         self.assertEqual(page.proxy.index(row, COLUMNS.index("origin")).data(), tr("texts.origin.game"))
         self.assertEqual(page.filter_combo.itemText(0), tr("texts.filter.all", count="6"))
         self.assertEqual(page.count_label.text(), tr("texts.count", total="6"))
+
+    def test_at_1100_px_the_table_fits_and_files_keep_their_line(self):
+        window = self.open_window(mod_files=MOD_TEXTS)
+        window.resize(1100, 700)
+        page = self.texts()
+        _qt.process_events(30)
+        self.assertEqual(page.table.horizontalScrollBar().maximum(), 0, "sin barra horizontal a 1100 px")
+        delegate = page.table.itemDelegateForColumn(COLUMNS.index("file"))
+        self.assertEqual(type(delegate).__name__, "PathElideDelegate", "«…countries.csv:12»: se ve la línea")
+        page.extra_check.setChecked(True)
+        _qt.process_events(30)
+        self.assertGreaterEqual(page.table.columnWidth(COLUMNS.index("de")), 100)
 
     def test_editing_a_game_text_writes_the_overrides_file_and_ctrl_z_undoes_it(self):
         """Criterio 6 desde la interfaz: la fila va a 00_<P>_overrides.csv; el CSV del juego no se copia."""

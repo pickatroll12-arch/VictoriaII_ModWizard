@@ -62,8 +62,13 @@ KIND_LABELS = {
     kinds.KIND_IMAGE: N_("kind.image"), kinds.KIND_LOC_KEY: N_("kind.loc_key"),
     kinds.KIND_COUNTRY_FLAG: N_("kind.country_flag"), kinds.KIND_GLOBAL_FLAG: N_("kind.global_flag"),
     kinds.KIND_PROVINCE_FLAG: N_("kind.province_flag"),
+    # Ampliación compatible del contrato que trae el agente A (KIND_COUNTRY_FILE, KIND_FILE, KIND_TECH_FOLDER y
+    # KIND_POP_BLOCK); por su valor, para no depender de que ya estén en core/index/model.py.
+    "country_file": N_("kind.country_file"), "file": N_("kind.file"), "tech_folder": N_("kind.tech_folder"),
+    "pop_block": N_("kind.pop_block"),
 }
 KIND_ICONS = {
+    "country_file": "countries", "tech_folder": "layers", "pop_block": "culture",
     kinds.KIND_TAG: "flag", kinds.KIND_COUNTRY_HISTORY: "countries", kinds.KIND_PARTY: "countries",
     kinds.KIND_GOVERNMENT: "crown", kinds.KIND_IDEOLOGY: "crown", kinds.KIND_ISSUE_GROUP: "crown",
     kinds.KIND_ISSUE_OPTION: "crown", kinds.KIND_NATIONAL_VALUE: "crown",
@@ -203,7 +208,12 @@ class CommandPalette(QFrame):
             self.list.addItem(self._item(result))
         if self.list.count():
             self.list.setCurrentRow(0)
+        elif self.list.hasFocus():
+            self.edit.setFocus(Qt.FocusReason.OtherFocusReason)   # sin foco fuera: eso la cerraría
+        self.list.setVisible(bool(results))   # sin resultados, la paleta se encoge al buscador y al aviso
         self._retranslate_state()
+        if self.isVisible():
+            self.place()
 
     def activate(self, row: int | None = None, *, code: bool = False) -> bool:
         """Abre el resultado ``row`` (el seleccionado si es None); False si no hay ninguno."""
@@ -245,7 +255,12 @@ class CommandPalette(QFrame):
     def place(self) -> None:
         parent = self.parentWidget()
         width = max(360, min(WIDTH, parent.width() - 80))
-        height = max(260, min(460, parent.height() - 140))
+        if self.list.isHidden():  # solo el buscador, el aviso y la ayuda
+            layout = self.layout()
+            layout.invalidate()
+            height = layout.totalHeightForWidth(width) if layout.hasHeightForWidth() else layout.sizeHint().height()
+        else:
+            height = max(260, min(460, parent.height() - 140))
         self.setGeometry((parent.width() - width) // 2, 70, width, height)
 
     def _on_item_activated(self, item: QListWidgetItem) -> None:

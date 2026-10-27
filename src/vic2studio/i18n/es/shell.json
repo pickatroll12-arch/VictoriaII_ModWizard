@@ -160,7 +160,7 @@
   "shell.save_count": "Guardar ({count})",
   "shell.save_tooltip": "Guarda en el mod los cambios pendientes ({shortcut})",
   "shell.search": "Buscar…  {shortcut}",
-  "shell.search_tooltip": "Busca países, provincias, culturas, eventos, textos o secciones",
+  "shell.search_tooltip": "Busca países, provincias, culturas, eventos, textos o secciones ({shortcut})",
   "shell.title_dirty": "* {title}",
   "shell.undo": "Deshacer",
   "shell.undo_step": "Deshacer: {step} ({shortcut})",

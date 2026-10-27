@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import html
 
-from PySide6.QtCore import Qt, QTimer, Signal
+from PySide6.QtCore import QEvent, QSize, Qt, QTimer, Signal
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -32,6 +32,7 @@ from PySide6.QtWidgets import (
     QScrollArea,
     QSplitter,
     QStackedWidget,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -47,7 +48,7 @@ from ...shell.problems_dock import (
     ProblemsModel,
     problems_table,
 )
-from ...viewers.common import core_language, format_number, format_seconds
+from ...viewers.common import ElidedLabel, core_language, format_number, format_seconds
 from ...widgets import EmptyState, ParchmentCard, make_icon, mark_data, show_in_stack
 
 FILTER_DELAY_MS = 200
@@ -77,11 +78,12 @@ class ExplainerPanel(ParchmentCard):
         self.heading.setProperty("role", "heading")
         self.heading.setFont(theme.font("heading", 11))
         head.addWidget(self.heading, 1)
-        self.close_button = QPushButton()
+        self.close_button = QToolButton()
         self.close_button.setObjectName("explainerClose")
-        self.close_button.setIcon(make_icon("error", "ink_soft"))
+        self.close_button.setIcon(make_icon("error", "cream", "cream", "gold_pale"))  # sobre el botón de madera
+        self.close_button.setIconSize(QSize(16, 16))
         self.close_button.clicked.connect(self.closed)
-        head.addWidget(self.close_button)
+        head.addWidget(self.close_button, 0, Qt.AlignmentFlag.AlignTop)
         layout.addLayout(head)
         self.title = mark_data(QLabel())
         self.title.setObjectName("explainerTitle")
@@ -129,10 +131,11 @@ class ExplainerPanel(ParchmentCard):
             grid.setContentsMargins(0, 0, 0, 0)
             grid.setSpacing(1)
             top = QHBoxLayout()
+            top.setSpacing(10)
             layer = mark_data(QLabel())
             layer.setFont(theme.font("body_bold"))
             top.addWidget(layer)
-            where = mark_data(QLabel())
+            where = mark_data(ElidedLabel())   # la ruta se recorta por el medio; la línea no se pierde
             where.setFont(theme.font("mono", 8.5))
             where.setProperty("role", "caption")
             top.addWidget(where, 1)
@@ -182,7 +185,8 @@ class ExplainerPanel(ParchmentCard):
         for layer, where, verdict, excerpt, step in self.step_rows:
             layer.setText(step.layer_text(lang))
             location = "" if step.rel is None else (f"{step.rel}:{step.line}" if step.line else str(step.rel))
-            where.setText(location)
+            where.set_text(location, "" if step.rel is None else str(step.rel))
+            where.setToolTip(location)
             verdict.setText(step.verdict_text(lang))
             color = VERDICT_COLORS.get(step.verdict, "ink_soft")
             verdict.setStyleSheet(f"color: {theme.PALETTE[color]};")

@@ -360,5 +360,203 @@ class CreateModTests(SessionCase):
         self.assertEqual(self.events.of("workingDateChanged"), [(ClausewitzDate(1861, 1, 1),)])
 
 
+# --- iteración 3: índice, textos y validación (contra el Project real, con los motores falsos) ---------------
+
+
+class ServicesCase(unittest.TestCase):
+    """La sesión con el minijuego abierto con ``Project.open`` y los motores de ``_fake_index``."""
+
+    def setUp(self):
+        from _fake_index import fake_engines
+        from _layers import isolate_appdirs
+        from _minigame import build_minigame
+
+        from vic2studio.i18n import language, set_language
+
+        _qt.take_qt_messages()
+        isolate_appdirs(self)
+        self.addCleanup(set_language, language())
+        set_language("es")   # la columna de la localización que se busca es la del idioma de la interfaz
+        self.game = build_minigame(mod_files={"history/countries/SIL - Silesia.txt": "capital = 1\r\n",
+                                              "localisation/00_TESTMOD_countries.csv": "AAA;Åland;;;;Álandia;;;;;;;;x\r\n"})
+        self.addCleanup(self.game.cleanup)
+        self.engines = self.make_engines(fake_engines)
+        self.session = Session(**self.engines)
+        self.symbols: list[set] = []
+        self.session.symbolsChanged.connect(lambda kinds: self.symbols.append(set(kinds)))
+
+    def make_engines(self, fake_engines):
+        return fake_engines()
+
+    def tearDown(self):
+        self.session.close_project()
+        self.assertTrue(wait_for_tasks(10000))
+        self.assertEqual(_qt.dispose(self.session), [])
+        self.assertEqual(_qt.take_qt_messages(), [])
+
+    def open(self, *, wait_index: bool = True):
+        self.session.open_project(self.game.game_root, self.game.mod_root)
+        self.assertTrue(_qt.wait_until(lambda: self.session.project is not None, 5000))
+        if wait_index:
+            self.assertTrue(_qt.wait_until(lambda: self.session.index is not None and self.session.texts_ready()
+                                           and not self.session.is_working(), 5000))
+        return self.session.project
+
+    def edit_countries(self, text: bytes):
+        project = self.session.project
+        with self.session.edit("pending.undo_revert", name="common/countries.txt"):
+            project.ws.replace_text(project.ws.open("common/countries.txt"), text)
+
+
+class IndexSessionTests(ServicesCase):
+    def test_the_index_is_built_in_the_background_on_open_with_the_snapshot(self):
+        self.open()
+        session = self.session
+        self.assertEqual(session.index_state(), "ready")
+        ((snapshot, overrides),) = self.engines["index"].builds
+        self.assertIn("COMMON/COUNTRIES.TXT", snapshot.entries)
+        self.assertEqual(overrides, {})
+        self.assertTrue({"tag", "loc_key", "country_history"} <= self.symbols[-1], self.symbols)
+        self.assertEqual(session.index.names("tag"), ["AAA", "BBB", "CCC", "D01"])
+
+    def test_a_change_is_reextracted_300_ms_later_and_applied_in_the_interface_thread(self):
+        import time
+
+        from vic2studio.core.vfs import LayerKind, VPath
+
+        self.open()
+        session, index = self.session, self.session.index
+        self.symbols.clear()
+        started = time.monotonic()
+        self.edit_countries(b'AAA = "countries/Aland.txt"\r\nZZZ = "countries/Z.txt"\r\ndynamic_tags = yes\r\n')
+        self.edit_countries(b'AAA = "countries/Aland.txt"\r\nZZZ = "countries/Z.txt"\r\nYYY = "c/Y.txt"\r\n')
+        self.assertEqual(self.engines["index"].extracted, [], "nada antes de la espera")
+        self.assertTrue(_qt.wait_until(lambda: index.applied, 3000), "no se reextrajo")
+        # 300 ms tras la última edición; los temporizadores «coarse» de Qt pueden adelantarse un 5 %.
+        self.assertGreaterEqual(time.monotonic() - started, 0.28)
+        self.assertEqual(self.engines["index"].extracted, [(VPath.of("common/countries.txt"), LayerKind.MOD)],
+                         "las dos ediciones seguidas se reextraen una sola vez")
+        self.assertIs(session.index, index, "incremental: el mismo índice")
+        self.assertEqual(index.names("tag"), ["AAA", "ZZZ", "YYY"])
+        self.assertIn("tag", self.symbols[-1])
+        session.undo()
+        session.undo()
+        self.assertTrue(_qt.wait_until(lambda: len(index.applied) == 2, 3000))
+        self.assertEqual(index.applied[-1][1], [(VPath.of("common/countries.txt"), LayerKind.MOD)],
+                         "deshecho, vuelve a contar el del juego")
+        self.assertEqual(index.names("tag"), ["AAA", "BBB", "CCC", "D01"])
+
+    def test_changes_made_while_building_are_reextracted_afterwards(self):
+        import threading as _threading
+
+        from _fake_index import fake_engines
+
+        gate = _threading.Event()
+        self.addCleanup(gate.set)
+        self.session.close_project()
+        self.engines = fake_engines(index={"gate": gate})
+        self.session = Session(**self.engines)
+        self.open(wait_index=False)
+        self.assertTrue(_qt.wait_until(lambda: self.engines["index"].started.is_set(), 3000))
+        self.edit_countries(b'AAA = "countries/Aland.txt"\r\nNEW = "countries/New.txt"\r\n')
+        _qt.process_events(400)
+        self.assertEqual(self.engines["index"].extracted, [], "con el índice a medias no se reextrae todavía")
+        gate.set()
+        self.assertTrue(_qt.wait_until(lambda: self.session.index is not None
+                                       and "NEW" in self.session.index.names("tag"), 5000))
+
+    def test_search_and_display_use_the_effective_localisation(self):
+        self.open()
+        found = [(s.kind, s.name) for s in self.session.search("alandia")]
+        self.assertIn(("tag", "AAA"), found)
+        tag = next(s for s in self.session.search("AAA") if s.kind == "tag")
+        self.assertEqual(self.session.display(tag), "Álandia (AAA)")
+        self.assertEqual(self.session.search("   "), [])
+
+    def test_closing_forgets_the_index_the_texts_and_the_report(self):
+        self.open()
+        self.session.validate()
+        self.assertTrue(_qt.wait_until(lambda: self.session.report is not None, 5000))
+        changed = []
+        self.session.problemsChanged.connect(lambda: changed.append("problems"))
+        self.session.textsChanged.connect(lambda: changed.append("texts"))
+        self.session.close_project()
+        self.assertIsNone(self.session.index)
+        self.assertIsNone(self.session.locsync)
+        self.assertIsNone(self.session.report)
+        self.assertEqual(self.session.index_state(), "idle")
+        self.assertEqual(changed, ["problems", "texts"])
+        self.assertEqual(self.symbols[-1], set())
+
+
+class TextsSessionTests(ServicesCase):
+    def test_texts_are_read_in_the_background_and_announced(self):
+        ready = []
+        self.session.textsReady.connect(lambda: ready.append(True))
+        self.open()
+        self.assertEqual(ready, [True])
+        locsync = self.session.locsync
+        self.assertEqual(locsync.prefix, "TESTMOD")
+        self.assertEqual(locsync.disk_entries(), [], "ya está todo leído")
+        self.assertEqual(locsync.text("AAA", "es"), "Álandia")
+
+    def test_a_text_edit_announces_texts_changed_and_settings_reach_locsync(self):
+        import dataclasses
+
+        project = self.open()
+        changed = []
+        self.session.textsChanged.connect(lambda: changed.append(True))
+        with self.session.edit("pending.undo_revert", name="x"):
+            self.session.locsync.set_text("AAA", "es", "Alandia")
+        self.assertEqual(changed, [True])
+        project.set_settings(dataclasses.replace(project.settings, prefix="NEWP", copy_en_to=("fr",)))
+        self.session._flush()
+        self.assertEqual((self.session.locsync.prefix, self.session.locsync.copy_en_to), ("NEWP", ("fr",)))
+
+
+class ValidationSessionTests(ServicesCase):
+    def test_validation_gets_a_copy_of_the_index_the_overrides_and_the_baseline(self):
+        from vic2studio.core.vfs import VPath
+
+        project = self.open()
+        sil = "history/countries/SIL - Silesia.txt"
+        with self.session.edit("pending.undo_revert", name=sil):
+            project.ws.replace_text(project.ws.open(sil), b"capital = 2\r\n")
+        self.assertTrue(self.session.validate())
+        self.assertTrue(_qt.wait_until(lambda: self.session.validation_state() == "ready", 5000))
+        context = self.session.validation_context
+        self.assertIsNot(context.index, self.session.index, "el hilo de la validación trabaja con una copia")
+        self.assertEqual(sorted(f.rel for f in context.index.facts()), sorted(f.rel for f in self.session.index.facts()))
+        self.assertEqual(list(context.overrides), [VPath.of(sil)], "los bytes de lo que está sin guardar")
+        self.assertTrue(self.session.report.baseline_ready)
+        self.assertEqual(self.engines["baseline"].computed, 1)
+        self.assertEqual([p.code for p in self.session.problems()], ["tag_not_registered"])
+        self.assertEqual(len(self.session.problems(inherited=True)), 3, "más los nombres que ya faltan en el juego")
+
+    def test_apply_fix_revalidates_once_the_index_is_up_to_date(self):
+        self.open()
+        self.session.validate()
+        self.assertTrue(_qt.wait_until(lambda: self.session.validation_state() == "ready", 5000))
+        sil = self.session.problems()[0]
+        plan = self.session.plan_fix("register_tag", sil)
+        self.assertEqual(self.session.history(), [], "el plan no deja nada en la pila de deshacer")
+        self.assertEqual([str(c.rel) for c in plan.changes], ["common/countries.txt"])
+        self.session.apply_fix("register_tag", sil)
+        self.assertEqual(self.session.validation_state(), "ready", "espera al índice antes de revalidar")
+        self.assertTrue(_qt.wait_until(lambda: self.engines["validation"].validations == 2
+                                       and self.session.validation_state() == "ready", 5000))
+        self.assertIn("SIL", self.session.index.names("tag"))
+        self.assertEqual([p.code for p in self.session.problems()], ["loc_key_missing"],
+                         "SIL ya está registrado (y ahora le falta su nombre)")
+
+    def test_explain_and_fixes_need_a_report(self):
+        self.open()
+        from _fake_index import problem
+
+        sil = problem("tag_not_registered", "history/countries/SIL - Silesia.txt", 1, tag="SIL")
+        self.assertIsNone(self.session.explain(sil))
+        self.assertEqual([f.key for f in self.session.fixes_for(sil)], ["register_tag"])
+
+
 if __name__ == "__main__":
     unittest.main()

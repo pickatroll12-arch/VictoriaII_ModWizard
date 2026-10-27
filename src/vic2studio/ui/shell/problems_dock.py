@@ -42,6 +42,7 @@ from ...i18n import N_, tr, translator
 from .. import theme
 from ..viewers.common import SEVERITY_COLOR, core_language, format_number, severity_icon, severity_label
 from ..widgets import make_icon, mark_data
+from ..widgets.delegates import PathElideDelegate
 from .command_palette import kind_label
 
 COL_SEVERITY, COL_MESSAGE, COL_ENTITY, COL_FILE, COL_LINE = "severity", "message", "entity", "file", "line"
@@ -245,8 +246,50 @@ class ProblemsModel(QAbstractTableModel):
         return None
 
 
-def problems_table(model: ProblemsModel) -> QTableView:
-    view = QTableView()
+COLUMN_WIDTHS = {COL_SEVERITY: 96, COL_ENTITY: 130, COL_FILE: 210, COL_LINE: 66}
+MESSAGE_MIN_WIDTH = 240
+FOLD_ORDER = (COL_LINE, COL_FILE, COL_ENTITY)   # lo que se pliega primero cuando falta ancho
+
+
+class ProblemsTable(QTableView):
+    """La tabla de problemas: el mensaje se queda con el ancho que sobra y nunca baja de ``MESSAGE_MIN_WIDTH``.
+
+    Con poco sitio (el explicador abierto a 1100 px, el panel estrecho) pliega Línea, después Archivo y por
+    último Entidad; la ayuda emergente de cada fila sigue llevando la entidad y la ubicación.
+    """
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        self.fit_columns()
+
+    def fit_columns(self) -> None:
+        model = self.model()
+        if model is None:
+            return
+        columns = model.columns
+        header = self.horizontalHeader()
+        widths = {column: (COLUMN_WIDTHS[column] if self.isColumnHidden(section) else header.sectionSize(section))
+                  for section, column in enumerate(columns) if column in COLUMN_WIDTHS}
+        room = self.viewport().width() - sum(widths.values())
+        folded = set()
+        for column in FOLD_ORDER:
+            if column in widths and room < MESSAGE_MIN_WIDTH:
+                folded.add(column)
+                room += widths[column]
+        for section, column in enumerate(columns):
+            if column in widths and self.isColumnHidden(section) != (column in folded):
+                self.setColumnHidden(section, column in folded)
+                if column not in folded:
+                    header.resizeSection(section, widths[column])
+
+    def folded_columns(self) -> list[str]:
+        """Las columnas plegadas por falta de ancho (para las pruebas)."""
+        model = self.model()
+        return [column for section, column in enumerate(model.columns) if self.isColumnHidden(section)]
+
+
+def problems_table(model: ProblemsModel) -> ProblemsTable:
+    view = ProblemsTable()
     view.setProperty("role", "diagnostics")
     view.setModel(model)
     view.setTabKeyNavigation(False)
@@ -267,12 +310,14 @@ def problems_table(model: ProblemsModel) -> QTableView:
     header.setDefaultAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
     header.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
     header.setStretchLastSection(False)
-    widths = {COL_SEVERITY: 96, COL_ENTITY: 150, COL_FILE: 230, COL_LINE: 56}
+    header.setMinimumSectionSize(40)
     for section, column in enumerate(model.columns):
         if column == COL_MESSAGE:
             header.setSectionResizeMode(section, QHeaderView.ResizeMode.Stretch)
         else:
-            header.resizeSection(section, widths[column])
+            header.resizeSection(section, COLUMN_WIDTHS[column])
+    view.path_delegate = PathElideDelegate(view)
+    view.setItemDelegateForColumn(model.columns.index(COL_FILE), view.path_delegate)
     mark_data(view)
     return view
 

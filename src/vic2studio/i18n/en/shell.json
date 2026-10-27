@@ -160,7 +160,7 @@
   "shell.save_count": "Save ({count})",
   "shell.save_tooltip": "Save the pending changes to the mod ({shortcut})",
   "shell.search": "Search…  {shortcut}",
-  "shell.search_tooltip": "Searches countries, provinces, cultures, events, texts or sections",
+  "shell.search_tooltip": "Searches countries, provinces, cultures, events, texts or sections ({shortcut})",
   "shell.title_dirty": "* {title}",
   "shell.undo": "Undo",
   "shell.undo_step": "Undo: {step} ({shortcut})",

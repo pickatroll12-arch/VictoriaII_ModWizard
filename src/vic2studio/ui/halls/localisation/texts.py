@@ -48,6 +48,7 @@ from ... import theme
 from ...pages.base import BasePage
 from ...viewers.common import core_language, format_number
 from ...widgets import EmptyState, make_icon, mark_data, show_in_stack
+from ...widgets.delegates import PathElideDelegate
 
 FILTER_ALL, FILTER_STUDIO, FILTER_UNTRANSLATED, FILTER_OVERRIDES, FILTER_DEGRADED = (
     "all", "studio", "untranslated", "overrides", "degraded")
@@ -80,6 +81,8 @@ SEARCH_DELAY_MS = 150
 LABEL_EDIT = N_("undo.texts_edit")
 LABEL_ADD = N_("undo.texts_add_key")
 ENTRY_ROLE = Qt.ItemDataRole.UserRole + 1
+COLUMN_WIDTHS = {COL_KEY: 220, COL_FILE: 210, COL_ORIGIN: 130}   # los idiomas se reparten el resto
+MIN_COLUMN_WIDTH = 100                                          # con francés y alemán a 1100 px
 
 
 def origin_of(entry: LocEntry) -> str:
@@ -472,9 +475,14 @@ class TextsPage(BasePage):
         header.setHighlightSections(False)
         header.setDefaultAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
         header.setStretchLastSection(False)
+        header.setMinimumSectionSize(MIN_COLUMN_WIDTH)
         for section, column in enumerate(COLUMNS):
-            width = {COL_KEY: 220, COL_FILE: 170, COL_ORIGIN: 130}.get(column, 240)
-            header.resizeSection(section, width)
+            if column in COLUMN_WIDTHS:
+                header.resizeSection(section, COLUMN_WIDTHS[column])
+            else:  # los textos ocupan lo que dejan la clave, el archivo y el origen
+                header.setSectionResizeMode(section, QHeaderView.ResizeMode.Stretch)
+        self._file_delegate = PathElideDelegate(self.table)
+        self.table.setItemDelegateForColumn(COLUMNS.index(COL_FILE), self._file_delegate)
         box.addWidget(self.table, 1)
         self.hint = QLabel()
         self.hint.setObjectName("textsHint")
