@@ -335,6 +335,15 @@ class ExpectedCleanTests(unittest.TestCase):
         self.assertEqual(own, [("nationalvalue_unknown", "nv_tradition")])
         self.assertGreater(report.inherited_count(), 5)
 
+    def test_a_tag_used_only_in_provinces_is_not_registered(self):
+        files = {"history/provinces/north/1 - Capital.txt": "owner = QQQ\r\ncontroller = QQQ\r\n",
+                 "history/wars/Q War.txt": "1840.1.1 = {\r\n\tadd_attacker = QQQ\r\n}\r\n"}
+        with build_minigame(mod=False, mod_files=files) as game:
+            report = validate(game, codes={"tag_not_registered"})
+        self.assertEqual([(str(p.rel), p.line, dict(p.args)) for p in report.problems],
+                         [("history/provinces/north/1 - Capital.txt", 1, {"tag": "QQQ"})],
+                         "un problema por TAG, en su primer uso")
+
     def test_unloaded_files_are_not_validated(self):
         """El juego no carga el archivo de país ni la historia de un TAG sin registrar: sus referencias no
         cuentan (las de SIL en VSM salen al registrarlo)."""

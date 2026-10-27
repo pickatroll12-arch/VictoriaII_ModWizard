@@ -186,6 +186,7 @@ class RestoreRowsTests(FixTestCase):
 class TrashCopiesTests(FixTestCase):
     def test_trashes_identical_copies_outside_replace_path_folders(self):
         game, project = self.open(mod_files={"common/cb_types.txt": GAME_FILES["common/cb_types.txt"],
+                                             "map/region.txt": GAME_FILES["map/region.txt"],
                                              "events/minigame_events.txt": GAME_FILES["events/minigame_events.txt"],
                                              "events/minigame_more.txt": GAME_FILES["events/minigame_more.txt"]})
         project.close(discard=True)
@@ -193,16 +194,23 @@ class TrashCopiesTests(FixTestCase):
         project = Project.open(game.game_root, game.mod_root)
         self.addCleanup(project.close, discard=True)
         found = problems(project, {"mod_shadow_identical"})
-        self.assertEqual([str(p.rel) for p in found], ["common/cb_types.txt"],
+        self.assertEqual([str(p.rel) for p in found], ["common/cb_types.txt", "map/region.txt"],
                          "las de events/ hacen falta: replace_path oculta las del juego")
         spec = FIXES["trash_identical_copies"]
         self.assertFalse(spec.safe, "borra: pide confirmación explícita")
-        plan, _ = self.run_fix(project, "trash_identical_copies", "mod_shadow_identical")
+        [problem] = [p for p in found if p.rel == "map/region.txt"]
+        history = project.ws.history()
+        plan = plan_fix("trash_identical_copies", problem, project)
+        self.assertEqual(project.ws.history(), history)
         self.assertEqual([(str(c.rel), c.action, c.diff) for c in plan.changes],
-                         [("common/cb_types.txt", ACTION_TRASH, "")])
+                         [("common/cb_types.txt", ACTION_TRASH, ""), ("map/region.txt", ACTION_TRASH, "")],
+                         "todas las copias idénticas, no solo la del problema")
+        apply_fix("trash_identical_copies", problem, project)
+        self.assertEqual(project.ws.history(), [("undo.fix_trash_identical_copies", {"count": 2})] + history,
+                         "las dos en un solo paso")
+        self.assertEqual(problems(project, {"mod_shadow_identical"}), [])
         self.assertEqual([(str(w.rel), w.action) for w in project.ws.changeset().writes],
-                         [("common/cb_types.txt", WriteAction.TRASH)])
-        self.assertEqual(project.ws.history()[0], ("undo.fix_trash_identical_copies", {"count": 1}))
+                         [("common/cb_types.txt", WriteAction.TRASH), ("map/region.txt", WriteAction.TRASH)])
         project.ws.undo()
         self.assertEqual(project.ws.dirty(), [])
 
