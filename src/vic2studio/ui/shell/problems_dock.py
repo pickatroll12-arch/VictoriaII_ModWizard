@@ -6,11 +6,15 @@
 - ``FixFlow``: [Arreglar] (el SimpleFix, o el arreglo elegido en el desplegable): pide
   el plan a la sesión, lo enseña en ``FixPlanDialog`` (confirmación explícita si el
   arreglo borra o sustituye) y, si se acepta, lo aplica con ``Session.apply_fix`` (una
-  transacción deshacible; la sesión vuelve a validar).
+  transacción deshacible; la sesión vuelve a validar). Plan y aplicación tocan el
+  ``Workspace`` y son síncronos: mientras duran, cursor de espera y «Preparando el
+  plan…» o «Aplicando el arreglo…» en la barra de estado (``widgets.busy``).
+- [Arreglar] no se puede pulsar en solo lectura ni mientras se revalida
+  (``fixes_disabled_reason``): el informe a la vista aún no tiene el último arreglo.
 - ``ProblemsDock``: lo compacto: recuentos, «heredados (n)», la lista y los mismos
   [Arreglar] y [¿Por qué?]; doble clic abre el archivo en esa línea
   (``open_requested``) y [¿Por qué?] lleva a Proyecto › Validación con el explicador
-  abierto (``explain_requested``).
+  abierto (``explain_requested``). Si el informe está desfasado, el resumen lo dice.
 
 Los mensajes vienen del núcleo (``Problem.message(lang)``) y se piden en el idioma
 actual al pintar: cambiar de idioma no recalcula nada.
@@ -42,8 +46,23 @@ from ...i18n import N_, tr, translator
 from .. import theme
 from ..viewers.common import SEVERITY_COLOR, core_language, format_number, severity_icon, severity_label
 from ..widgets import make_icon, mark_data
+from ..widgets.busy import busy
 from ..widgets.delegates import PathElideDelegate
 from .command_palette import kind_label
+
+FIX_READ_ONLY = N_("checks.fix_read_only_tooltip")
+FIX_WAIT = N_("checks.fix_wait_tooltip")
+
+
+def fixes_disabled_reason(session) -> str | None:
+    """Por qué no se puede arreglar ahora (una clave), o None: solo lectura, o validando o con una revalidación
+    pendiente tras un arreglo (arreglar otra vez un problema ya arreglado fallaría o lo haría dos veces)."""
+    if session.project is None:
+        return None
+    if session.is_read_only():
+        return FIX_READ_ONLY
+    blocked = getattr(session, "fixes_blocked", None)
+    return FIX_WAIT if blocked is not None and blocked() else None
 
 COL_SEVERITY, COL_MESSAGE, COL_ENTITY, COL_FILE, COL_LINE = "severity", "message", "entity", "file", "line"
 HEADER_KEYS = {
@@ -359,14 +378,20 @@ class FixFlow(QObject):
         if self.session.is_read_only():
             self.request_status("status.read_only")
             return False
+        if fixes_disabled_reason(self.session) == FIX_WAIT:
+            self.request_status("checks.status_fix_wait")
+            return False
         specs = self.fixes(problem)
         spec = next((s for s in specs if key is None or s.key == key), None)
         if spec is None:
             self.request_status("checks.status_no_fix")
             return False
         lang = core_language()
+        label = lambda s=spec, p=problem: s.label(p, core_language())  # noqa: E731 - se traduce con la barra
         try:
-            plan = self.session.plan_fix(spec.key, problem)
+            self.request_status("checks.status_planning", fix=label)
+            with busy(self.parent_widget):   # síncrono: toca el Workspace (con VSM, segundos)
+                plan = self.session.plan_fix(spec.key, problem)
         except Exception as exc:  # noqa: BLE001 - el motivo se muestra
             self.request_status("checks.status_fix_failed", fix=spec.label(problem, lang), error=_reason(exc, lang))
             return False
@@ -375,7 +400,9 @@ class FixFlow(QObject):
             self.request_status("checks.status_fix_cancelled")
             return False
         try:
-            self.session.apply_fix(spec.key, problem, plan=plan)   # si ya no haría lo que enseñó el plan, no aplica
+            self.request_status("checks.status_applying", fix=label)
+            with busy(self.parent_widget):
+                self.session.apply_fix(spec.key, problem, plan=plan)   # si ya no haría lo que enseñó el plan, no aplica
         except Exception as exc:  # noqa: BLE001
             self.request_status("checks.status_fix_failed", fix=spec.label(problem, lang), error=_reason(exc, lang))
             return False
@@ -400,15 +427,22 @@ class FixButton(QToolButton):
         self.setPopupMode(QToolButton.ToolButtonPopupMode.MenuButtonPopup)
         self.clicked.connect(lambda: self.flow.run(self.problem))
         self.menu_.aboutToShow.connect(self._fill_menu)
+        # Un método y no una lambda: Qt corta la conexión cuando el botón se destruye (la sesión vive más).
+        flow.session.validationStateChanged.connect(self._on_validation_state)
         self.set_problem(None)
 
     def set_problem(self, problem) -> None:
         self.problem = problem
         specs = self.flow.fixes(problem)
-        self.setEnabled(bool(specs) and not self.flow.session.is_read_only())
+        self._reason = fixes_disabled_reason(self.flow.session)
+        self.setEnabled(bool(specs) and self._reason is None)
         self.setPopupMode(QToolButton.ToolButtonPopupMode.MenuButtonPopup if len(specs) > 1
                           else QToolButton.ToolButtonPopupMode.DelayedPopup)
         self.retranslate()
+
+    def _on_validation_state(self) -> None:
+        """Al empezar o terminar una revalidación: activo solo con el informe al día."""
+        self.set_problem(self.problem)
 
     def _fill_menu(self) -> None:
         self.menu_.clear()
@@ -421,7 +455,9 @@ class FixButton(QToolButton):
     def retranslate(self) -> None:
         specs = self.flow.fixes(self.problem)
         self.setText(tr("checks.fix"))
-        if specs:
+        if specs and getattr(self, "_reason", None):
+            self.setToolTip(tr(self._reason))
+        elif specs:
             self.setToolTip(tr("checks.fix_tooltip", fix=specs[0].label(self.problem, core_language())))
         else:
             self.setToolTip(tr("checks.fix_none_tooltip"))
@@ -485,6 +521,7 @@ class ProblemsDock(QDockWidget):
         # Métodos y no lambdas: Qt corta la conexión cuando el panel se destruye (la sesión puede vivir más).
         session.problemsChanged.connect(self.refresh)
         session.validationStateChanged.connect(self._retranslate_summary)
+        session.reportStaleChanged.connect(self._retranslate_summary)
         session.projectOpened.connect(self._on_project_changed)
         session.projectClosed.connect(self._on_project_changed)
         self.model.modelReset.connect(self._retranslate_summary)
@@ -542,6 +579,8 @@ class ProblemsDock(QDockWidget):
             counts = self.model.counts()
             text = tr("checks.dock_counts", errors=format_number(counts["error"]),
                       warnings=format_number(counts["warning"]), infos=format_number(counts["info"]))
+            if session.report_stale():
+                text += " · " + tr("checks.dock_stale")
         self.summary.setText(text)
         self.inherited_check.setText(tr("checks.show_inherited", count=format_number(self.model.inherited_count())))
         self.validate_button.setEnabled(session.project is not None and not session.is_validating())

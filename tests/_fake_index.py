@@ -555,7 +555,10 @@ class FakeBaselineEngine(_Gate):
 
 # --- arreglos de prueba ------------------------------------------------------------------------------------------
 
-UNDO_LABEL = "pending.undo_revert"   # una etiqueta que ya existe en el catálogo (los «undo.fix_*» son de A)
+UNDO_LABEL = "pending.undo_revert"   # una etiqueta que ya existe en el catálogo
+# Los pasos de los arreglos llevan la etiqueta del núcleo («undo.fix_<clave>», core/validate/texts): deshacerlos o
+# rehacerlos revalida (Session._after_step), como con los reales.
+REGISTER_LABEL, TRASH_LABEL = "undo.fix_register_tag", "undo.fix_trash_identical_copies"
 ACTIONS = {"create": ACTION_CREATE, "modify": ACTION_MODIFY, "copy_from_game": ACTION_COPY_FROM_GAME,
            "trash": ACTION_TRASH}
 
@@ -573,13 +576,14 @@ def plan_by_rollback(key: str, apply, problem: Problem, project) -> ChangePlan:
             raise _Rollback
     except _Rollback:
         pass
-    changes = tuple(PlannedChange(write.rel, ACTIONS[write.action.value], write.diff) for write in captured[0].writes)
+    changes = tuple(PlannedChange(write.rel, ACTIONS[write.action.value], write.diff, write.lines)
+                    for write in captured[0].writes)
     return ChangePlan(key, changes)
 
 
 def _register_tag(problem: Problem, project) -> None:
     tag = problem.args["tag"]
-    with project.edit(UNDO_LABEL, name="common/countries.txt"):
+    with project.edit(REGISTER_LABEL, tag=tag):
         handle = project.ws.open("common/countries.txt")
         project.ws.touch(handle)
         document = handle.model.document
@@ -601,7 +605,7 @@ def _add_loc_key(problem: Problem, project) -> None:
 
 
 def _trash_copy(problem: Problem, project) -> None:
-    with project.edit(UNDO_LABEL, name=str(problem.rel)):
+    with project.edit(TRASH_LABEL, count=1):
         project.ws.delete(problem.rel)
 
 
