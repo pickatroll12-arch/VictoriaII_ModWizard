@@ -50,19 +50,18 @@ arreglarlo, deja una prueba de regresión que falle sin el arreglo y pasa la bat
     - Las pruebas están en `tests/test_review_*.py`: 12 archivos y 86 pruebas.
     - 24 mutaciones, todas detectadas.
     - El detalle está en ARCHITECTURE.md §6.1.
-- **Pruebas**: 1086 en 70 archivos.
+- **Pruebas**: 1089 en 70 archivos.
   - Con el corpus real del usuario (release `recursos-v1`, descomprimido fuera del repositorio según §4), las
-    1086 pasan sin omitir ninguna (criterios 1 y 3 de la iteración 2 cumplidos con sus archivos).
-  - Sin corpus pasan las 1086 con 5 omitidas, en tres combinaciones: Python 3.13.17 + PySide6 6.12.0, Python
+    1089 pasan sin omitir ninguna (criterios 1 y 3 de la iteración 2 cumplidos con sus archivos).
+  - Sin corpus pasan las 1089 con 5 omitidas, en tres combinaciones: Python 3.13.17 + PySide6 6.12.0, Python
     3.10.20 + PySide6 6.11.3 y Python 3.10 + PySide6 6.5.0 (sin `XDG_RUNTIME_DIR`).
 - **Ayuda de otros asistentes** (`docs/handoff/PARA_GEMINI.md`): Gemini hizo G1 (prueba «sin datos de Paradox»),
   G2 (líneas con saltos solo CR, 12 veces más rápido) y G3 (errores serializables con `pickle`); el usuario las
   fusionó en `main` (PR #7–#9) y Claude las revisó (mutaciones, fuzz de 28 000 textos en 7 codificaciones,
   pruebas propias más estrictas, batería con corpus y en las tres combinaciones) y completó los dos errores de
   `core/vfs`. El parche anterior de Grok se descartó.
-- **Queda**, en orden: §5. Primero, un fallo de segmentación intermitente que ya existía antes de la revisión
-  (§5.0); después, la segunda ronda de la revisión sobre los arreglos, las capturas, el README y el informe de la
-  iteración 2.
+- **Queda**, en orden: §5: las capturas, el README y el informe de la iteración 2. Están hechos el fallo de
+  segmentación intermitente al pintar y la segunda ronda de la revisión (§5.0).
 
 ---
 
@@ -325,7 +324,7 @@ dos de la última ronda de T4 y los de §0.
 
 ### Pruebas
 
-1086 pruebas en 70 archivos `tests/test_*.py` (las de la iteración 1 más `test_vfs_*`, `test_project_*`,
+1089 pruebas en 70 archivos `tests/test_*.py` (las de la iteración 1 más `test_vfs_*`, `test_project_*`,
 `test_journal_*`, `test_undo_*`, `test_workspace_*`, `test_recovery_autosave`, `test_lock`, `test_arch_writes`,
 `test_texts`, `test_appdirs`, `test_modfile_write`, `test_ui_shell`, `test_ui_session`, `test_ui_descriptor`,
 `test_ui_new_mod`, `test_ui_roadmap`, `test_ui_real_project`, de Gemini `test_no_paradox_data`,
@@ -442,79 +441,37 @@ Con PySide6 6.5 o 6.6 y numpy 2, cada import de PySide6 escribe una traza falsa 
 
 ## 5. Próximas tareas, en orden
 
-### 0. Fallo de segmentación intermitente en `test_ui_integration` (en investigación)
+### 0. Hecho: fallo de segmentación al pintar y segunda ronda de la revisión (27-10-2026)
 
-Lo encontró la batería con corpus mientras corrían otras tres a la vez.
+**Fallo de segmentación intermitente.** Estaba en la iteración 1 desde `9040839` y ya está corregido.
 
-**Reproducción.** Hay que reproducir la carga:
+- *Síntoma.* Con varias baterías a la vez, `test_ui_integration` con corpus moría al pintar un degradado en el
+  hilo de la interfaz.
+- *Causa.* `tasks._resume_gc` contaba los objetos jóvenes con `len(gc.get_objects(0))` desde el hilo de la última
+  tarea. Esa lista retenía también objetos de la interfaz. Si la interfaz soltaba entretanto su `QPainter` o su
+  `QBrush`, la última referencia moría en la tarea y el objeto de Qt se destruía fuera de su hilo.
+- *Cómo se encontró:*
+  - `faulthandler`;
+  - la traza nativa de `gdb`, con los demás hilos quietos;
+  - en 3 de 12 fallos, un hilo de tarea estaba justo en esa línea.
+- *Arreglo.* Ahora se cuenta con `gc.get_count()[0]` más lo que `release_in_background` descontó del contador
+  (`_gc_released`).
+- *Pruebas.* La prueba determinista es
+  `test_tasks.test_resuming_the_collector_holds_nothing_the_interface_owns`. En la prueba de esfuerzo, el código
+  antiguo reventó unas 12 veces en unas 130 ejecuciones, y el nuevo 0 en 78.
+- *Regla:* **nada que retenga objetos ajenos (`gc.get_objects`, `gc.get_referrers`…) en un hilo de tarea.**
 
-- `test_ui_integration` con `VIC2_CORPUS` y `-X faulthandler`;
-- en bucle;
-- 3 o 4 copias a la vez.
+**Segunda ronda de la revisión adversarial.** Fue una lectura de los arreglos de `57e4365`. Dejó dos cambios:
 
-**Frecuencia.** El fallo sale en 1 de cada 4 a 24 ejecuciones. La batería sola, sin esa carga, no falló en dos
-pasadas. También existe en `86dedc4`, el commit anterior a la revisión: 1 de 24 ejecuciones allí, frente a 6 de
-24 con las correcciones; con tan pocas muestras, la diferencia aún no es concluyente.
+- **F4 (media).** Un mod copiado o renombrado tras un guardado cortado no se podía volver a guardar nunca: su
+  diario ajeno bloqueaba con `save_journal_pending`. Ahora un diario ajeno no bloquea.
+- **F2 (baja).** `create_mod_skeleton` se tragaba un `KeyboardInterrupt` llegado tras confirmar.
 
-**Dónde muere el proceso.** Casi siempre en el hilo de la interfaz, al pintar:
+Cada uno tiene su prueba y su mutación. Otros dos quedan sin código, con su motivo en ARCHITECTURE.md §6.1. Si
+quieres otra ronda con varios agentes, el guion es `docs/handoff/workflow_iteracion2_revision.js`, apuntado al
+commit de las correcciones; pero solo si el usuario lo pide (ultracode u «usa un workflow»).
 
-- `theme.paint_surface`, en el `fillRect` de la viñeta (un `QRadialGradient` en `ObjectBoundingMode`);
-- `banner.paint_decoration`;
-- dentro de Qt, sin marco de Python.
-
-Dos veces, un hilo de tareas estaba en `tasks._resume_gc`, en `gc.get_objects(0)`.
-
-**Descartado:** un rectángulo degenerado; `paint_surface` pinta bien con tamaños de 0, negativos y enormes.
-
-**Lo siguiente:**
-
-1. Sacar la traza nativa con `gdb -batch -ex run -ex "thread apply all bt"`.
-2. Comprobar la hipótesis del recolector. `gc.get_objects` y `gc.freeze` se llaman desde hilos de tareas,
-   mientras el de la interfaz suelta objetos de PySide sin el GIL. Para probarla, cambiar `gc.get_objects(0)`
-   por otra cosa y volver a medir la frecuencia.
-
-### 1. Segunda ronda de la revisión adversarial de la iteración 2 (criterio 11)
-
-La primera ronda está hecha y corregida (§0). La hizo el guion `docs/handoff/workflow_iteracion2_revision.js`,
-con 5 componentes:
-
-- VFS y arquitectura;
-- diario;
-- `Workspace` y deshacer;
-- descriptor y `Session`;
-- interfaz con capturas.
-
-Cada componente tuvo un verificador que intentaba refutar los hallazgos. Las rutas del guion son de la sesión
-del 27-10-2026: cámbialas por tu carpeta temporal.
-
-La segunda ronda revisa solo los arreglos (`git show` del commit de correcciones), buscando dos cosas:
-
-- regresiones;
-- casos que el arreglo no cubre.
-
-Los puntos más delicados:
-
-- **Diario**:
-  - recuperación que no toca nada (`nothing`);
-  - `.bak` apartadas (`prev_bak`);
-  - `save_journal_pending`;
-  - «Nuevo mod» confirmado que falla al anotarlo.
-- **`Session`**: aperturas canceladas que llegan tarde.
-- **Descriptor**:
-  - `commit_pending`;
-  - conversión de UTF-16.
-
-Por cada hallazgo, el mismo ritmo:
-
-1. Reprodúcelo.
-2. Escribe una prueba de regresión que falle sin el arreglo.
-3. Arréglalo.
-4. Pasa una mutación.
-5. Pasa la batería completa, al menos con 3.13 y con PySide6 6.5.0.
-
-Un workflow con varios agentes solo si el usuario lo pide (ultracode u «usa un workflow»).
-
-### 2. Capturas e informe de la iteración 2 (criterio 10)
+### 1. Capturas, README e informe de la iteración 2 (criterio 10)
 
 Capturas ES/EN a 1100×700 y 1920×1080 de Inicio, Descriptor .mod, Archivos, Cambios pendientes y el diálogo de
 revisión, revisadas a mano (textos cortados, claves crudas, columnas estrechas):
@@ -531,7 +488,7 @@ Pon al día también el README: «Estado del proyecto» y «Qué funciona hoy» 
 (cinco módulos); hoy son 7 salas con proyecto, descriptor, guardado con diario, deshacer y recuperación. Informe
 al usuario en español: qué entrega la iteración 2, resultado de las pruebas y qué queda.
 
-### 3. Criterios con corpus: hechos (27-10-2026)
+### 2. Criterios con corpus: hechos (27-10-2026)
 
 El usuario subió el corpus a la release `recursos-v1` del repositorio. Se descarga por la API de GitHub (la URL
 directa da 404 porque el repositorio es privado; el proxy de la nube pone la autenticación):
@@ -542,11 +499,11 @@ curl -sSL -H "Accept: application/octet-stream" -o <nombre> \
 ```
 
 (los `id` y los sha256 salen de la release). Se descomprime fuera del repositorio como dice §4. Con él, los
-criterios 1 y 3 se cumplen: 1086 pruebas OK sin omitir ninguna, ida y vuelta de 12 054 archivos y el criterio 3
+criterios 1 y 3 se cumplen: 1089 pruebas OK sin omitir ninguna, ida y vuelta de 12 054 archivos y el criterio 3
 sobre vanilla real + VSM. Además, el Shago Mod completo abre sobre vanilla en 0,12 s, su `somaliland_shago.txt`
 roto se abre en solo lectura y guardar sin cambios no escribe nada.
 
-### 4. Iteración 3 (wizard.md §22)
+### 3. Iteración 3 (wizard.md §22)
 
 Índice de símbolos, validación con reglas y localización editable sincronizada. Mismo ritmo: contrato, 2 agentes
 con archivos disjuntos, integración, prueba de punta a punta contra el núcleo real (no solo contra falsos),

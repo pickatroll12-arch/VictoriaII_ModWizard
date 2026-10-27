@@ -303,6 +303,24 @@ create_mod_skeleton(Path({str(game)!r}), DescriptorSpec("New", "NEW"))
         create_mod_skeleton(game, DescriptorSpec("New", "NEW"))
         self.assertEqual([p.name for p in (game / "mod").iterdir() if p.name.endswith(".tmp")], [])
 
+    def test_an_interrupt_after_committing_is_not_swallowed(self):        # segunda ronda (F2)
+        game = self.game()
+
+        def interrupt(step, index):
+            if step == "journal_committed":
+                raise KeyboardInterrupt
+        journal.FAULT_HOOK = interrupt
+        try:
+            with self.assertRaises(KeyboardInterrupt):
+                create_mod_skeleton(game, DescriptorSpec("New", "NEW"))
+        finally:
+            journal.FAULT_HOOK = None
+        # Ya estaba confirmado: abrir el mod cierra el diario y lo deja entero.
+        project = Project.open(game, game / "mod" / "NEW")
+        self.addCleanup(project.close)
+        self.assertTrue((game / "mod" / "NEW.mod").is_file())
+        self.assertEqual(pending_journals(project.project_dir / journal.JOURNAL_DIR), [])
+
 
     def test_new_mod_dialog_allows_the_same_folder_after_an_early_crash(self):   # R7 (interfaz)
         os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")

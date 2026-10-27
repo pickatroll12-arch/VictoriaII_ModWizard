@@ -181,6 +181,22 @@ class MovedModWithPendingJournalTests(_Base):
         self.assertEqual([r.notes for r in project.recovered], [("project.recovery_foreign",)])
         self.assertEqual(len(list((moved / ".vic2studio" / "journal").glob("*.json"))), 1)
 
+    def test_a_copy_can_still_be_saved(self):                              # segunda ronda (F4)
+        # Su diario nombra la carpeta original: ningún guardado de la copia toca esas rutas, así que no lo bloquea.
+        mod = self.crashed_mod()
+        copy = mod.with_name("TestMod2")
+        shutil.copytree(mod, copy)
+        before = self.tree(mod)
+        project = self.open(copy)
+        with project.edit("y"):
+            project.ws.replace_text(project.ws.open("events/a.txt"), b"a = 2\r\n")
+        report = project.save()
+        self.assertEqual([p.code for p in report.problems if p.blocking], [])
+        self.assertIsNotNone(report.result)
+        self.assertEqual((copy / "events" / "a.txt").read_bytes(), b"a = 2\r\n")
+        self.assertEqual(self.tree(mod), before, "el guardado de la copia tocó el original")
+        self.assertEqual(len(list((copy / ".vic2studio" / "journal").glob("*.json"))), 1, "el diario ajeno se queda")
+
 
 class ArchDetectorHolesTests(unittest.TestCase):
     RAW = (

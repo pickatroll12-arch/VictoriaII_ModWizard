@@ -8,8 +8,8 @@ Darkness*) de forma visual.
 Estado: **iteración 2 integrada** (cimientos: VFS, proyecto transaccional con
 diario, deshacer por instantáneas, descriptor `.mod` y armazón de 7 salas;
 commits `97f0386`, `f3ff809`, `d3ed5de`, `563a709` y `59e8847`, más las correcciones
-de su revisión adversarial). La iteración 1 está cerrada. De la 2 quedan la segunda
-ronda de la revisión sobre sus arreglos y las capturas (§6.1); los criterios que
+de sus dos rondas de revisión adversarial). La iteración 1 está cerrada. De la 2
+quedan las capturas y el informe (§6.1); los criterios que
 necesitaban el corpus del usuario ya se cumplen con sus archivos reales. Este documento describe
 el código que hay hoy en el repositorio. El diseño de las iteraciones 2 a 10
 está en [`docs/diseno/wizard.md`](docs/diseno/wizard.md) («wizard» en adelante);
@@ -666,6 +666,14 @@ Las funciones nuevas que puedan tardar deben aceptar los dos.
   sus partes, y `ui/tasks.py` es el único módulo que congela. El resultado
   viaja en una lista que vacía quien lo recibe (`_Job`), así que el hilo de la
   tarea, aunque aún no haya vuelto, no lo retiene si la interfaz lo suelta.
+  Los objetos nuevos se cuentan con `gc.get_count()[0]`, más lo que
+  `release_in_background` descontó de ese contador al soltar objetos viejos
+  mientras tanto (`_gc_released`, medido trozo a trozo). Nunca se cuentan con
+  `gc.get_objects()`: su lista retendría, desde el hilo de la tarea, cada objeto
+  joven, también los de la interfaz. Si esta soltaba uno mientras tanto (un
+  `QPainter`, un `QBrush`), moría en el hilo de la tarea y dejaba corrupto el
+  motor de pintado. Era el fallo de segmentación intermitente al pintar un
+  degradado (`test_tasks.test_resuming_the_collector_holds_nothing_the_interface_owns`).
 
 ---
 
@@ -1823,7 +1831,7 @@ Estado de los criterios de aceptación de wizard §22:
 
 | Criterio | Estado | Pruebas |
 |---|---|---|
-| 1. La batería pasa sin corpus, con la muestra y con `VIC2_CORPUS` completo | **Sí.** 1086 pruebas: con el corpus real del usuario (vanilla, su plantilla y el Shago Mod, de la release `recursos-v1`) pasan todas sin omitir ninguna, con ida y vuelta byte a byte de los 12 054 archivos Clausewitz (27,4 MB); sin corpus, 1086 con 5 omitidas (§7.1) | toda la batería |
+| 1. La batería pasa sin corpus, con la muestra y con `VIC2_CORPUS` completo | **Sí.** 1089 pruebas: con el corpus real del usuario (vanilla, su plantilla y el Shago Mod, de la release `recursos-v1`) pasan todas sin omitir ninguna, con ida y vuelta byte a byte de los 12 054 archivos Clausewitz (27,4 MB); sin corpus, 1089 con 5 omitidas (§7.1) | toda la batería |
 | 2. `a = 1 # c\rb = 2\r` da 2 entradas y `detect_newline` da `"\r"` | Sí | `test_lexer_cr` |
 | 3. Cambiar `months` de un CB copia `cb_types.txt` con 1 línea de diff; sobre la copia de VSM, la modifica; el juego no cambia | **Sí**, con el minijuego (mod vacío y mod con su copia) y sobre vanilla real + la copia de `cb_types.txt` de VSM (1 línea de diff, `common/` de vanilla intacto) | `test_project_workspace.test_acceptance_criterion_3_*` |
 | 4. Abrir y guardar sin cambios no escribe ni crea `.vic2studio/` | Sí | `test_noop_save` |
@@ -1833,7 +1841,7 @@ Estado de los criterios de aceptación de wizard §22:
 | 8. Oro de `render_descriptor` y «Dark Age Mod» en cp1252 con CRLF | Sí | `test_modfile_write` |
 | 9. `test_arch_writes` pasa | Sí, sin excepciones temporales | `test_arch_writes` |
 | 10. Capturas ES/EN a 1100×700 y 1920×1080 | `docs/capturas/` aún tiene las de la iteración 1; según el traspaso, las de la iteración 2 se generaron y revisaron el 27-10-2026 y se suben con las correcciones de la revisión | revisión visual |
-| 11. Verificación adversarial; el mod de «Nuevo mod» aparece en el lanzador | **Primera ronda hecha**: 53 hallazgos confirmados (4 altos, 18 medios, 31 bajos), todos corregidos con prueba de regresión y mutación (ver abajo); queda la segunda ronda sobre los arreglos. La comprobación en el juego se hace una sola vez, en la iteración 10 (decisión 6 de wizard §24) | `test_review_*` |
+| 11. Verificación adversarial; el mod de «Nuevo mod» aparece en el lanzador | **Sí, en dos rondas**: 53 hallazgos confirmados (4 altos, 18 medios, 31 bajos) y, en la segunda, 2 más sobre los arreglos; todos corregidos con prueba de regresión y mutación (ver abajo). La comprobación en el juego se hace una sola vez, en la iteración 10 (decisión 6 de wizard §24) | `test_review_*` |
 
 **Revisión adversarial de la iteración 2.** Con
 `docs/handoff/workflow_iteracion2_revision.js` sobre `59e8847`: un revisor por
@@ -1889,9 +1897,33 @@ Entre los medios y bajos:
   - plurales;
   - la flecha de orden de Qt 6.5 en Cambios pendientes.
 
-Las pruebas están en los doce `tests/test_review_*.py` (86 pruebas). Hubo 24
+Las pruebas están en los doce `tests/test_review_*.py` (86 pruebas; 88 con la segunda ronda). Hubo 24
 mutaciones, una por arreglo importante: cada una deshace su arreglo, y alguna de
 esas pruebas falla. Las 24 fallaron (la de la flecha, solo con PySide6 6.5.0).
+
+**Segunda ronda.** Fue una lectura de esos arreglos. Dejó dos cambios:
+
+- **F4 (media).** Un mod copiado o renombrado tras un guardado cortado no se
+  podía volver a guardar nunca. Su diario nombra la carpeta original, así que la
+  recuperación no lo toca (VFS-I1-MOVED), y `save_journal_pending` (R1)
+  bloqueaba todo guardado. Ahora un diario ajeno (`NOTE_FOREIGN`) no bloquea:
+  ningún guardado de este mod toca sus rutas. Un diario ilegible sí sigue
+  bloqueando, porque podría ser de este mod.
+- **F2 (baja).** `create_mod_skeleton` se tragaba un `KeyboardInterrupt` llegado
+  tras confirmar.
+
+Otros dos quedan sin código, con su motivo:
+
+- Un valor del descriptor que no se puede escribir (con comillas) se pierde al
+  cerrar sin preguntar. El formulario ya mostraba el error al teclearlo, y
+  guardarlo no era posible.
+- Un guardado fallido que no se pudo recuperar en el momento puede recuperarse
+  hacia delante al guardar otra vez. Entonces sale como conflicto con lo propio,
+  y «Conservar mis cambios» lo resuelve.
+
+Durante la batería con carga apareció además un fallo de segmentación
+intermitente al pintar. No era de la revisión: venía de la iteración 1
+(`9040839`). Lo causaba `gc.get_objects` en un hilo de tarea (§2.5).
 
 Lo pendiente y su orden están en `CONTINUAR_EN_CLAUDE_CODE.md` §5.
 
@@ -1971,10 +2003,10 @@ Paradox, nombres inválidos en Windows, cambios externos, taller de mapas…).
   Qt lo importan, así que fallan al cargarse en vez de abortar el proceso a
   mitad de la batería; `VIC2STUDIO_ALLOW_BROKEN_PYSIDE=1` desactiva la
   comprobación.
-- **Cifras actuales**: 1086 pruebas en 70 archivos. Con el corpus completo (la
+- **Cifras actuales**: 1089 pruebas en 70 archivos. Con el corpus completo (la
   instalación de vanilla, la plantilla del usuario y su mod, de la release
-  `recursos-v1`) pasan las 1086 sin omitir ninguna, con Python 3.13.17 y PySide6
-  6.12.0. Sin corpus pasan las 1086, con 5 omitidas (§7.2), con Python 3.13.17 y
+  `recursos-v1`) pasan las 1089 sin omitir ninguna, con Python 3.13.17 y PySide6
+  6.12.0. Sin corpus pasan las 1089, con 5 omitidas (§7.2), con Python 3.13.17 y
   PySide6 6.12.0, con Python 3.10.20 y PySide6 6.11.3 y con PySide6 6.5.0, el
   mínimo declarado (Python 3.10, numpy 1.24.0 y Pillow 10.0.0, sin
   `XDG_RUNTIME_DIR`; la receta está en `CONTINUAR_EN_CLAUDE_CODE.md` §4). Los recuentos son exactos; los tiempos son
@@ -1997,15 +2029,15 @@ VIC2_CORPUS="/ruta/vanilla:/ruta/Plantilla Mod:/ruta/ShagoMod" python3 -m unitte
 | `test_clausewitz_corpus.py` | 7 | `test_review_descriptor_session.py` | 11 |
 | `test_clausewitz_edit.py` | 88 | `test_review_external_window.py` | 2 |
 | `test_clausewitz_fuzz.py` | 6 | `test_review_interface.py` | 15 |
-| `test_clausewitz_json.py` | 26 | `test_review_journal.py` | 17 |
+| `test_clausewitz_json.py` | 26 | `test_review_journal.py` | 18 |
 | `test_clausewitz_lexer.py` | 20 | `test_review_new_mod_paths.py` | 4 |
 | `test_clausewitz_parser.py` | 61 | `test_review_undo_all_autosave.py` | 1 |
 | `test_compat.py` | 9 | `test_review_unencodable_form.py` | 1 |
 | `test_cr_line_counts.py` | 5 | `test_review_utf16_form.py` | 2 |
-| `test_csvloc_cli.py` | 9 | `test_review_vfs.py` | 12 |
+| `test_csvloc_cli.py` | 9 | `test_review_vfs.py` | 13 |
 | `test_csvloc_corpus.py` | 10 | `test_review_workspace.py` | 15 |
 | `test_csvloc_db.py` | 17 | `test_review_workspace_open.py` | 3 |
-| `test_csvloc_edit.py` | 30 | `test_tasks.py` | 29 |
+| `test_csvloc_edit.py` | 30 | `test_tasks.py` | 30 |
 | `test_csvloc_lint.py` | 26 | `test_texts.py` | 6 |
 | `test_csvloc_parse.py` | 31 | `test_ui_counts.py` | 4 |
 | `test_encoding.py` | 21 | `test_ui_descriptor.py` | 15 |

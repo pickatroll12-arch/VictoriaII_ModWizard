@@ -372,6 +372,49 @@ class GarbageCollectorTests(TaskCase):
         self.assertEqual(states, {"a": False, "b": False})
         self.assertTrue(gc.isenabled())
 
+    def test_resuming_the_collector_holds_nothing_the_interface_owns(self):
+        """Al reactivar el recolector (en el hilo de la última tarea) no se puede retener ningún objeto joven.
+
+        Antes se contaban con ``gc.get_objects(0)``: si mientras tanto la interfaz soltaba uno suyo, la última
+        referencia moría en la tarea, y un QPainter o un QBrush destruido fuera de su hilo dejaba corrupto el
+        motor de pintado (fallo de segmentación intermitente al pintar un degradado). La ventana de la carrera
+        se fuerza: ``get_objects`` espera a que la interfaz suelte el centinela.
+        """
+        gc.collect()
+        gc.unfreeze()
+        died_in_main = []
+        holding, dropped, entered, gate = self.event(), self.event(), self.event(), self.event()
+        real = gc.get_objects
+
+        class Sentinel:
+            def __del__(self):
+                died_in_main.append(threading.current_thread() is threading.main_thread())
+
+        def get_objects(*args, **kwargs):
+            objects = real(*args, **kwargs)
+            holding.set()
+            dropped.wait(TIMEOUT_MS / 1000)
+            return objects
+
+        def wait_at_gate(ctx):
+            entered.set()
+            gate.wait(TIMEOUT_MS / 1000)
+
+        a, a_done, _ = self.runner(POOL_PREVIEW)
+        b, b_done, _ = self.runner(POOL_IMAGES)
+        with mock.patch.object(gc, "get_objects", get_objects):
+            b.start(wait_at_gate)
+            self.assertTrue(entered.wait(TIMEOUT_MS / 1000))
+            sentinel = Sentinel()             # con el recolector parado: sigue en la generación joven
+            a.start(lambda ctx: Result([1]))  # termina antes que b: su resultado se vigila
+            self.wait(lambda: a_done, "la primera tarea no terminó")
+            gate.set()
+            self.wait(lambda: holding.is_set() or b_done, "la segunda tarea no terminó")
+            del sentinel
+            dropped.set()
+            self.wait(lambda: b_done, "la segunda tarea no terminó")
+        self.assertEqual(died_in_main, [True], "un objeto de la interfaz murió en el hilo de una tarea")
+
     def test_large_results_are_frozen_and_still_freed(self):
         """Sin fugas: lo congelado que se suelta sale de la generación permanente."""
         gc.collect()

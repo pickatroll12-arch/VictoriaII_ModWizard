@@ -676,9 +676,10 @@ def create_mod_skeleton(game_root: Path, spec: DescriptorSpec, *, template: Path
         raise DescriptorWriteError(blocking)
     try:
         transaction.commit()
-    except BaseException:
+    except Exception:
         # Un fallo tras confirmar (el disco lleno al anotar «confirmado»): si la recuperación completa el mod, está
-        # creado y no es un fallo; si no, lo creado ya se deshizo y el error sigue.
+        # creado y no es un fallo; si no, lo creado ya se deshizo y el error sigue. Un KeyboardInterrupt no se
+        # traga: el diario que deje lo completa la próxima recuperación.
         from .project.recovery import OUTCOME_ROLLED_FORWARD, recover
 
         try:

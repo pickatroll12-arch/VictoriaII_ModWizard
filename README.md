@@ -233,7 +233,7 @@ pruebas que necesitan archivos que la muestra no tiene (un `text.csv` grande,
 una historia de provincia) usan una plantilla sintética generada por código
 (`tests/_corpus.py`).
 
-Resultado actual: **1086 pruebas** en 70 archivos, **todas OK con 5 omitidas**
+Resultado actual: **1089 pruebas** en 70 archivos, **todas OK con 5 omitidas**
 sin `VIC2_CORPUS`, y todas OK sin omitir ninguna con el corpus completo (la
 instalación de vanilla, la plantilla y el Shago Mod). Con el corpus, el parser
 recorre 12 054 archivos Clausewitz (27,4 MB) con ida y vuelta byte a byte.
@@ -569,8 +569,8 @@ the 593 earlier tests and, separately, the 16 new ones.
 PYTHONPATH=src python3 -m vic2studio                    # run from source
 pip install -e . && vic2studio                          # or install, then run
 QT_QPA_PLATFORM=offscreen VIC2STUDIO_SETTINGS_DIR="$(mktemp -d)" \
-    python3 -m unittest discover -s tests               # 1086 tests, 5 skipped without a corpus
-VIC2_CORPUS="/path/to/vanilla:/path/to/mod" ...         # enable real-corpus tests (last run: 1086 of 1086 OK)
+    python3 -m unittest discover -s tests               # 1089 tests, 5 skipped without a corpus
+VIC2_CORPUS="/path/to/vanilla:/path/to/mod" ...         # enable real-corpus tests (last run: 1089 of 1089 OK)
 PYTHONPATH=src python3 -m vic2studio.core.clausewitz check /path/to/mod --lang en
 PYTHONPATH=src python3 -m vic2studio.core.csvloc check /path/to/mod/localisation
 python3 tools/screenshot.py --out capturas --lang all   # offscreen screenshots

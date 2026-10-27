@@ -830,16 +830,22 @@ class Workspace:
         return SaveReport(result=result, problems=tuple(checks))
 
     def _unresolved_journal(self, journal_dir: Path) -> Path | None:
-        """Intenta cerrar los diarios pendientes (``recover_all``); devuelve el primero que siga sin resolver."""
-        from .recovery import pending_journals, recover_all
+        """Intenta cerrar los diarios pendientes (``recover_all``); devuelve el primero que siga sin resolver.
+
+        Uno que nombra rutas de otra carpeta (el mod se copió o se renombró tras el corte, ``NOTE_FOREIGN``) no
+        cuenta: ningún guardado de este mod toca esas rutas, y la recuperación nunca lo resolvería.
+        """
+        from .recovery import NOTE_FOREIGN, pending_journals, recover_all
 
         if not journal_dir.is_dir() or not pending_journals(journal_dir):
             return None
+        foreign: set[str] = set()
         try:
-            recover_all(journal_dir, self._vfs.guard)
+            foreign = {result.txid for result in recover_all(journal_dir, self._vfs.guard)
+                       if NOTE_FOREIGN in result.notes}
         except Exception:
             _log.exception("no se pudo recuperar un guardado pendiente")
-        remaining = pending_journals(journal_dir)
+        remaining = [state for state in pending_journals(journal_dir) if state.txid not in foreign]
         return remaining[0].path if remaining else None
 
     def _after_failed_commit(self, transaction, plans, exc) -> SaveResult | None:
