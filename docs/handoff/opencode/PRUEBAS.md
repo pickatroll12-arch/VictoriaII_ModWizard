@@ -13,8 +13,8 @@ QT_QPA_PLATFORM=offscreen .venv/bin/python -m unittest discover -s tests        
 $env:QT_QPA_PLATFORM="offscreen"; .venv\Scripts\python -m unittest discover -s tests
 ```
 
-Punto de partida (rama `claude/keen-fermi-nw8itc`, iteración 3 cerrada): **1494 pruebas, `OK (skipped=31)` sin
-corpus**. Las 31 omitidas son las de corpus. Cualquier otro resultado antes de tocar nada es un problema del
+Punto de partida (rama `claude/keen-fermi-nw8itc`, iteración 3 cerrada y alfa empaquetada): **1498 pruebas,
+`OK (skipped=31)` sin corpus**. Las 31 omitidas son las de corpus. Cualquier otro resultado antes de tocar nada es un problema del
 entorno (bibliotecas de Qt, versión de Python): arréglalo antes de seguir.
 
 ## 2. Las dos versiones de Python
@@ -75,6 +75,14 @@ carpeta temporal lo que vayan a abrir como proyecto. Marca las tuyas con
   cargada (otro proceso compilando, el portátil en ahorro) a veces falla. Repítela sola; si pasa sola, no es tuya.
 - Si una prueba de interfaz da un fallo de segmentación al final, repite la batería una vez. Dos veces seguidas ya
   es real: anótalo en el informe.
+- Las pruebas de disposición (`test_ui_palette...test_it_folds_at_1100_px...`, `test_ui_smoke...test_rail_is_a_column...`,
+  `test_ui_pages...test_the_header_of_a_utf16_file_fits` y otras que comprueban que un texto «cabe») miden con las
+  fuentes DejaVu instaladas en el sistema (`fonts-dejavu`). Con otras fuentes pueden fallar antes de tocar nada, y
+  también **dejar de fallar** cuando tu cambio sí estropea la disposición. Si tu equipo no da la línea base limpia,
+  anota qué falla antes de empezar y no des por buena una prueba de disposición: Claude las pasa en el entorno de
+  referencia.
+- `test_tasks...test_garbage_frozen_with_a_large_result_is_collected_once_it_is_released` puede fallar en algunas
+  combinaciones de Python 3.12 y PySide6 6.12 instaladas con pip: si falla igual en la línea base, no es tuyo.
 
 ## 6. Mutantes a mano (fase 5)
 
