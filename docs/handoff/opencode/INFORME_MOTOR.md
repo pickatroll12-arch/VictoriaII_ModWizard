@@ -188,7 +188,8 @@ entorno y corpus):
 - Línea base: 4 fallos de disposición de UI por las fuentes del sistema (PRUEBAS.md §5).
 - `test_tasks...garbage_frozen...`: falla igual en la rama base (Python 3.12 + PySide6 por pip,
   el caso declarado en PRUEBAS.md §5).
-- `test_ui_integration...validating_a_large_file...`: latencia; pasa en solitario.
+- `test_ui_integration...validating_a_large_file...`: latencia; con 3.12 pasa en solitario; con
+  3.10 falla también en solitario y en la rama base (es de la máquina, no del corte).
 - Con corpus: `test_modcheck.UserModTests`, los dos de VSM de `test_ui_integration` y los
   aleatorios de `test_clausewitz_edit`/`test_clausewitz_fuzz` fallan **también en la rama base**
   con este corpus: la copia local del VSM ya no tiene los dos bloques sin cerrar de H14 (el
@@ -198,7 +199,65 @@ entorno y corpus):
   bytecode mutado y una batería intermedia corrió con él; se limpia `__pycache__` y las
   baterías de cierre corren con `-B`. Ninguna prueba quedó rota.
 
-Python 3.10: venv `.venv310` con PySide6 6.11.3 preparado; resultado de su batería: [se rellena].
+- **Batería de cierre con Python 3.12** (`.venv`, `-B`, caché limpia): 1532 pruebas,
+  `failures=4`, `skipped=38` — los 4 son de línea base/entorno: 3 de disposición por fuentes y
+  `test_tasks...garbage_frozen...` (falla igual en la rama base, PRUEBAS.md §5). Ninguno del corte.
+- **Batería con Python 3.10** (`.venv310`, PySide6 6.11.3, `-B`): 1532 pruebas, `failures=4`,
+  `skipped=38` — 3 de disposición por fuentes y
+  `test_ui_integration...validating_a_large_file...` (latencia; falla también en solitario y en
+  la rama base con 3.10: es de la máquina, no del corte). Con 3.10, `test_tasks` pasa.
+
+## Desviaciones de §10, decisiones y peticiones
+
+**Desviaciones (anotadas, con su porqué):**
+
+1. Las etiquetas de los valores `Enum` son `schema.<kind>.enum.<campo>.<valor>`
+   (p. ej. `schema.unit.enum.type.land`): la dataclass `Enum(*values)` de §10.2 no lleva nombre
+   propio, así que no hay «<enum>» que usar como sugiere §10.9; el nombre del campo lo
+   distingue sin colisiones.
+2. `MappingTable` busca las tablas en cualquier nivel del archivo: en vanilla están **anidadas**
+   bajo cada tipo de rebelde (`reactionary_rebels = { government = { … } }`), no en la raíz
+   como dice H16 (verificado en el corpus).
+3. `test_docgen` del arnés (§19.3) no se genera: `docgen` y `__main__` no están en la lista de
+   archivos del corte (se pide abajo).
+4. `Record.get` de un valor que no encaja con su tipo devuelve el texto crudo en vez de lanzar:
+   el `bad_type` lo reporta `issues` con su línea, y los validadores del esquema no abortan.
+
+**Decisiones de diseño (razonadas):**
+
+1. `DynamicKeys` suelto vive en la raíz del registro (gobierno: las ideologías); el de un
+   `Group` vive en el bloque del grupo (`build_cost`/`supply_cost` son `Group` con `fields=()` y
+   `dynamic`). Así se cubren los dos usos reales sin añadir campos a la dataclass de §10.2.
+2. `dynamic()` devuelve todas las claves no fijas del bloque destino, estén o no en el índice:
+   la vista refleja el archivo (I6, I7) y el catálogo del índice queda para el widget.
+3. Los compañeros no corren en `duplicate` (el `Companion` no tiene `on_duplicate`); las claves
+   de localización se copian de la localización efectiva (los idiomas con texto).
+4. Ids nuevos (`IdRule.WORD`): `[A-Za-z][A-Za-z0-9_]*`; códigos `empty`, `bad_chars`, `taken`.
+5. `Float.write` con 0 decimales previos escribe entero («8», como vanilla) y con N decimales,
+   con N («4.00» → «5.00»).
+6. `SingleFile.insert` añade al final: la clave es el id y no tiene orden de esquema (H16, y así
+   lo hace el usuario). El orden del esquema se aplica a las claves de dentro de un bloque.
+7. «Leer no escribe» se comprueba en cada prueba del arnés y de los criterios (issues, get,
+   dynamic + `save().nothing_to_save`).
+
+**Peticiones para Claude (fuera de la lista de archivos del corte):**
+
+1. `core/schema/docgen.py` y `__main__.py` (§10.9): generación de `docs/referencia/`, CLI
+   `check/list/show`, y con ellos el `test_docgen` del arnés.
+2. Compañeros de unidades (§14.4, §14.12): `ActivateUnit` (ver/cambiar la tecnología que la
+   activa) y `UnitNamesSlot` (lista de nombres navales), hoy contrato.
+3. Validación `unit_never_active` (§14.4, info) y `min_port_level` frente al `max_level` de
+   `naval_base` (§14.12): quedan fuera de los criterios del corte.
+4. Etiquetas `undo.*` de otros esquemas futuros: la convención es
+   `undo.<crear|duplicar|borrar>_<kind>` con textos en `schema.{es,en}.json`.
+
+**Dudas para el usuario / a verificar en el juego:**
+
+1. `active` falta en `manowar`, `frigate` y `clipper_transport` de vanilla: lo trato opcional
+   (sin valor por defecto). ¿El juego asume `yes`?
+2. Ídem `floating_flag` (falta en algunos): ¿asume `no`?
+3. `government_election_without_duration` ya existía en `core/validate` como aviso; el esquema
+   reutiliza ese código y sus textos (no se duplican).
 
 ## Fases siguientes
 
