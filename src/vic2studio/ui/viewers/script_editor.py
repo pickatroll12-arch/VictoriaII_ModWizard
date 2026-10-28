@@ -27,6 +27,8 @@ from ...core.encoding import (
 )
 from ...core.project.codecs import codec_for, kind_for
 from ...core.project.model import (
+    READ_ONLY_BINARY,
+    READ_ONLY_LOCKED,
     READ_ONLY_PARSE_ERRORS,
     READ_ONLY_UNREADABLE,
     DocKind,
@@ -231,8 +233,8 @@ class ScriptEditor(QWidget):
             return True, (N_("editor.read_only_deleted"), {})
         reason = handle.read_only_reason
         if reason not in TEXT_EDITABLE:
-            key = N_("editor.read_only_binary") if reason == "binary" else (
-                N_("editor.read_only_locked") if reason == "locked" else N_("editor.read_only_reason"))
+            key = N_("editor.read_only_binary") if reason == READ_ONLY_BINARY else (
+                N_("editor.read_only_locked") if reason == READ_ONLY_LOCKED else N_("editor.read_only_reason"))
             return True, (key, {})
         if "\x00" in text:
             return True, (N_("editor.read_only_nul"), {})
