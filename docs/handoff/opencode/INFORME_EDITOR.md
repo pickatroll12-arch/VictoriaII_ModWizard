@@ -13,7 +13,8 @@ Este informe cubre solo el encargo `Encargo editor texto deepseek.md`.
   verde (las 5 de integración llegan en la fase 3). Todavía sin tocar Archivos.
 - **Fase 3.** Botón «Editar», señal `edit_requested`, integración en Archivos y `main_window.py`, textos ES/EN.
   16 pruebas propias en verde (criterios 1-12 y las de integración).
-- **Fase 4.** Batería completa con 3.12 y 3.10, 8 mutantes a mano y cierre del informe.
+- **Fase 4.** Batería completa con 3.12 y 3.10, 11 mutantes a mano (8 originales y 3 de la corrección) y cierre
+  del informe.
 
 ## Línea base (fase 0)
 
@@ -93,18 +94,75 @@ Claves `editor.*` en ES y EN, en orden alfabético.
 | 11 | cumple | `test_ui_script_editor.WindowTests.test_criterion11_ctrl_z_with_the_editor_focused_uses_the_application_undo` |
 | 12 | cumple | `test_ui_script_editor.CatalogTests.test_criterion12_the_editor_keys_exist_in_spanish_and_english` |
 
+## Corrección tras la revisión
+
+Correcciones de `Corrección del editor de texto_claude_scorer.md`, con un commit por punto (`b5db2c5` a
+`95e1aca`).
+
+### B1 y B2: `core/textsplice.py`
+
+Se sustituyó el cuerpo de `splice_text` por el algoritmo revisado: prefijo y sufijo comunes fuera de
+`SequenceMatcher` (coste lineal con líneas repetidas) y, tras un `\r` suelto, el salto de la línea vacía pasa a
+`\r\n` para que no se fundan dos líneas. Se conservan `normalize_newlines`, `_lines_with_endings` y `_LINE`.
+
+Pruebas nuevas: el caso concreto `a\rb\nc\n` → vista `a\n\nb\nc\n`, la propiedad de 20 000 ediciones
+aleatorias con saltos mezclados y la de 150 000 líneas repetidas con un cambio en medio (< 1 s).
+
+### B2 (defensa) y M2: `ui/viewers/script_editor.py`
+
+`_commit` envuelve `splice_text` en `try/except ValueError` y comprueba `normalize_newlines(new_text) ==
+new_view` antes de codificar y aplicar. Si falla, deja `editor.apply_failed` en la barra y devuelve `False`.
+Pruebas: la línea nueva tras un CR suelto se guarda y coincide con la vista; un `splice_text` que devuelve otra
+vista no se aplica; una `ValueError` no escapa.
+
+### B3: `ui/pages/project_page.py`
+
+El botón «Editar» pasa de la cabecera del visor a `clausewitz_viewer.tabs.setCornerWidget(..., TopRightCorner)`.
+La visibilidad y la señal no cambian.
+
+`test_ui_pages`, `test_ui_palette` y `test_ui_smoke`, antes y después del cambio:
+
+```text
+antes:   Ran 89 tests in 52.442s — FAILED (failures=3, skipped=1)
+después: Ran 89 tests in 52.202s — FAILED (failures=3, skipped=1)
+```
+
+Los tres fallos son los mismos de la línea base: las dos variantes del estandarte y la franja de Guerra. El
+test concreto de la cabecera UTF-16 (`test_the_header_of_a_utf16_file_fits`) pasa en este equipo antes y
+después; no se tocaron las pruebas ni sus márgenes.
+
+### M1: confirmar al perder el foco
+
+El `eventFilter` del editor atiende `FocusOut`, llama a `commit_pending()` y deja seguir el evento. Prueba:
+teclear, mover el foco a otro widget y comprobar que el documento ya tiene el cambio sin llamar a
+`commit_pending()`.
+
+### M3
+
+`_read_only_state` usa `READ_ONLY_BINARY` y `READ_ONLY_LOCKED` de `core/project/model.py`.
+
+### Mutantes de la corrección
+
+Además de repetir los 8 anteriores, se mataron estos 3:
+
+| # | Mutante | Prueba que lo mató |
+|---|---|---|
+| 9 | Quitar el recorte de prefijo y sufijo | `CorrectionTests.test_many_repeated_lines_are_cheap_with_one_change_in_the_middle` (no terminó en 60 s) |
+| 10 | Quitar el cambio a `\r\n` tras `\r` | el caso concreto, la propiedad aleatoria y `CorrectionTests.test_b2_a_lone_cr_line_keeps_the_inserted_line_and_saves` |
+| 11 | Quitar la comprobación `normalize_newlines(new_text) == new_view` | `CorrectionTests.test_b2_a_splice_that_does_not_match_the_view_is_not_applied` |
+
 ## Batería final
 
-Las 31 pruebas nuevas (15 de `test_textsplice` y 16 de `test_ui_script_editor`) pasan en las dos versiones.
+Las 38 pruebas nuevas (18 de `test_textsplice` y 20 de `test_ui_script_editor`) pasan en las dos versiones.
 La batería completa:
 
 ```text
 # Python 3.12 / PySide6 6.12
-Ran 1529 tests in 250.799s
+Ran 1536 tests in 254.051s
 FAILED (failures=4, skipped=29)
 
 # Python 3.10 / PySide6 6.11
-Ran 1529 tests in 266.074s
+Ran 1536 tests in 281.570s
 FAILED (failures=4, skipped=29)
 ```
 
