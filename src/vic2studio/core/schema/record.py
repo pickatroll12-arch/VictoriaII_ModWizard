@@ -31,7 +31,7 @@ from ..vfs.model import LayerKind
 from ..vfs.paths import VPath
 from .entity import EntitySchema, LocSpec
 from .fields import MISSING, OPEN_CATALOG, Children, DynamicKeys, Field, Group, Opaque, Script, Section
-from .layouts import GroupedIn, OnePerFile, RepeatedKey, entry_path, follow_path, parent_block
+from .layouts import GroupedIn, OnePerFile, entry_path, follow_path, parent_block
 from .placement import SchemaOrder, dynamic_insert_index, first_dated_index, insertion_index
 from .registry import registry
 from .validate import CheckContext, issue as make_issue

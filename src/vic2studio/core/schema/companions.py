@@ -25,7 +25,6 @@ if TYPE_CHECKING:
     from ..locsync import LocSync
     from ..project.workspace import Workspace
     from ..validate.model import Problem
-    from ..vfs.paths import VPath
     from .record import Record
     from .validate import CheckContext
 
@@ -117,9 +116,46 @@ class AppendToList:
         block = self._list(ctx)
         if block is None:
             return
-        if not any(entry.key is None and isinstance(entry.value, Scalar) and entry.value.text == rec.ref.ident
-                   for entry in block.entries):
+        if any(entry.key is None and isinstance(entry.value, Scalar) and entry.value.text == rec.ref.ident
+               for entry in block.entries):
+            return
+        if not self._append_line(ctx, handle, rec.ref.ident):
             block.append_value(Scalar(rec.ref.ident, False))
+
+    def _append_line(self, ctx: EditContext, handle, ident: str) -> bool:
+        """Si la lista lleva un valor por línea (``peace_order`` de vanilla y del minijuego), añade ``ident`` en
+        una línea propia antes de la ``}``, con la sangría y el salto de la última. El serializador pondría un valor
+        suelto nuevo en la misma línea que el anterior (``annex my_cb``), que es correcto para ``{ 1 2 3 }`` pero no
+        respeta este formato. Es un empalme de texto de una línea (I3): todo lo demás queda byte a byte."""
+        import re
+
+        from ..clausewitz.nodes import Scalar
+        from ..project.codecs import codec_for, parse_bytes
+
+        data = codec_for(handle.kind).snapshot(handle.model)
+        block: Block = parse_bytes(data).document
+        for key in self.path:
+            entry = block.find(key, ignore_case=True)
+            if entry is None or not isinstance(entry.value, Block):
+                return False
+            block = entry.value
+        values = [entry for entry in block.entries if entry.key is None and isinstance(entry.value, Scalar)]
+        close = block.close_position
+        if len(values) < 2 or close is None or len(values) != len(block.entries) \
+                or len({entry.line for entry in values}) != len(values):
+            return False
+        text = data.decode("latin-1")   # biyectivo: los bytes vuelven tal cual
+        lines = re.split(r"(?<=\r\n)|(?<=\n)(?<!\r\n)|(?<=\r)(?!\n)", text)
+        last_line = values[-1].line - 1
+        close_line = close[0] - 1
+        if not 0 <= last_line < close_line < len(lines) or lines[close_line].lstrip(" \t")[:1] != "}":
+            return False
+        previous = lines[last_line]
+        indent = previous[:len(previous) - len(previous.lstrip(" \t"))]
+        newline = "\r\n" if previous.endswith("\r\n") else ("\r" if previous.endswith("\r") else "\n")
+        lines.insert(close_line, f"{indent}{ident}{newline}")
+        ctx.ws.replace_text(handle, "".join(lines).encode("latin-1"))
+        return True
 
     def on_delete(self, ctx: EditContext, rec: Record) -> None:
         from ..clausewitz.nodes import Scalar

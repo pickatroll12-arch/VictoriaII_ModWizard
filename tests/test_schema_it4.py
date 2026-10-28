@@ -20,7 +20,7 @@ if str(PROJECT_ROOT / "tests") not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT / "tests"))
 
 from vic2studio.core.clausewitz import Severity  # noqa: E402
-from vic2studio.core.clausewitz.nodes import Block, ClausewitzDate, Scalar  # noqa: E402
+from vic2studio.core.clausewitz.nodes import ClausewitzDate, Scalar  # noqa: E402
 from vic2studio.core.index.builder import build_index  # noqa: E402
 from vic2studio.core.locsync import LocSync  # noqa: E402
 from vic2studio.core.project import Project  # noqa: E402

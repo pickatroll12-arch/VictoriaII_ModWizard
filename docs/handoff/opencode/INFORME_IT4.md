@@ -103,7 +103,7 @@ documento limpio de su LRU el índice ya lo tiene. Prueba: `EffectiveAfterSaveTe
 
 ## Fase 1 — El resto del núcleo
 
-(ver el commit de la fase)
+
 
 **Entregado.**
 
@@ -160,3 +160,116 @@ de los esquemas nuevos con vanilla. Las de reglas (`test_arch_writes test_i18n t
 test_no_paradox_data test_validate_rules`) en verde.
 
 **Gasto aproximado:** fases 0 y 1, unos 25 USD.
+
+## Fase 2 — Contrato de la interfaz
+
+Las firmas de §13.6–13.7 quedan escritas y probadas antes de los formularios (y las fases 3 y 4 construyen sobre
+ellas sin cambiarlas):
+
+- `ui/forms/editors.py`: `FieldState`, `FieldEditor` (`set_value`, `value`, `set_default`, `set_read_only`,
+  `commit_pending`, señal `value_committed`), el registro `EDITORS` con un editor por `ValueType.widget` (los 14) y
+  `editor_for`.
+- `ui/forms/form.py`: `FormBuilder(session, mode).build(schema, ref)` y `EntityForm` (`bind`, `focus_field`,
+  `set_mode`, `commit_pending`, `retranslate`; señales `record_changed`, `code_requested`, `status_requested`).
+- `ui/entity/navigator.py`: `EntityNavigator` (`refresh`, `current_ref`, `select`; señales `current_changed`,
+  `new_requested`, `duplicate_requested`, `delete_requested`, `restore_requested`) y
+  `ui/entity/editor_page.py`: `EntityEditorPage` y `entity_section_factory`.
+- `ui/pickers`: `SymbolPicker`, `DateEdit`, `ColorField`, `GoodsAmountsField`, `NameListEditor` y
+  `SpriteFramePicker`, todos con `value()`, `set_value()`, `value_committed` y `retranslate()`.
+
+Pruebas de que se construyen: `test_ui_forms.ContractTests` (cada widget de cada campo de cada esquema tiene
+editor; los editores se construyen sin proyecto) y `test_ui_pickers` (cada selector).
+
+Desviación de §13.6: los números se editan en una línea con validador, no en `QSpinBox`: así «vacío» (sin valor,
+el juego usa su valor por defecto) es un estado real.
+
+## Fase 3 — Formularios y selectores
+
+- **`Section`** es una tarjeta de pergamino plegable (`SectionCard`); **`Field`**, una fila «Etiqueta (clave)»
+  (P4) con la ayuda como tooltip; el valor por defecto del juego sale en gris (texto de ayuda del editor o la
+  casilla de tres estados «Sin valor (el juego usa «Sí»)»); `advanced` se oculta en modo sencillo y `focus_field`
+  pasa a avanzado si hace falta; `visible_if` (la duración solo con elecciones) y las variantes (la tarjeta naval
+  solo en las navales) se aplican al enlazar.
+- **Claves dinámicas**: casillas (`DynamicChecklist`, ideologías, `only_true`), tabla de bienes
+  (`GoodsAmountsField` para los `Group` con dinámicas: costes de las unidades) y tabla clave/valor
+  (`DynamicTable`, catálogo abierto de los modificadores).
+- **Guion**: `CodeOnlyEditor`, botón «Editar como código…» que abre la pestaña Código en la línea del bloque.
+- **Campos de localización**: la pestaña Textos (`LocTextsPanel`, fase 4) edita las `LocSpec` en ES y EN.
+- **Edición** = `Session.edit(N_("forms.undo_edit"), merge_key="form.<kind>.<id>.<campo>")` + `Record.set` o
+  `set_dynamic`. Teclear en el mismo campo se funde en un paso (`test_typing_in_the_same_field_is_one_undo_step`);
+  un valor que no encaja no ensucia nada y lo dice en la barra de estado (`Record.set` valida antes de `touch`).
+- El campo que da el id (`name` de un bookmark) no se edita en el formulario: cambiarlo sería renombrar (§15).
+- **Pruebas (§19.5)** en `test_ui_forms.py`: el formulario de **cada esquema editable registrado** sobre un
+  registro del minijuego, un valor en cada editor y su cambio en el registro (una transacción y deshacer), las
+  dinámicas, el `merge_key`, los valores malos, avanzados/`visible_if`/variantes, y ES/EN + pseudolocalización de
+  cada formulario.
+
+## Fase 4 — Editor de entidades y secciones
+
+- **Secciones desde el registro** (decisión 1): `ui/halls/registry.py` (`schema_sections`,
+  `merge_schema_sections`). Naciones › Culturas y Gobiernos; Guerra › Fechas de inicio, Casus belli, Unidades
+  terrestres y navales; Eventos › Modificadores (sale sola: ningún archivo de `ui/` nombra `event_modifier`, y una
+  prueba lo comprueba). Cada una lleva su contador (registros de la vista efectiva).
+- **Navegador**: lista con filtro y cinta de origen («Juego base», «Mod», «Mod, sustituye al juego», «Nuevo»);
+  en las culturas, árbol por grupo (elegir un grupo abre el formulario de `culture_group`). Nuevo (plantilla o
+  «basado en…», en el grupo elegido), Duplicar, Borrar (con usos se bloquea y los enseña, `UsesDialog`) y Restaurar
+  (`restore_vanilla`). Cada operación es un paso de deshacer.
+- **Editor** con las pestañas Formulario (y la lista de problemas del registro: doble clic lleva al campo), Textos,
+  Usos (doble clic abre el uso en su línea), Código (decisión 2) y Otros campos; Rebeldes en los gobiernos.
+- **Matriz de rebeldes** (`RebelMatrix`): tipo de rebelde × gobierno de destino; al crear un gobierno se abre esa
+  pestaña con el destino propuesto (el propio id) y cada cambio es un paso.
+- **`end_date`** (`EndDatePanel`, en Fechas de inicio): cambiar la fecha toca solo ese token de `defines.lua` y
+  «Ampliar end_date» la lleva a la última fecha de inicio que se pasa.
+- **`UnitNamesSlot`**: al crear una unidad naval se ofrecen los países con `unit_names` (`UnitNamesDialog`).
+- **Ctrl+K**: un símbolo con esquema abre su editor (`MainWindow.open_entity`): cada unidad en la sección de su
+  vista, un grupo de culturas en Culturas. **F7**: un problema con entidad lleva a su editor y a su campo; uno de un
+  archivo con cambios sin guardar se abre en el editor de texto de Archivos, que enseña la memoria, en su línea
+  (antes se negaba: límite de CONTINUAR §6).
+
+**Cambios fuera de la lista (mínimos):**
+
+- `ui/main_window.py`: `entity_pages`, `open_entity`, `_entity_section`, `_open_in_memory` (y `open_location`,
+  `open_problem`, `open_symbol` y `commit_edits` los usan); `exec_dialog` y «Usos» de las páginas de entidades.
+- `ui/halls/project/home.py`: las tarjetas «Nueva unidad», «Nuevo gobierno» y «Nueva cultura» de Inicio pasan de
+  «llega en la iteración 4» a «lista» (3 valores de `FLOWS`): `test_ui_shell` exige que la tarjeta y la sección
+  digan lo mismo.
+- `SMOKE_KEYS` de `app.py`: una clave por archivo de textos nuevo (5 del núcleo y 3 fragmentos de i18n).
+
+**Pruebas existentes que cambian, de forma explícita:**
+
+- `test_ui_roadmap`: `PLAN`/`READY` pasan las 7 secciones de entidades a «listas».
+- `test_ui_smoke.test_contract`: la comprobación de una tarjeta planificada pasa de `war:cb` a `war:wars`.
+- `test_ui_shell.test_fragments_are_flat_utf8_json_without_bom`: la lista de fragmentos incluye `entity`,
+  `forms` y `pickers`.
+- `test_ui_review_it3.InMemoryTests`: las dos pruebas exigían que un símbolo o un problema de un documento sin
+  guardar **se negara**; el encargo pide abrirlo en el editor. Ahora exigen que se abra el documento en memoria en
+  su línea (y siguen exigiendo que nunca se abra el archivo del disco).
+
+Pruebas nuevas: `test_ui_entity.py` (registro de secciones, listas y contadores, pestañas, crear y deshacer,
+diálogo de id, borrado bloqueado, matriz, unidad naval con nombres, árbol de culturas, `end_date`, restaurar,
+solo lectura, Ctrl+K, F7 al campo, ES/EN y pseudolocalización de las 7 secciones).
+
+## Fase 5 — Integración y punta a punta
+
+- **`Session.entities`** (`ui/session.py`): el `Entities` del proyecto abierto sobre el `Workspace` vivo, con el
+  índice que haya (sin índice recorre los archivos del layout); se olvida al cerrar; en solo lectura las páginas
+  deshabilitan todo lo que escribe. Las operaciones de las páginas van dentro de `Session.edit` con la misma
+  etiqueta que su transacción de `Entities`, así que la ventana se entera al acabar (contador, título con `*`).
+- **Índice tras guardar** (decisión 4): ver arriba; probado en el núcleo y desde la ventana (criterio 3: tras
+  Ctrl+S, `my_cb` sigue en la lista).
+- **`test_e2e_it4.py`** con la ventana, la `Session` y el `Project` reales: criterio 3 (diálogo «Nuevo», 4 claves,
+  borrado bloqueado con el uso, un Ctrl+Z, rehacer y guardar: el CSV del mod con las 4 claves), criterio 4
+  (`junta` copia los dos archivos al mod, matriz, claves, el aviso en el formulario y una sola vez en F7, que lleva
+  al editor), criterio 5 («basada en infantry»: `units/guard.txt` y sus dos claves, solo en terrestres), criterio 2
+  desde el formulario, abrir y guardar sin cambios no escribe nada, y Ctrl+Z justo después de teclear. Con corpus,
+  el criterio 2 sobre una copia de vanilla (11 + 10 unidades, 31 CB, 226 culturas en la ventana).
+- **Límite de la lápida** (CONTINUAR §6): resuelto con `restore_vanilla` y la lectura de la capa de debajo.
+- **Corrección encontrada en la punta a punta**: `peace_order` quedaba `annex my_cb` en la misma línea (el
+  serializador continúa una lista de valores sueltos). `AppendToList` ahora, si la lista lleva un valor por línea,
+  empalma una línea propia con la sangría y el salto de la anterior (prueba con el minijuego y con vanilla).
+
+**Batería de las fases 2–5** (3.12, sin corpus, `-B`): 1788 pruebas, `FAILED (failures=4, skipped=54)`: los 4
+fallos de entorno de la línea base y solo omitidas de corpus. Con corpus, `test_schema_*`, `test_schema_criteria` y
+`test_e2e_it4` en verde.
+
+**Gasto aproximado:** fase 2, unos 8 USD; fase 3, unos 15 USD; fase 4, unos 20 USD; fase 5, unos 8 USD.

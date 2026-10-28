@@ -236,6 +236,11 @@ class It4CriteriaTests(CriteriaCase):
         order = [entry.value.text for entry in cb_doc.find("peace_order").value.entries]
         self.assertEqual(order[-1], "my_cb", "my_cb va al final de peace_order")
         self.assertEqual(order[:-1], ["conquer_land", "free_people", "humble_rival", "annex"])
+        from vic2studio.core.project.codecs import codec_for
+
+        handle = project.ws.open("common/cb_types.txt")
+        self.assertIn(b"\tannex\r\n\tmy_cb\r\n}", codec_for(handle.kind).snapshot(handle.model),
+                      "en una línea propia, con la sangría y el salto de la lista (I3)")
         self.assertEqual(cb_doc.entries[-1].key.text, "my_cb", "el bloque va al final del archivo")
         target = VPath(f"localisation/00_{project.settings.prefix}_cb.csv")
         for key in ("my_cb", "my_cb_desc", "my_cb_setup", "my_cb_short"):
@@ -264,6 +269,27 @@ class It4CriteriaTests(CriteriaCase):
         self.assertEqual([line.split(";")[0] for line in csv.splitlines() if line],
                          ["my_cb", "my_cb_desc", "my_cb_setup", "my_cb_short"])
         self.assertNotIn("common/cb_types.txt", before)
+
+    @unittest.skipUnless(vanilla_root(), "sin corpus")
+    def test_criterion3_my_cb_on_vanilla(self):
+        """Sobre vanilla (en una copia): my_cb queda en su propia línea al final de los 32 valores, una línea más que
+        el archivo del juego, y crea sus 4 claves."""
+        from vic2studio.core.project.codecs import codec_for
+        from vic2studio.core.project.diffing import changed_lines
+
+        project, entities, loc, _ = self.open_vanilla()
+        entities.create("casus_belli", "my_cb")
+        handle = project.ws.open("common/cb_types.txt")
+        after = codec_for(handle.kind).snapshot(handle.model)
+        before = (vanilla_root() / "common" / "cb_types.txt").read_bytes()
+        order = [entry.value.text for entry in handle.model.document.find("peace_order").value.entries]
+        self.assertEqual((len(order), order[-1]), (33, "my_cb"))
+        self.assertEqual(len(entities.list("casus_belli")), 32)
+        added = changed_lines(before, after)
+        self.assertEqual(added[1], 0, "no se quita ninguna línea del juego")
+        self.assertIn(b"\r\nmy_cb\r\n}", after)
+        for key in ("my_cb", "my_cb_desc", "my_cb_setup", "my_cb_short"):
+            self.assertIsNotNone(loc.entry(key))
 
     def test_criterion6_event_modifier_touches_no_ui_file(self):
         """El esquema ``event_modifier`` no aparece en ningún archivo de ``ui/`` (su sección sale por descubrimiento)

@@ -358,8 +358,8 @@ def _edit_loose_block(old: Block, texts: list[tuple[str, bool]]) -> Block:
             continue
         for entry in list(old.entries[i1:i2]):
             old.remove_entry(entry)
-        for offset, (text, quoted) in enumerate(texts[j1:j2]):
-            old.insert_entry(i1 + offset, Entry(None, None, Scalar(text, quoted)))
+        for offset, (value, quoted) in enumerate(texts[j1:j2]):
+            old.insert_entry(i1 + offset, Entry(None, None, Scalar(value, quoted)))
     return old
 
 
