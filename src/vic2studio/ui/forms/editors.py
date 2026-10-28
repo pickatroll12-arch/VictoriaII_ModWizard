@@ -130,8 +130,10 @@ class _TextLike(FieldEditor):
         return self._parse(text)
 
     def _show(self, value) -> None:
-        with QSignalBlocker(self.edit):
-            self.edit.setText(self._render(value))
+        text = self._render(value)
+        if self.edit.text() != text:   # volver a enlazar tras una pausa al teclear no mueve el cursor
+            with QSignalBlocker(self.edit):
+                self.edit.setText(text)
 
     def retranslate(self) -> None:
         if self.default is not None:

@@ -87,7 +87,10 @@ class LocTextsPanel(QWidget):
                 self.table.setItem(row, 0, item)
                 for column, lang in enumerate(self.LANGS, start=1):
                     text = loc.text(key, lang) if loc is not None else None
-                    self.table.setItem(row, column, QTableWidgetItem(text or ""))
+                    cell = QTableWidgetItem(text or "")
+                    if self.session.is_read_only():
+                        cell.setFlags(cell.flags() & ~Qt.ItemFlag.ItemIsEditable)
+                    self.table.setItem(row, column, cell)
         finally:
             self._filling = False
 

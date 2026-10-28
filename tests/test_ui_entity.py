@@ -344,6 +344,10 @@ class SectionWindowTests(EntityWindowCase):
         self.assertFalse(page.navigator.delete_button.isEnabled())
         editor = page.form.editor("months")
         self.assertFalse(editor.edit.isEnabled())
+        from PySide6.QtCore import Qt
+
+        texts = page.texts.table
+        self.assertFalse(texts.item(0, 1).flags() & Qt.ItemFlag.ItemIsEditable, "los textos tampoco se editan")
 
 
 class NavigationTests(EntityWindowCase):
