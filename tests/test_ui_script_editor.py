@@ -113,6 +113,26 @@ class OpenTests(ScriptEditorCase):
         self.assertTrue(self.snapshot(CP1252_REL).endswith(b"abc"))
 
 
+class FocusOutTests(ScriptEditorCase):
+    def test_m1_focus_out_commits_pending_text(self):
+        self.open()
+        self.editor.show()
+        self.editor.activateWindow()
+        _qt.process_events(20)
+        self.editor.editor.setFocus()
+        _qt.process_events(20)
+        self.assertTrue(self.editor.editor.hasFocus(), "el editor no tomó el foco")
+        self.type_at_end("abc")
+        other = QLineEdit(self.editor)
+        self.addCleanup(_qt.dispose, other)
+        other.show()
+        other.setFocus()
+        _qt.process_events(20)
+        self.assertFalse(self.editor.editor.hasFocus())
+        self.assertTrue(self.project.ws.peek(CP1252_REL).dirty)
+        self.assertTrue(self.snapshot(CP1252_REL).endswith(b"abc"))
+
+
 class SaveTests(ScriptEditorCase):
     def test_criterion2_mod_file_changes_only_that_line_and_keeps_crlf_and_cp1252(self):
         original = self.game.mod(CP1252_REL).read_bytes()

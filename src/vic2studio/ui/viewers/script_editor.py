@@ -436,6 +436,9 @@ class ScriptEditor(QWidget):
 
     def eventFilter(self, watched, event) -> bool:
         if watched is self.editor:
+            if event.type() == QEvent.Type.FocusOut:
+                self.commit_pending()   # un clic en otra parte (un arreglo de F7, otro archivo) no descarta lo tecleado
+                return False
             if event.type() == QEvent.Type.ShortcutOverride:
                 if event.matches(QKeySequence.StandardKey.Undo) or event.matches(QKeySequence.StandardKey.Redo):
                     event.ignore()  # el atajo es de la ventana (deshacer de la aplicación), no del widget
