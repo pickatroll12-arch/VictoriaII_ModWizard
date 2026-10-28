@@ -27,7 +27,7 @@ from ..vfs.model import LayerKind
 from ..vfs.paths import VPath
 from .entity import EntitySchema, LocSpec
 from .fields import MISSING, DynamicKeys, Field, Group, Section
-from .layouts import SingleFile
+from .layouts import OnePerFile, SingleFile
 from .placement import SchemaOrder, dynamic_insert_index, first_dated_index, insertion_index
 from .registry import registry
 from .validate import CheckContext, issue as make_issue
@@ -453,8 +453,11 @@ def coerce_value(value) -> Scalar | Block:
 class Entities:
     """Servicio de entidades sobre un ``Workspace``, el ``SymbolIndex`` y el ``LocSync``.
 
-    ``list`` refleja la vista efectiva (I7): lo creado y no guardado sale; lo borrado y no
-    guardado, no. ``create``, ``duplicate`` y ``delete`` abren su propia transacción
+    ``list`` y la comprobación de id ocupado siguen la **vista efectiva** (I7): los documentos
+    que el ``Workspace`` tiene abiertos con cambios (nuevos, sucios o borrados) se enumeran con
+    el layout sobre el documento efectivo y ganan sobre el índice; el resto sale del índice.
+    Así lo creado y no guardado sale, lo borrado y no guardado no, y un ``undo`` lo devuelve.
+    ``create``, ``duplicate`` y ``delete`` abren su propia transacción
     (``undo.create_<kind>`` y compañía), I5.
     """
 
@@ -472,13 +475,53 @@ class Entities:
     def _ctx(self) -> CheckContext:
         return CheckContext(self.ws, self.index, self.loc)
 
+    # --- vista efectiva (I7) ------------------------------------------------------------
+
+    def _layout_touches(self, schema: EntitySchema, rel: VPath) -> bool:
+        """True si ``rel`` es un archivo que el layout de ``schema`` recorre."""
+        layout = schema.layout
+        if isinstance(layout, SingleFile):
+            return rel.key == VPath.of(layout.path).key
+        if isinstance(layout, OnePerFile):
+            folder = tuple(layout.folder.split("/"))
+            return tuple(rel.parts[:len(folder)]) == folder and layout._ident(rel) is not None
+        return False
+
+    def _changed_handles(self, schema: EntitySchema) -> list:
+        """Documentos abiertos del layout con cambios (nuevos, sucios o borrados): la parte de
+        la vista efectiva que el índice no puede conocer."""
+        return [handle for handle in self.ws.documents()
+                if (handle.dirty or handle.is_new or handle.deleted)
+                and self._layout_touches(schema, handle.rel)]
+
+    def _ident_exists(self, schema: EntitySchema, ident: str) -> bool:
+        """True si ``ident`` ya está ocupado en la vista efectiva (índice + documentos abiertos)."""
+        if self.index.exists(self._provides(schema), ident):
+            return True
+        for handle in self._changed_handles(schema):
+            if handle.deleted:
+                continue
+            document = handle.model.document
+            if any(found == ident for found, _, _ in schema.layout.entries(document, handle.rel)):
+                return True
+        return False
+
     # --- leer ---------------------------------------------------------------------------
 
     def list(self, kind: str, *, view: str | None = None) -> list[EntitySummary]:
-        """Registros de ``kind`` (los del índice), filtrados por la vista ``view`` si se da."""
+        """Registros de ``kind`` en la vista efectiva (I7): el índice, con los documentos
+        abiertos con cambios encima (lo creado sin guardar sale; lo borrado, no). Con ``view``,
+        solo los que su filtro admite."""
         schema = self._schema(kind)
         summaries = [EntitySummary(RecordRef(kind, symbol.name), symbol.rel)
                      for symbol in self.index.symbols(self._provides(schema))]
+        for handle in self._changed_handles(schema):
+            summaries = [item for item in summaries if item.rel.key != handle.rel.key]
+            if handle.deleted:
+                continue
+            document = handle.model.document
+            for ident, _, _ in schema.layout.entries(document, handle.rel):
+                summaries.append(EntitySummary(RecordRef(kind, ident), handle.rel))
         summaries.sort(key=lambda item: item.ref.ident)
         if view is not None:
             spec = next((candidate for candidate in schema.views if candidate.key == view), None)
@@ -527,7 +570,7 @@ class Entities:
         problem = ident_problem(schema, ident)
         if problem is not None:
             raise InvalidIdentError(problem, ident)
-        if self.index.exists(self._provides(schema), ident):
+        if self._ident_exists(schema, ident):
             raise InvalidIdentError("taken", ident)
         values = dict(values or {})
         with self.ws.transaction(f"undo.create_{kind}", kind=kind, ident=ident):
@@ -604,7 +647,7 @@ class Entities:
         problem = ident_problem(schema, new_ident)
         if problem is not None:
             raise InvalidIdentError(problem, new_ident)
-        if self.index.exists(self._provides(schema), new_ident):
+        if self._ident_exists(schema, new_ident):
             raise InvalidIdentError("taken", new_ident)
         source = self.open(ref)
         with self.ws.transaction(f"undo.duplicate_{ref.kind}", kind=ref.kind, ident=new_ident):
