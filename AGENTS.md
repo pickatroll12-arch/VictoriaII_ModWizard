@@ -8,6 +8,9 @@ existente, en `ARCHITECTURE.md`.
 entero, y con él `REGLAS.md` y `PRUEBAS.md` de la misma carpeta, antes de escribir código. Trabaja en la rama
 `opencode/it4-nucleo` y rellena `docs/handoff/opencode/INFORME.md` al acabar cada fase.
 
+**Si te piden el corte vertical del motor de esquemas:** tu encargo es `docs/handoff/opencode/ENCARGO_MOTOR.md`
+(no `ENCARGO.md`), en la rama `opencode/it4-motor`, con su informe en `INFORME_MOTOR.md`.
+
 Lo imprescindible, para cualquier tarea:
 
 - Responde al usuario en **español**. Docstrings y comentarios en español; identificadores en inglés.
