@@ -679,7 +679,7 @@ class Entities:
             handle = self.ws.open(rel, create=True)
             self.ws.touch(handle)   # la transacción captura el estado previo (I5)
             document = handle.model.document
-            schema.layout.insert(document, document, new_ident, source.block.clone())
+            schema.layout.insert(document, document, new_ident, self._clone_source_block(source))
             inserted = document.find(new_ident)
             record = Record(schema, RecordRef(ref.kind, new_ident, rel), handle,
                             inserted.value if inserted is not None else source.block,
@@ -754,3 +754,31 @@ class Entities:
             by_area.setdefault(spec.area, {})[new_key] = copied
         for area, keys in by_area.items():
             self.loc.ensure(keys, area=area)
+
+    def _clone_source_block(self, record: Record) -> Block:
+        """El bloque de origen con su formato exacto (líneas en blanco y sangría incluidas).
+
+        ``Block.clone`` es «sin formato de origen» por diseño (los tokens son privados y la copia
+        se formatea según el destino, M2): para conservarlo se reparsea el texto del documento y
+        se toma la entrada homóloga del documento reparseado, que lleva los tokens tal como se
+        leyeron. Si no hay homóloga (archivo roto o sin entrada dueña), ``clone()``.
+        """
+        from ..project.codecs import codec_for, parse_bytes
+
+        owner = record._entry
+        if owner is None:
+            return record.block.clone()
+        document = record.handle.model.document
+        index = document.entries.index(owner)
+        data = codec_for(record.handle.kind).snapshot(record.handle.model)
+        reparsed = parse_bytes(data).document
+        copied = reparsed.entries[index] if index < len(reparsed.entries) else None
+        if copied is None or owner.key is None or copied.key is None \
+                or copied.key.text != owner.key.text:
+            copied = next((entry for entry in reparsed.entries
+                           if entry.key is not None and owner.key is not None
+                           and entry.key.text == owner.key.text and isinstance(entry.value, Block)),
+                          None)
+        if copied is None or not isinstance(copied.value, Block):
+            return record.block.clone()
+        return copied.value

@@ -234,6 +234,25 @@ class DuplicateCompanionTests(CriteriaCase):
         project.ws.undo()
         self.assertEqual(project.ws.dirty(), [], "el deshacer no quita la duplicación")
 
+    @unittest.skipUnless(vanilla_root(), "sin corpus")
+    def test_duplicate_keeps_the_source_format(self):
+        """Corrección M2: el bloque duplicado es el del origen byte a byte, salvo la clave:
+        las líneas en blanco entre campos (``fascist = yes`` y ``election = yes`` en
+        ``democracy``) se conservan."""
+        project, entities, _, mod_root = self.open_vanilla()
+        entities.duplicate(RecordRef("government", "democracy"), "democracia2")
+        project.ws.save()
+        data = (mod_root / "common" / "governments.txt").read_bytes().decode("cp1252")
+
+        def block_text(ident: str) -> str:
+            start = data.index(f"{ident} = {{")
+            end = data.index("\n}", start) + 2
+            return data[start:end]
+
+        self.assertEqual(block_text("democracia2"), block_text("democracy").replace(
+            "democracy = {", "democracia2 = {", 1),
+            "el duplicado no conserva el formato del origen")
+
 
 if __name__ == "__main__":
     unittest.main()
