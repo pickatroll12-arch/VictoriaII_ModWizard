@@ -10,10 +10,10 @@ Este informe cubre solo el encargo `Encargo editor texto deepseek.md`.
   4 pruebas ajenas al editor (ver «Línea base»).
 - **Fase 1.** `core/textsplice.py` y `tests/test_textsplice.py`: 15 pruebas en verde.
 - **Fase 2.** `ui/viewers/script_editor.py` y `tests/test_ui_script_editor.py` (criterios 1-10): 11 pruebas en
-  verde. Todavía sin tocar Archivos.
+  verde (las 5 de integración llegan en la fase 3). Todavía sin tocar Archivos.
 - **Fase 3.** Botón «Editar», señal `edit_requested`, integración en Archivos y `main_window.py`, textos ES/EN.
   16 pruebas propias en verde (criterios 1-12 y las de integración).
-- **Fase 4.** Pendiente.
+- **Fase 4.** Batería completa con 3.12 y 3.10, 8 mutantes a mano y cierre del informe.
 
 ## Línea base (fase 0)
 
@@ -95,11 +95,45 @@ Claves `editor.*` en ES y EN, en orden alfabético.
 
 ## Batería final
 
-Pendiente de la fase 4 (3.12 y 3.10).
+Las 31 pruebas nuevas (15 de `test_textsplice` y 16 de `test_ui_script_editor`) pasan en las dos versiones.
+La batería completa:
+
+```text
+# Python 3.12 / PySide6 6.12
+Ran 1529 tests in 250.799s
+FAILED (failures=4, skipped=29)
+
+# Python 3.10 / PySide6 6.11
+Ran 1529 tests in 266.074s
+FAILED (failures=4, skipped=29)
+```
+
+Los fallos de 3.12 son **exactamente los mismos de la línea base** (no hay regresiones del editor):
+`test_garbage_frozen_with_a_large_result_is_collected_once_it_is_released`, las dos variantes de
+`test_it_folds_at_1100_px_and_shows_everything_at_1920` y
+`test_rail_is_a_column_with_room_and_a_strip_when_narrow`.
+
+En 3.10 el fallo de `gc.freeze` desaparece (como en la comprobación aislada); en su lugar falla
+`test_ui_integration.ValidationTests.test_validating_a_large_file_keeps_the_interface_responsive`, que
+`PRUEBAS.md` §5 documenta como sensible a la carga de la máquina. Las otras tres (dos del estandarte y la
+franja) son las mismas de disposición de 3.12. Ninguna prueba del editor falla en ninguna de las dos
+versiones.
 
 ## Mutantes
 
-Pendiente de la fase 4.
+Cada mutante se aplicó a mano sobre el código ya comprometido, se ejecutaron las pruebas de su pieza y se
+restauró con `git checkout --`. Ninguno sobrevivió.
+
+| # | Mutante | Archivo | Prueba que lo mató |
+|---|---|---|---|
+| 1 | `splice_text` reescribe todas las líneas con el salto nuevo | `core/textsplice.py` | `test_textsplice` (10 fallos, p. ej. `IdentityTests`, `ChangeTests`) y `test_criterion2`/`test_criterion10` |
+| 2 | Quitar el `merge_key` del editor | `ui/viewers/script_editor.py` | `UndoTests.test_two_quick_commits_merge_into_one_undo_step` (2 pasos en vez de 1) |
+| 3 | Usar `toPlainText()` en vez de `toRawText()` | `ui/viewers/script_editor.py` | `SaveTests.test_criterion2_...` (el espacio duro U+00A0 se convierte en espacio) |
+| 4 | `commit_edits` no confirma el editor | `ui/main_window.py` | `WindowTests.test_criterion11_...` y `test_saving_commits_pending_editor_text` |
+| 5 | Aplicar el cambio aunque `encode_text` falle | `ui/viewers/script_editor.py` | `UnencodableTests.test_criterion5_...` (el documento se modificaba) |
+| 6 | No comprobar `session.is_read_only()` | `ui/viewers/script_editor.py` | `ReadOnlyProjectTests.test_criterion7_...` (`is_editable()` era True) |
+| 7 | No recargar en `documentsChanged` | `ui/viewers/script_editor.py` | `ExternalChangeTests.test_criterion9_...` (el texto seguía viejo) |
+| 8 | No conservar el cursor al recargar | `ui/viewers/script_editor.py` | `ExternalChangeTests.test_criterion9_...` (línea 0 en vez de 1) |
 
 ## Peticiones para Claude y dudas
 
