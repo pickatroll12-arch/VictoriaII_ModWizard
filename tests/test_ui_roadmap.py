@@ -53,9 +53,9 @@ class ColumnsTests(unittest.TestCase):
 
 
 class PlanTests(unittest.TestCase):
-    def test_plan_has_ten_milestones_and_iteration_3_is_current(self):
+    def test_plan_has_ten_milestones_and_iteration_5_is_current(self):
         self.assertEqual(len(ROADMAP_KEYS), 10)
-        self.assertEqual(CURRENT_ITERATION, 3)
+        self.assertEqual(CURRENT_ITERATION, 5)
 
     def test_every_section_is_ready_or_planned_with_its_iteration(self):
         found = {}
@@ -64,7 +64,8 @@ class PlanTests(unittest.TestCase):
                 found[f"{hall.key}:{section.key}"] = None if section.factory is not None else section.iteration
         self.assertEqual({key for key, n in found.items() if n is None}, READY)
         self.assertEqual({key: n for key, n in found.items() if n is not None}, PLAN)
-        self.assertTrue(all(n > CURRENT_ITERATION for n in PLAN.values()), "nada planificado para lo ya hecho")
+        # La iteración en curso puede tener secciones aún planificadas (las del mapa, en la 5); las hechas, no.
+        self.assertTrue(all(n >= CURRENT_ITERATION for n in PLAN.values()), "nada planificado para lo ya hecho")
 
 
 class RoadmapPageTests(unittest.TestCase):

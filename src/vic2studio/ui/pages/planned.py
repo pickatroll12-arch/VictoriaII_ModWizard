@@ -26,7 +26,7 @@ from .. import theme
 from ..widgets import Medallion, ParchmentCard, RibbonBadge, RoadmapStrip, rich
 from .base import BasePage
 
-CURRENT_ITERATION = 3
+CURRENT_ITERATION = 5   # la anterior, hecha; esta, en curso (la iteración 4 se cerró el 28-10-2026)
 # Plan de docs/diseno/wizard.md §22; el hito 9 reúne las iteraciones 9a y 9b del taller de mapas.
 ROADMAP_KEYS = (
     N_("roadmap.it1"), N_("roadmap.it2"), N_("roadmap.it3"), N_("roadmap.it4"), N_("roadmap.it5"),

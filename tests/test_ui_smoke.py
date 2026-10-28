@@ -319,9 +319,14 @@ class MainWindowTests(UiTestCase):
                                  else SectionRail.TALL_STRIP_HEIGHT, (lang, current.spec.key))
                 if slim:
                     self.assertTrue(all("\n" not in b.label_text() for b in current.rail.buttons))
-        # A 1100 px, Proyecto (cinco secciones) cabe en placas bajas y Guerra (seis), no.
-        self.assertTrue(window.hall("project").rail.strip_fits_one_line())
-        self.assertFalse(window.hall("war").rail.strip_fits_one_line())
+        # A 1100 px y en español, Proyecto (cinco secciones) cabe en placas bajas y Guerra (seis), no: así se
+        # prueban las dos alturas. El idioma se fija aquí: el bucle de arriba acaba en inglés, donde desde la
+        # iteración 4 Guerra también cabe (cuatro de sus secciones llevan un contador en vez de «It. N»).
+        set_language("es")
+        for key, fits in (("project", True), ("war", False)):
+            window.set_current_hall(next(i for i, hall in enumerate(window.halls) if hall.spec.key == key))
+            _qt.process_events(20)
+            self.assertEqual(window.hall(key).rail.strip_fits_one_line(), fits, key)
 
     def test_planned_sections_say_their_iteration(self):
         window = self.make_window()

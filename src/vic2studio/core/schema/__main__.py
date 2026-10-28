@@ -49,10 +49,11 @@ def _show(args) -> int:
 def _doc(args) -> int:
     from .docgen import render, render_index
 
-    if args.kind is None:
-        sys.stdout.write(render_index(args.lang))
-    for schema in _kinds(args.kind, args.lang):
-        sys.stdout.write("\n" + render(schema, args.lang))
+    # Una línea en blanco separa el índice y cada esquema; con --kind no hay índice y la salida empieza por el
+    # título, igual que su página de docs/referencia.
+    parts = [render_index(args.lang)] if args.kind is None else []
+    parts.extend(render(schema, args.lang) for schema in _kinds(args.kind, args.lang))
+    sys.stdout.write("\n".join(parts))
     return 0
 
 
