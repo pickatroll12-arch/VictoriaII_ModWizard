@@ -55,7 +55,7 @@ QT_QPA_PLATFORM=offscreen .venv/bin/python -m unittest discover -s tests
 # Windows: $env:QT_QPA_PLATFORM="offscreen"; .venv\Scripts\python -m unittest discover -s tests
 ```
 
-Debe acabar en `OK (skipped=31)`. Si falla aquí, el problema es del entorno, no del código: arréglalo antes.
+Debe acabar en `OK (skipped=40)`. Si falla aquí, el problema es del entorno, no del código: arréglalo antes.
 
 ## 2. El corpus (recomendado)
 

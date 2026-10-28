@@ -72,7 +72,12 @@ tarjeta que dice qué hará y en qué iteración llega.
     `.map`), con las pestañas Estructura, Código fuente, Diagnósticos y JSON, y
     buscador. Un archivo en UTF-16 sale en rojo («Ilegible para el juego»);
   - imágenes (`.tga`, `.dds`, `.bmp`, `.png`, `.jpg`, `.jpeg`, `.gif`);
-  - los `.csv` de `localisation/`, que se abren en Textos.
+  - los `.csv` de `localisation/`, que se abren en Textos;
+  - **«Editar»** abre un script en el editor de texto: deshacer y rehacer con
+    los de la aplicación, cambios pendientes, avisos de sintaxis al escribir y
+    guardado solo en el mod (un archivo del juego se copia entero al mod al
+    guardar). Las líneas que no tocas se conservan byte a byte, también con
+    saltos de línea mezclados.
   - «Validar mod» (F7) lanza el validador del núcleo y lleva a Proyecto ›
     Validación. La pestaña «Validación» del panel izquierdo conserva el
     análisis de la iteración 1, archivo a archivo, sobre el disco.
@@ -314,11 +319,12 @@ pruebas que necesitan archivos que la muestra no tiene (un `text.csv` grande,
 una historia de provincia) usan una plantilla sintética generada por código
 (`tests/_corpus.py`).
 
-Resultado actual: **1494 pruebas** en 97 archivos, **todas OK con 31
-omitidas** sin `VIC2_CORPUS`, y todas OK sin omitir ninguna con el corpus
-completo (la instalación de vanilla, la plantilla y el Shago Mod). Sin corpus
-pasan con Python 3.13 y PySide6 6.12, con Python 3.10 y PySide6 6.11, y con
-PySide6 6.5 y Pillow 10.0, los mínimos declarados. Con el corpus, el parser
+Resultado actual (28-10-2026): **1588 pruebas** en 105 archivos. Con el
+corpus completo (la instalación de vanilla, la plantilla y el Shago Mod) pasan
+todas con Python 3.13 y PySide6 6.12, y solo se omite la clase base del arnés
+de esquemas. Sin `VIC2_CORPUS` pasan con **40 omitidas** (39 de corpus y esa
+clase base) con Python 3.10 y PySide6 6.11. La última pasada con PySide6 6.5 y
+Pillow 10.0, los mínimos declarados, fue con las 1494 de la iteración 3. Con el corpus, el parser
 recorre 12 054 archivos Clausewitz (27,4 MB) con ida y vuelta byte a byte.
 
 Algunas pruebas miden las pausas de la interfaz: en una máquina cargada (por
@@ -749,8 +755,8 @@ PySide6 6.11.3 and with PySide6 6.5.0, the declared minimum.
 PYTHONPATH=src python3 -m vic2studio                    # run from source
 pip install -e . && vic2studio                          # or install, then run
 QT_QPA_PLATFORM=offscreen VIC2STUDIO_SETTINGS_DIR="$(mktemp -d)" \
-    python3 -m unittest discover -s tests               # 1494 tests, 31 skipped without a corpus
-VIC2_CORPUS="/path/to/vanilla:/path/to/mod" ...         # enable real-corpus tests (last run: 1494 of 1494 OK)
+    python3 -m unittest discover -s tests               # 1588 tests, 40 skipped without a corpus
+VIC2_CORPUS="/path/to/vanilla:/path/to/mod" ...         # enable real-corpus tests (last run: 1588 OK, 1 skipped)
 PYTHONPATH=src python3 -m vic2studio.core.clausewitz check /path/to/mod --lang en
 PYTHONPATH=src python3 -m vic2studio.core.csvloc check /path/to/mod/localisation
 python3 tools/screenshot.py --out capturas --lang all   # offscreen screenshots

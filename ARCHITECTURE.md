@@ -2460,11 +2460,11 @@ Paradox, nombres inválidos en Windows, cambios externos, taller de mapas…).
   Qt lo importan, así que fallan al cargarse en vez de abortar el proceso a
   mitad de la batería; `VIC2STUDIO_ALLOW_BROKEN_PYSIDE=1` desactiva la
   comprobación.
-- **Cifras actuales**: 1494 pruebas en 97 archivos. Con el corpus completo (la
-  instalación de vanilla, la plantilla del usuario y su mod, de la release
-  `recursos-v1`, en copias) pasan las 1494 sin omitir ninguna, con Python 3.13.17 y PySide6
-  6.12.0. Sin corpus pasan las 1494, con 31 omitidas (§7.2), con Python 3.13.17 y
-  PySide6 6.12.0, con Python 3.10.20 y PySide6 6.11.3 y con PySide6 6.5.0, el
+- **Cifras actuales** (28-10-2026, con el editor de texto y el corte del motor de esquemas): 1588 pruebas en 105
+  archivos. Con el corpus completo (la instalación de vanilla, la plantilla del usuario y su mod, de la release
+  `recursos-v1`, en copias) pasan todas con Python 3.13.17 y PySide6 6.12.0, y solo se omite la clase base de
+  `tests/schema_harness.py`. Sin corpus pasan con 40 omitidas (39 de corpus, §7.2, y esa clase base) con Python
+  3.10.20 y PySide6 6.11.3. Las 1494 de la iteración 3 pasaron además con PySide6 6.5.0, el
   mínimo declarado (Python 3.10, numpy 1.24.0 y Pillow 10.0.0, sin
   `XDG_RUNTIME_DIR`; la receta está en `CONTINUAR_EN_CLAUDE_CODE.md` §4). Los recuentos son exactos; los tiempos son
   orientativos y varían entre ejecuciones: con 561 pruebas, en la máquina de una

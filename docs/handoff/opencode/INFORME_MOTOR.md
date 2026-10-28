@@ -302,3 +302,30 @@ Sobre la misma rama, un commit por punto, cada uno con su prueba:
 ## Fases siguientes
 
 (Ninguna: corte terminado.)
+
+## Revisión e integración (Claude, 28-10-2026)
+
+Puntuación con comprobaciones ocultas selladas antes de ver el código (O1–O20, y C1–C7 para la corrección), el
+corpus real en copias y mutantes también decididos de antemano:
+
+| Parte | Primera entrega | Tras la corrección |
+|---|---|---|
+| Comprobaciones ocultas | 37/40 | 39/40 |
+| Criterios | 14/15 | 15/15 |
+| Diseño | 8/15 | 12/15 |
+| Invariantes y arquitectura | 8/10 | 9/10 |
+| Calidad de las pruebas (mutantes detectados) | 5,5/10 (5 de 9) | 9/10 (8 de 9) |
+| Honestidad del informe | 8/10 | 9/10 |
+| **Total** | **80** | **93** (+9 de extra: `MappingTable` y gobiernos completos) |
+
+Al integrar la rama, Claude cambió dos cosas:
+
+- **Posiciones del CST tras `duplicate` y `create`.** Los nodos trasplantados por `_clone_source_block` llevaban
+  las líneas del archivo de origen: `democracia2` decía estar en la línea 89, la de `democracy`, y está en la 105.
+  `Entities._reread` vuelve a leer el documento dentro de la misma transacción. Prueba:
+  `GapTests.test_new_records_report_their_own_lines`, que sin el arreglo da 3 fallos.
+- **Comentario de línea al cambiar un campo que ya existe.** La prueba de la corrección solo cubría añadir un campo.
+  Se añadió `GapTests.test_line_comment_survives_set_of_an_existing_field`.
+
+Queda como límite conocido (`CONTINUAR_EN_CLAUDE_CODE.md` §6): tras borrar la copia del mod de algo que también
+está en vanilla, `list` y `open` no ven la versión del juego hasta guardar.
