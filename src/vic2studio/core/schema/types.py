@@ -9,11 +9,9 @@ para el arnés de pruebas (§19.3). ``describe`` es la descripción legible para
 docgen («entero de 0 a 100»).
 
 ``check`` de los tipos simples está vacío: la forma la comprueba ``read`` y
-``Record.issues`` emite ``bad_type`` con la línea exacta; las referencias
-rotas de ``Ref`` llegarán con los esquemas que lo usen. La lógica de los tipos
-que no usan ``government`` ni ``unit`` (``Color``, ``ListOf``, ``Path``,
-``LocKey``, ``SpriteFrame``, ``Picture``, ``from_spec``) sigue como contrato y
-lanza ``NotImplementedError``.
+``Record.issues`` emite ``bad_type`` con la línea exacta. ``Color`` y
+``ListOf`` editan su bloque en su sitio: los valores que no cambian conservan
+su texto (I3).
 
 ``widget`` es una pista para el formulario generado (``int``, ``float``,
 ``bool``, ``date``, ``word``, ``text``, ``enum``, ``ref``, ``color``, ``list``,
@@ -119,7 +117,7 @@ class Int(ValueType):
         return 0
 
     def describe(self, lang: str = "en") -> str:
-        unit = f" {self.unit}" if self.unit else ""
+        unit = f" ({text(f'schema.measure.{self.unit}', lang)})" if self.unit else ""
         if self.min is not None and self.max is not None and not isinstance(self.min, FromSymbol) \
                 and not isinstance(self.max, FromSymbol):
             return text("schema.type.int_range", lang, min=self.min, max=self.max, unit=unit)
@@ -242,9 +240,12 @@ class Text(ValueType):
         return _scalar(node, "texto").text
 
     def write(self, value: object, old: Scalar | Block | None) -> object:
+        from ..clausewitz.nodes import needs_quotes
+
         if not isinstance(value, str):
             raise ValueError(f"se esperaba un texto, no {type(value).__name__}")
-        return Scalar(value, self.quoted)
+        quoted = old.quoted if isinstance(old, Scalar) else self.quoted
+        return Scalar(value, quoted or needs_quotes(value))
 
     def example(self, ctx: CheckContext) -> str:
         return "Example"
@@ -326,21 +327,145 @@ class Ref(ValueType):
         return text("schema.type.ref", lang, kind=self.kind)
 
 
+def _loose_values(node, what: str) -> list[Scalar]:
+    """Los valores sueltos de un bloque ``{ a b c }``; ``ValueError`` si es un escalar o lleva asignaciones."""
+    if not isinstance(node, Block):
+        raise ValueError(f"{what}: se esperaba un bloque {{ … }}")
+    values = []
+    for entry in node.entries:
+        if entry.key is not None or not isinstance(entry.value, Scalar):
+            raise ValueError(f"{what}: el bloque lleva asignaciones")
+        values.append(entry.value)
+    return values
+
+
+def _edit_loose_block(old: Block, texts: list[tuple[str, bool]]) -> Block:
+    """Lleva el bloque de valores sueltos ``old`` a ``texts`` editándolo en su sitio (I3).
+
+    Los valores que siguen igual conservan su entrada (y su sangría y saltos de línea): solo se quitan los
+    que desaparecen y se insertan los nuevos, así que añadir un nombre a ``first_names`` toca una línea.
+    """
+    from difflib import SequenceMatcher
+
+    from ..clausewitz.nodes import Entry
+
+    current = [entry.value.text for entry in old.entries]
+    wanted = [text for text, _ in texts]
+    matcher = SequenceMatcher(None, current, wanted, autojunk=False)
+    # De atrás adelante: los índices de lo que queda por tocar no se mueven.
+    for tag, i1, i2, j1, j2 in reversed(matcher.get_opcodes()):
+        if tag == "equal":
+            continue
+        for entry in list(old.entries[i1:i2]):
+            old.remove_entry(entry)
+        for offset, (text, quoted) in enumerate(texts[j1:j2]):
+            old.insert_entry(i1 + offset, Entry(None, None, Scalar(text, quoted)))
+    return old
+
+
+def _number(value) -> int | float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(f"se esperaba un número, no {type(value).__name__}")
+    return value
+
+
 @dataclass(frozen=True)
 class Color(ValueType):
-    """``{ r g b }``; ``scale=1.0`` en ``religion.txt``."""
+    """``{ r g b }``; ``scale=1.0`` en ``religion.txt``. Se lee como tupla de tres números (enteros con
+    ``scale=255``) y se escribe editando el bloque en su sitio."""
 
     scale: float = 255
     widget: str = "color"
 
+    def read(self, node: Scalar | Block) -> tuple:
+        values = _loose_values(node, "color")
+        if len(values) != 3:
+            raise ValueError("color: se esperaban tres componentes")
+        if self.scale == 255:
+            return tuple(value.as_int() for value in values)
+        return tuple(value.as_float() for value in values)
+
+    def write(self, value: object, old: Scalar | Block | None) -> object:
+        if not isinstance(value, (tuple, list)) or len(value) != 3:
+            raise ValueError("color: se esperaban tres componentes")
+        parts = [_number(part) for part in value]
+        if self.scale == 255:
+            if any(not isinstance(part, int) or not 0 <= part <= 255 for part in parts):
+                raise ValueError("color: cada componente es un entero de 0 a 255")
+            texts = [(str(part), False) for part in parts]
+        else:
+            if any(not 0 <= part <= self.scale for part in parts):
+                raise ValueError(f"color: cada componente va de 0 a {self.scale}")
+            texts = [(format_float(float(part)), False) for part in parts]
+        if isinstance(old, Block):
+            try:
+                _loose_values(old, "color")
+            except ValueError:
+                pass
+            else:
+                return _edit_loose_block(old, texts)
+        block = Block()
+        for text_value, quoted in texts:
+            block.append_value(Scalar(text_value, quoted))
+        return block
+
+    def example(self, ctx: CheckContext) -> tuple:
+        return (10, 20, 30) if self.scale == 255 else (0.1, 0.2, 0.3)
+
+    def describe(self, lang: str = "en") -> str:
+        return text("schema.type.color", lang, scale=format_float(float(self.scale)).removesuffix(".0"))
+
 
 @dataclass(frozen=True)
 class ListOf(ValueType):
-    """Lista de valores sueltos: ``{ 1 2 3 }`` o ``{ "a" "b" }`` (``region.txt``)."""
+    """Lista de valores sueltos: ``{ 1 2 3 }`` o ``{ "a" "b" }`` (``region.txt``, nombres de las culturas).
+
+    Escribir edita el bloque en su sitio: los valores que siguen conservan su texto y su posición (I3).
+    ``unique`` rechaza repetidos al escribir.
+    """
 
     item: ValueType
     unique: bool = False
     widget: str = "list"
+
+    def read(self, node: Scalar | Block) -> list:
+        return [self.item.read(value) for value in _loose_values(node, "lista")]
+
+    def write(self, value: object, old: Scalar | Block | None) -> object:
+        if not isinstance(value, (list, tuple)):
+            raise ValueError(f"se esperaba una lista, no {type(value).__name__}")
+        if self.unique and len(set(map(str, value))) != len(value):
+            raise ValueError("la lista no admite valores repetidos")
+        texts = []
+        old_items = {}
+        if isinstance(old, Block):
+            try:
+                old_items = {item.text: item.quoted for item in _loose_values(old, "lista")}
+            except ValueError:
+                old = None
+        for item in value:
+            from ..clausewitz.nodes import needs_quotes
+
+            written = self.item.write(item, None)
+            text_value = written.text if isinstance(written, Scalar) else str(written)
+            # Un valor que ya estaba conserva sus comillas (``"Ahmad"`` frente a ``Ahmad``); uno nuevo con
+            # espacios va entre comillas (``"von Alten"``).
+            default_quoted = (written.quoted if isinstance(written, Scalar) else False) or needs_quotes(text_value)
+            scalar = Scalar(text_value, default_quoted)
+            quoted = old_items.get(scalar.text, scalar.quoted)
+            texts.append((scalar.text, quoted))
+        if isinstance(old, Block):
+            return _edit_loose_block(old, texts)
+        block = Block()
+        for text_value, quoted in texts:
+            block.append_value(Scalar(text_value, quoted))
+        return block
+
+    def example(self, ctx: CheckContext) -> list:
+        return [self.item.example(ctx)]
+
+    def describe(self, lang: str = "en") -> str:
+        return text("schema.type.list", lang, item=self.item.describe(lang))
 
 
 @dataclass(frozen=True)
@@ -351,24 +476,82 @@ class Path(ValueType):
     suffixes: tuple[str, ...] = (".txt",)
     widget: str = "path"
 
+    def read(self, node: Scalar | Block) -> str:
+        value = _scalar(node, "ruta").text
+        if self.suffixes and not value.lower().endswith(tuple(s.lower() for s in self.suffixes)):
+            raise ValueError(f"{value!r}: se esperaba {', '.join(self.suffixes)}")
+        return value
+
+    def write(self, value: object, old: Scalar | Block | None) -> object:
+        if not isinstance(value, str):
+            raise ValueError(f"se esperaba una ruta, no {type(value).__name__}")
+        if self.suffixes and not value.lower().endswith(tuple(s.lower() for s in self.suffixes)):
+            raise ValueError(f"{value!r}: se esperaba {', '.join(self.suffixes)}")
+        return Scalar(value, True if old is None or not isinstance(old, Scalar) else old.quoted)
+
+    def example(self, ctx: CheckContext) -> str:
+        return f"example{self.suffixes[0] if self.suffixes else ''}"
+
+    def describe(self, lang: str = "en") -> str:
+        return text("schema.type.path", lang, base=self.base, suffixes=", ".join(self.suffixes))
+
 
 @dataclass(frozen=True)
 class LocKey(ValueType):
     """El VALOR es una clave de localización (``title = "EVTNAME16000"``).
 
-    ``suggest`` es una plantilla de clave sugerida para el selector (``EVTNAME{id}``).
+    ``suggest`` es una plantilla de clave sugerida para el selector (``EVTNAME{id}``). Se conservan las
+    comillas del valor anterior; uno nuevo va entre comillas, como en ``bookmarks.txt``.
     """
 
     suggest: str | None = None
     widget: str = "lockey"
 
+    def read(self, node: Scalar | Block) -> str:
+        return _scalar(node, "clave de texto").text
+
+    def write(self, value: object, old: Scalar | Block | None) -> object:
+        if not isinstance(value, str) or not value or any(ch in value for ch in ' ;"\t\r\n'):
+            raise ValueError(f"{value!r} no es una clave de texto")
+        return Scalar(value, old.quoted if isinstance(old, Scalar) else True)
+
+    def example(self, ctx: CheckContext) -> str:
+        return "EXAMPLE_KEY"
+
+    def describe(self, lang: str = "en") -> str:
+        return text("schema.type.lockey", lang)
+
 
 @dataclass(frozen=True)
 class SpriteFrame(ValueType):
-    """Índice de fotograma de un sprite (``sprite_index`` → ``GFX_diplo_wargoal_icons``)."""
+    """Índice de fotograma de un sprite (``sprite_index`` → ``GFX_diplo_wargoal_icons``), de 1 en adelante."""
 
     sprite: str
     widget: str = "sprite"
+
+    def read(self, node: Scalar | Block) -> int:
+        value = _scalar(node, "fotograma").as_int()
+        if value < 0:
+            raise ValueError("el fotograma no puede ser negativo")
+        return value
+
+    def write(self, value: object, old: Scalar | Block | None) -> object:
+        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+            raise ValueError("el fotograma es un entero de 0 en adelante")
+        return value
+
+    def frames(self, ctx: CheckContext) -> int | None:
+        """Fotogramas del sprite según el índice (``noOfFrames``); None si no se sabe."""
+        if ctx is None or ctx.index is None:
+            return None
+        frames = ctx.index.attrs("sprite", self.sprite, "frames")
+        return frames if isinstance(frames, int) else None
+
+    def example(self, ctx: CheckContext) -> int:
+        return 1
+
+    def describe(self, lang: str = "en") -> str:
+        return text("schema.type.sprite", lang, sprite=self.sprite)
 
 
 @dataclass(frozen=True)
@@ -379,10 +562,53 @@ class Picture(ValueType):
     default: str = "{id}"
     widget: str = "picture"
 
+    def read(self, node: Scalar | Block) -> str:
+        return _scalar(node, "imagen").text
+
+    def write(self, value: object, old: Scalar | Block | None) -> object:
+        if not isinstance(value, str) or not value:
+            raise ValueError(f"{value!r} no es un nombre de imagen")
+        return Scalar(value, old.quoted if isinstance(old, Scalar) else False)
+
+    def example(self, ctx: CheckContext) -> str:
+        return "example"
+
+    def describe(self, lang: str = "en") -> str:
+        return text("schema.type.picture", lang, folder=self.folder)
+
+
+_SIMPLE_SPECS = {"int": Int, "float": Float, "bool": Bool, "date": Date, "word": Word, "text": Text,
+                 "lockey": LocKey}
+
 
 def from_spec(spec: dict) -> ValueType:
     """Tipo desde JSON (``{"type": "ref", "kind": "tag"}``): el catálogo de guion usa los mismos.
 
-    Mismas claves que los parámetros de las dataclasses de arriba.
+    Mismas claves que los parámetros de las dataclasses de arriba (``{"type": "enum", "values": [...]}``,
+    ``{"type": "list", "item": {...}}``). Un tipo desconocido o un parámetro de más da ``ValueError``.
     """
-    raise NotImplementedError
+    if not isinstance(spec, dict) or "type" not in spec:
+        raise ValueError(f"especificación de tipo sin «type»: {spec!r}")
+    params = {key: value for key, value in spec.items() if key != "type"}
+    kind = spec["type"]
+    try:
+        if kind in _SIMPLE_SPECS:
+            return _SIMPLE_SPECS[kind](**params)
+        if kind == "enum":
+            return Enum(*params.pop("values"), **params)
+        if kind == "ref":
+            return Ref(params.pop("kind"), **params)
+        if kind == "color":
+            return Color(**params)
+        if kind == "list":
+            item = from_spec(params.pop("item"))
+            return ListOf(item, **params)
+        if kind == "path":
+            return Path(params.pop("base"), tuple(params.pop("suffixes", (".txt",))), **params)
+        if kind == "sprite":
+            return SpriteFrame(params.pop("sprite"), **params)
+        if kind == "picture":
+            return Picture(params.pop("folder"), **params)
+    except (TypeError, KeyError) as exc:
+        raise ValueError(f"especificación de tipo inválida: {spec!r} ({exc})") from None
+    raise ValueError(f"tipo desconocido: {kind!r}")

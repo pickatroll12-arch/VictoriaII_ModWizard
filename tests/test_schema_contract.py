@@ -116,21 +116,30 @@ class PublicApiTests(unittest.TestCase):
         self.assertIs(summary.ref, ref)
 
     def test_unimplemented_contract_raises(self):
-        """Las piezas que este corte no necesita siguen lanzando NotImplementedError, no falsos
-        resultados (history, guion, hijos, tipos y recetas fuera del alcance)."""
+        """Las piezas que la iteración 4 no necesita siguen lanzando NotImplementedError, no falsos
+        resultados (historia fechada y guion, iteraciones 5–7).
+
+        Iteración 4 (cierre): los hijos, los tipos ricos y ``from_spec`` ya tienen lógica, así que esta
+        prueba deja de exigirles NotImplementedError y comprueba en cambio que rechazan lo que no encaja
+        con ``ValueError`` (sin falsos resultados)."""
         record = Record.__new__(Record)
         record.schema = EntitySchema(kind="x", layout=SingleFile("y.txt"), fields=())
         record.block = Block()
-        for call in (lambda: record.children(), lambda: record.script("trigger"),
-                     lambda: record.at(None)):
+        for call in (lambda: record.script("trigger"), lambda: record.at(None)):
             with self.assertRaises(NotImplementedError):
                 call()
-        for value_type in (Color(), ListOf(Int()), Path("history"), LocKey(), SpriteFrame("s"),
-                           Picture("events")):
-            with self.assertRaises(NotImplementedError):
+        self.assertEqual(record.children(), [], "sin Children, ningún hijo")
+        for value_type in (Color(), ListOf(Int())):
+            with self.assertRaises(ValueError):
                 value_type.read(Scalar("x"))
-        with self.assertRaises(NotImplementedError):
-            from_spec({"type": "int"})
+        with self.assertRaises(ValueError):
+            Path("history").read(Scalar("x"))
+        self.assertEqual(LocKey().read(Scalar("x")), "x")
+        self.assertEqual(SpriteFrame("s").read(Scalar("3")), 3)
+        self.assertEqual(Picture("events").read(Scalar("x")), "x")
+        self.assertEqual(from_spec({"type": "int"}), Int())
+        with self.assertRaises(ValueError):
+            from_spec({"type": "nope"})
 
 
 class ExampleBuildsTests(unittest.TestCase):

@@ -28,6 +28,11 @@ SMOKE_KEYS = (
     "issue.unknown_field",             # core/schemas/texts/schema
     "schema.government.section.elections",   # core/schemas/texts/government
     "schema.unit.field.attack",        # core/schemas/texts/unit
+    "schema.casus_belli.field.months",       # core/schemas/texts/casus_belli
+    "schema.bookmark.field.date",      # core/schemas/texts/bookmark
+    "schema.culture.field.color",      # core/schemas/texts/culture
+    "schema.event_modifier.field.icon",      # core/schemas/texts/event_modifier
+    "schema.technology.field.year",    # core/schemas/texts/readonly
 )
 
 

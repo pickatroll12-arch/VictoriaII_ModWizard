@@ -1,0 +1,16 @@
+{
+  "schema.bookmark.title": "Start dates",
+  "schema.bookmark.name": "Start date",
+  "schema.bookmark.doc": "Start dates in common/bookmarks.txt. The name is also the key of its text. The date must fall between start_date and end_date in common/defines.lua.",
+  "schema.bookmark.section.general": "General",
+  "schema.bookmark.section.camera": "Camera",
+  "schema.bookmark.field.name": "Name (key)",
+  "schema.bookmark.field.desc": "Description (key)",
+  "schema.bookmark.field.date": "Date",
+  "schema.bookmark.field.camera_x": "Camera X",
+  "schema.bookmark.field.camera_y": "Camera Y",
+  "schema.bookmark.field.camera_x.help": "Game coordinate where the map is centred.",
+  "issue.bookmark_date_outside_defines": "Date {date} is not between {start} and {end} (defines.lua).",
+  "explain.title.bookmark_date_outside_defines": "Why this start date does not work",
+  "explain.outcome.bookmark_date_outside_defines": "In game, the date cannot be picked or the game ends before it starts."
+}

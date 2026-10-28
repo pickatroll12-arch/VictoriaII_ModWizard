@@ -431,3 +431,29 @@ def deps_vfs(game: MiniGame, **kwargs):
 
 def deps_snapshot(game: MiniGame, **kwargs):
     return deps_vfs(game, **kwargs).snapshot()
+
+
+# --- ampliación de la iteración 4: fragmentos que solo usan los esquemas ---------------------------------------
+# No entran en GAME_FILES (otras pruebas cuentan sus archivos y sus símbolos): el arnés de esquemas y las pruebas de
+# la iteración 4 los pasan con ``build_minigame(game_files=SCHEMA_GAME_FILES)``. Todo inventado.
+
+SCHEMA_GAME_FILES: dict[str, str] = {
+    # Modificadores de evento: valores sueltos y un icono, como los de vanilla (sin copiar ninguno).
+    "common/event_modifiers.txt": _crlf("good_harvest = {\n\ticon = 2\n\tfarm_rgo_eff = 0.1\n}\n"
+                                        "bad_winter = {\n\ticon = 5\n\tpop_militancy_modifier = 0.02\n"
+                                        "\tlocal_supply = -0.5\n}\n"),
+    # Un tipo de modificador de otro archivo con el mismo «kind» del índice: no es un modificador de evento.
+    "common/static_modifiers.txt": _crlf("mg_static = {\n\tprestige = 1\n}\n"),
+}
+
+# Un país con nombres de barcos (``unit_names``): para el compañero UnitNamesSlot.
+UNIT_NAMES_COUNTRY = _crlf("""\
+color = { 10 20 30 }
+graphical_culture = Generic
+
+unit_names = {
+	frigate = {
+		"Aland Star" "Northern Wind"
+	}
+}
+""")

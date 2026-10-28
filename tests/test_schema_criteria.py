@@ -1,4 +1,4 @@
-"""Los 6 criterios del encargo del motor (ENCARGO_MOTOR.md, fase 3).
+"""Criterios de los encargos del motor (ENCARGO_MOTOR.md, fase 3) y de la iteración 4 (wizard §22, ENCARGO_IT4).
 
 Los criterios 1, 2 y 6 necesitan el corpus (``vanilla_root()``) y trabajan sobre una copia
 temporal: el juego base se abre como proyecto con un mod vacío en una carpeta temporal, nunca
@@ -182,6 +182,117 @@ class MinigameTests(CriteriaCase):
         handle = project.ws.peek(VPath("units/my_unit.txt"))
         self.assertIsNotNone(handle, "el deshacer no devuelve my_unit")
         self.assertFalse(handle.deleted, "el deshacer no devuelve my_unit")
+
+
+class It4CriteriaTests(CriteriaCase):
+    """Criterios 1, 3, 6 y 7 de la iteración 4 (wizard §22) en el núcleo; los de la interfaz están en
+    ``test_e2e_it4.py``."""
+
+    @unittest.skipUnless(vanilla_root(), "sin corpus")
+    def test_criterion1_all_schemas_conform_to_vanilla(self):
+        project, entities, _, _ = self.open_vanilla()
+        expected = {"government": 8, "casus_belli": 31, "bookmark": 2, "culture_group": 34, "culture": 226,
+                    "unit": 21}
+        counts = {}
+        for kind in expected:
+            summaries = entities.list(kind)
+            counts[kind] = len(summaries)
+            for summary in summaries:
+                record = entities.open(summary.ref)
+                for problem in record.issues(self._ctx(entities)):
+                    self.assertNotIn(problem.code, ("unknown_field", "bad_type"),
+                                     f"{kind}:{summary.ref.ident}: {problem.code} en {problem.field}")
+                for key in record._index_schema()[0]:
+                    record.get(key)
+                for name in record._index_schema()[2]:
+                    record.dynamic(name)
+                record.children()
+        self.assertEqual(counts, expected)
+        self.assertEqual(project.ws.dirty(), [], "leer el corpus ensucia algún documento")
+        self.assertTrue(project.ws.save().nothing_to_save, "abrir y leer el corpus escribe")
+
+    def _my_cb_game(self):
+        from _minigame import SCHEMA_GAME_FILES
+
+        game_files = dict(SCHEMA_GAME_FILES)
+        # Una guerra de inicio que ya usa el CB que se va a crear (como si viniera de otro mod).
+        game_files["history/wars/Future War.txt"] = (
+            'name = "Future War"\r\n1835.1.1 = {\r\n\tadd_attacker = AAA\r\n\tadd_defender = BBB\r\n'
+            '\twar_goal = {\r\n\t\tcasus_belli = my_cb\r\n\t\tactor = AAA\r\n\t\treceiver = BBB\r\n\t}\r\n}\r\n')
+        game = build_minigame(mod=True, game_files=game_files)
+        self.addCleanup(game.cleanup)
+        project = Project.open(game.game_root, game.mod_root)
+        self.addCleanup(project.close, discard=True)
+        index = build_index(project.vfs.snapshot(), None, {})
+        loc = LocSync(project.ws, project.vfs, prefix=project.settings.prefix)
+        return game, project, Entities(project.ws, index, loc), loc
+
+    def test_criterion3_my_cb(self):
+        game, project, entities, loc = self._my_cb_game()
+        before = {rel: data for rel, data in game.tree(game.mod_root).items()}
+        ref = entities.create("casus_belli", "my_cb")
+        self.assertEqual(len(project.ws.history()), 1, "crear el CB es una sola transacción")
+        cb_doc = project.ws.open("common/cb_types.txt").model.document
+        order = [entry.value.text for entry in cb_doc.find("peace_order").value.entries]
+        self.assertEqual(order[-1], "my_cb", "my_cb va al final de peace_order")
+        self.assertEqual(order[:-1], ["conquer_land", "free_people", "humble_rival", "annex"])
+        self.assertEqual(cb_doc.entries[-1].key.text, "my_cb", "el bloque va al final del archivo")
+        target = VPath(f"localisation/00_{project.settings.prefix}_cb.csv")
+        for key in ("my_cb", "my_cb_desc", "my_cb_setup", "my_cb_short"):
+            entry = loc.entry(key)
+            self.assertIsNotNone(entry, f"falta la clave {key}")
+            self.assertEqual(entry.rel.key, target.key, f"{key} no está en {target}")
+        self.assertEqual(entities.open(ref).issues(self._ctx(entities)), [], "my_cb nace sin problemas")
+        # Borrarlo mientras se usa se bloquea y enseña los usos, sin cambiar nada.
+        dirty = sorted(h.rel.key for h in project.ws.dirty())
+        with self.assertRaises(EntityInUseError) as caught:
+            entities.delete(ref)
+        self.assertEqual([(use.rel.name, use.role) for use in caught.exception.uses],
+                         [("Future War.txt", "casus_belli")], "el peace_order propio no cuenta como uso")
+        self.assertEqual(sorted(h.rel.key for h in project.ws.dirty()), dirty)
+        self.assertEqual(len(project.ws.history()), 1)
+        # Un solo deshacer quita la creación entera: bloque, peace_order y las 4 claves.
+        project.ws.undo()
+        self.assertEqual(project.ws.dirty(), [])
+        self.assertIsNone(loc.entry("my_cb"))
+        self.assertNotIn("my_cb", [e.value.text for e in project.ws.open("common/cb_types.txt").model.document
+                                   .find("peace_order").value.entries])
+        # Rehacer y guardar: el CSV del mod lleva exactamente las 4 claves.
+        project.ws.redo()
+        self.assertTrue(project.ws.save().ok)
+        csv = (game.mod_root / "localisation" / target.name).read_bytes().decode("cp1252")
+        self.assertEqual([line.split(";")[0] for line in csv.splitlines() if line],
+                         ["my_cb", "my_cb_desc", "my_cb_setup", "my_cb_short"])
+        self.assertNotIn("common/cb_types.txt", before)
+
+    def test_criterion6_event_modifier_touches_no_ui_file(self):
+        """El esquema ``event_modifier`` no aparece en ningún archivo de ``ui/`` (su sección sale por descubrimiento)
+        y su prueba es una subclase de 3 líneas."""
+        import ast
+
+        ui = PROJECT_ROOT / "src" / "vic2studio" / "ui"
+        mentions = [path for path in ui.rglob("*.py") if "event_modifier" in path.read_text(encoding="utf-8")]
+        self.assertEqual(mentions, [], "un archivo de ui/ nombra el esquema event_modifier")
+        tree = ast.parse((PROJECT_ROOT / "tests" / "test_schema_event_modifier.py").read_text(encoding="utf-8"))
+        classes = [node for node in tree.body if isinstance(node, ast.ClassDef)]
+        self.assertEqual(len(classes), 1)
+        self.assertEqual(len(classes[0].body), 3, "la prueba del esquema es una subclase de 3 líneas")
+        self.assertEqual(classes[0].body[-1].end_lineno - classes[0].lineno, 3)
+
+    def test_criterion7_reference_is_complete_and_up_to_date(self):
+        from vic2studio.core.schema.docgen import missing_keys
+
+        for lang in ("es", "en"):
+            self.assertEqual(missing_keys(lang), [], f"{lang}: la referencia tiene claves sin traducir")
+        done = __import__("subprocess").run([sys.executable, str(PROJECT_ROOT / "tools" / "gen_reference.py"),
+                                             "--check"], capture_output=True, text=True, timeout=120)
+        self.assertEqual(done.returncode, 0, "docs/referencia no está al día: python tools/gen_reference.py\n"
+                         + done.stdout + done.stderr)
+        from vic2studio.core.schema import registry
+
+        for lang in ("es", "en"):
+            names = {path.name for path in (PROJECT_ROOT / "docs" / "referencia" / lang).glob("*.md")}
+            self.assertEqual(names, {f"{s.kind}.md" for s in registry.all_schemas()} | {"README.md"})
 
 
 class DuplicateCompanionTests(CriteriaCase):

@@ -1,0 +1,16 @@
+{
+  "schema.bookmark.title": "Fechas de inicio",
+  "schema.bookmark.name": "Fecha de inicio",
+  "schema.bookmark.doc": "Fechas de inicio de common/bookmarks.txt. El nombre es a la vez la clave de su texto. La fecha debe caer entre start_date y end_date de common/defines.lua.",
+  "schema.bookmark.section.general": "General",
+  "schema.bookmark.section.camera": "Cámara",
+  "schema.bookmark.field.name": "Nombre (clave)",
+  "schema.bookmark.field.desc": "Descripción (clave)",
+  "schema.bookmark.field.date": "Fecha",
+  "schema.bookmark.field.camera_x": "Cámara X",
+  "schema.bookmark.field.camera_y": "Cámara Y",
+  "schema.bookmark.field.camera_x.help": "Coordenada del juego donde se centra el mapa.",
+  "issue.bookmark_date_outside_defines": "La fecha {date} no está entre {start} y {end} (defines.lua).",
+  "explain.title.bookmark_date_outside_defines": "Por qué esta fecha de inicio no sirve",
+  "explain.outcome.bookmark_date_outside_defines": "En partida, la fecha no se podrá elegir o la partida terminará antes de empezar."
+}

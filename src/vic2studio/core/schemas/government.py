@@ -29,7 +29,7 @@ from ..schema import (
 def at_least_one_ideology(rec, ctx):
     """Sin ideologías, ningún partido puede gobernar con esta forma de gobierno (H16)."""
     if not any(rec.dynamic("ideology").values()):
-        yield issue("government_without_ideology", rec)
+        yield issue("government_without_ideology", rec, government=rec.ref.ident)
 
 
 @validator("government_election_without_duration", "warning")
@@ -37,7 +37,7 @@ def election_needs_duration(rec, ctx):
     """Caso real: ``absolute_monarchy`` del mod del usuario con ``election = yes`` y sin
     ``duration`` (H14). El código y sus textos ya existen en ``core/validate``."""
     if rec.get("election", False) and rec.get("duration", None) is None:
-        yield issue("government_election_without_duration", rec, field=("duration",))
+        yield issue("government_election_without_duration", rec, field=("duration",), government=rec.ref.ident)
 
 
 GOVERNMENT = EntitySchema(
@@ -63,7 +63,7 @@ GOVERNMENT = EntitySchema(
     companions=(MappingTable("common/rebel_types.txt", table="government"),),
     template=lambda ident, idx: {"election": False, "appoint_ruling_party": True,
                                  "ideology": {"conservative": True}},
-    hall="nations", section="governments", order=30, icon="crown",
+    hall="nations", section="governments", order=3, icon="crown",
 )
 
 SCHEMAS = (GOVERNMENT,)

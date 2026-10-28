@@ -6,13 +6,17 @@ vista sobre el ``Block`` real de un documento abierto: lee y escribe con la API
 del CST (§4.1) sin copiar datos, y toda mutación pasa por ``ws.touch``, que
 exige una transacción abierta por quien llama (igual que editar a mano). Leer
 (``get``, ``dynamic``, ``unknown``, ``issues``, ``loc_keys``) no escribe nada
-(I4). ``Entities`` es el servicio: lista, abre, crea, duplica y borra
-registros. ``create``/``duplicate``/``delete`` abren su propia transacción
-(archivo + compañeros + claves de localización): un ``ws.undo()`` lo deshace
-todo (I5).
+(I4). ``Entities`` es el servicio: lista, abre, crea, duplica, borra y restaura
+registros. ``create``/``duplicate``/``delete``/``restore_vanilla`` abren su propia
+transacción (archivo + compañeros + claves de localización): un ``ws.undo()`` lo
+deshace todo (I5).
 
-La vista efectiva (I7): ``list`` sale del índice (que incluye los documentos
-sin guardar) y ``open`` lee siempre a través del ``Workspace``.
+La vista efectiva (I7): ``list`` sale del índice con **todos** los documentos
+abiertos del layout encima (los sin guardar y los ya guardados que el índice
+aún no ha releído), y ``open`` lee siempre a través del ``Workspace``. Si se
+borró sin guardar la copia del mod de un archivo que también tiene el juego, lo
+que se ve es el archivo del juego (la lápida no lo tapa): se lista y se abre, y
+editarlo revive el documento en el mod.
 """
 
 from __future__ import annotations
@@ -26,8 +30,8 @@ from ..clausewitz.nodes import Block, Entry, Scalar
 from ..vfs.model import LayerKind
 from ..vfs.paths import VPath
 from .entity import EntitySchema, LocSpec
-from .fields import MISSING, DynamicKeys, Field, Group, Section
-from .layouts import OnePerFile, SingleFile
+from .fields import MISSING, OPEN_CATALOG, Children, DynamicKeys, Field, Group, Opaque, Script, Section
+from .layouts import GroupedIn, OnePerFile, RepeatedKey, entry_path, follow_path, parent_block
 from .placement import SchemaOrder, dynamic_insert_index, first_dated_index, insertion_index
 from .registry import registry
 from .validate import CheckContext, issue as make_issue
@@ -54,10 +58,14 @@ class RecordRef:
 
 @dataclass(frozen=True)
 class EntitySummary:
-    """Fila de una lista de entidades: la referencia y el archivo efectivo donde está."""
+    """Fila de una lista de entidades: la referencia y el archivo efectivo donde está.
+
+    ``parent``: el grupo del registro en un ``GroupedIn`` de nivel 1 (la cultura → su grupo); None si no
+    tiene."""
 
     ref: RecordRef
     rel: VPath
+    parent: str | None = None
 
 
 class InvalidIdentError(ValueError):
@@ -83,6 +91,10 @@ class EntityInUseError(ValueError):
         super().__init__(f"en uso por {len(uses)} referencia(s)")
 
 
+class ReadOnlySchemaError(PermissionError):
+    """Crear, duplicar o borrar un registro de un esquema de solo lectura (``editable=False``)."""
+
+
 # Patrón de un id «palabra» (IdRule.WORD): los ids reales son minúsculas con guiones bajos.
 _WORD_RE = re.compile(r"[A-Za-z][A-Za-z0-9_]*")
 _SNAKE_RE = re.compile(r"[a-z][a-z0-9_]*")
@@ -102,6 +114,17 @@ def ident_problem(schema: EntitySchema, ident: str) -> str | None:
     return None
 
 
+def _children_spec(items) -> Children | None:
+    for item in items:
+        if isinstance(item, Section):
+            found = _children_spec(item.items)
+            if found is not None:
+                return found
+        elif isinstance(item, Children):
+            return item
+    return None
+
+
 class Record:
     """Vista sobre el ``Block`` real; nunca copia datos (§10.5).
 
@@ -110,6 +133,10 @@ class Record:
     ``ws.touch``: exigen una transacción abierta por quien llama. ``None`` o ``MISSING`` quitan
     la entrada. Si el valor de un campo no encaja con su tipo, ``get`` devuelve el texto crudo
     en vez de fallar (el problema lo reporta ``issues`` como ``bad_type``).
+
+    Si el documento ya no es el que el ``Workspace`` tiene abierto (lo expulsó la LRU, o es la lápida
+    de una copia del mod y se está viendo el archivo del juego), mutar vuelve a abrirlo (reviviéndolo
+    si hace falta) y sigue al mismo bloque por su posición antes de tocarlo.
     """
 
     schema: EntitySchema
@@ -120,7 +147,7 @@ class Record:
 
     def __init__(self, schema: EntitySchema, ref: RecordRef, handle: DocHandle, block: Block,
                  origin: LayerKind | None = None, *, ws: Workspace = None, index=None,
-                 entry: Entry | None = None) -> None:
+                 entry: Entry | None = None, document: Block | None = None) -> None:
         self.schema = schema
         self.ref = ref
         self.handle = handle
@@ -129,6 +156,7 @@ class Record:
         self._ws = ws                          # para touch (mutar exige transacción)
         self._index = index                    # catálogos de los DynamicKeys (B2)
         self._entry = entry                    # la entrada dueña en el documento (borrar)
+        self._document = document              # el documento del bloque (None: el del handle)
 
     # --- esquema efectivo ---------------------------------------------------------------
 
@@ -177,6 +205,20 @@ class Record:
         walk(self._effective_fields())
         return fields, groups, dynamics
 
+    def _opaque_keys(self) -> frozenset[str]:
+        """Claves de ``Script`` y ``Opaque``: se conservan y se editan como código, no son desconocidas."""
+        found: set[str] = set()
+
+        def walk(items):
+            for item in items:
+                if isinstance(item, Section):
+                    walk(item.items)
+                elif isinstance(item, (Script, Opaque)):
+                    found.add(item.key)
+
+        walk(self._effective_fields())
+        return frozenset(found)
+
     def _ordered_keys(self, fields: dict) -> tuple[str, ...]:
         return tuple(fields)
 
@@ -188,10 +230,31 @@ class Record:
         return self.block.find(key, ignore_case=field.ignore_case) if field is not None \
             else self.block.find(key)
 
+    def _rebind(self, handle) -> None:
+        """Pasa a ``handle`` siguiendo el mismo bloque por su posición (misma forma de árbol)."""
+        old_document = self._document if self._document is not None else self.handle.model.document
+        document = handle.model.document
+        if self._entry is not None:
+            path = entry_path(old_document, self._entry)
+            entry = follow_path(document, path) if path is not None else None
+            if entry is None or not isinstance(entry.value, Block):
+                raise KeyError(f"{self.ref.kind}:{self.ref.ident} ya no está en {handle.rel}")
+            self._entry = entry
+            self.block = entry.value
+        else:
+            self.block = document
+        self.handle = handle
+        self._document = None
+
     def _touch(self) -> None:
         if self._ws is None:
             raise RuntimeError("el Record no tiene Workspace (construido a mano): mutar exige una transacción")
-        self._ws.touch(self.handle)
+        ws = self._ws
+        current = ws.peek(self.handle.rel)
+        if current is None or current is not self.handle or current.deleted or self._document is not None:
+            revive = current is not None and current.deleted
+            self._rebind(ws.open(self.handle.rel, create=revive))
+        ws.touch(self.handle)
 
     # --- lectura ------------------------------------------------------------------------
 
@@ -235,10 +298,13 @@ class Record:
 
     def set(self, key: str, value: object) -> None:
         """Escribe ``key`` según su tipo; ``None`` o ``MISSING`` quitan la entrada. Dentro de una
-        transacción abierta por quien llama (I5)."""
+        transacción abierta por quien llama (I5). Un valor que no encaja lanza ``ValueError`` sin
+        tocar nada (se comprueba antes de ``touch``)."""
         field = self._field_of(key)
         if field is None:
             raise KeyError(f"el esquema {self.schema.kind} no declara el campo {key!r}")
+        if value is not None and value is not MISSING:
+            field.type.write(value, None)   # valida antes de ensuciar el documento
         self._touch()
         if value is None or value is MISSING:
             entry = self._find_entry(key)
@@ -260,8 +326,8 @@ class Record:
         field = self._field_of(key)
         if field is None:
             raise KeyError(f"el esquema {self.schema.kind} no declara el campo {key!r}")
-        self._touch()
         written = field.type.write(value, None)
+        self._touch()
         siblings = self.block.find_all(key)
         if siblings:
             return self.block.insert_after(siblings[-1], key, written)
@@ -278,12 +344,12 @@ class Record:
         if index >= len(entries) or not isinstance(entries[index].value, Block):
             raise KeyError(f"no hay grupo {key!r} #{index}")
         return Record(self.schema, self.ref, self.handle, entries[index].value, self.origin,
-                      ws=self._ws, index=self._index, entry=entries[index])
+                      ws=self._ws, index=self._index, entry=entries[index], document=self._document)
 
     def groups(self, key: str) -> list[Record]:
         """Vistas de todas las repeticiones del grupo ``key``."""
         return [Record(self.schema, self.ref, self.handle, entry.value, self.origin, ws=self._ws,
-                       index=self._index, entry=entry)
+                       index=self._index, entry=entry, document=self._document)
                 for entry in self.block.find_all(key) if isinstance(entry.value, Block)]
 
     def add_group(self, key: str, values: dict) -> Record:
@@ -317,13 +383,21 @@ class Record:
         value_type = spec.value(key) if callable(spec.value) else spec.value
         return value_type
 
-    def _catalog(self, spec: DynamicKeys) -> frozenset[str]:
+    def _catalog(self, spec: DynamicKeys) -> frozenset[str] | None:
         """Claves del catálogo del ``DynamicKeys``: los símbolos de su ``key_kind`` en el índice.
-        Sin índice, el catálogo es vacío y ninguna clave suelta cuenta como dinámica (B2)."""
+        Sin índice, el catálogo es vacío y ninguna clave suelta cuenta como dinámica (B2).
+        None: catálogo abierto (``OPEN_CATALOG``), cualquier clave que no sea un campo fijo."""
+        if spec.key_kind == OPEN_CATALOG:
+            return None
         index = getattr(self, "_index", None)
         if index is None:
             return frozenset()
         return frozenset(index.names(spec.key_kind))
+
+    def _in_catalog(self, spec: DynamicKeys, catalog, key: str) -> bool:
+        if catalog is not None and key not in catalog:
+            return False
+        return spec.key_filter is None or bool(spec.key_filter(key))
 
     def dynamic(self, name: str) -> dict[str, object]:
         """Los valores de un ``DynamicKeys`` (``{"flintlock_rifles": 1, …}``): las claves del
@@ -336,8 +410,11 @@ class Record:
         catalog = self._catalog(spec)
         result: dict[str, object] = {}
         for entry in block.entries:
-            if entry.key is None or entry.key.text in fixed or entry.key.text not in catalog:
+            if entry.key is None or entry.key.text in fixed \
+                    or not self._in_catalog(spec, catalog, entry.key.text):
                 continue
+            if catalog is None and isinstance(entry.value, Block):
+                continue   # catálogo abierto: solo valores sueltos (los bloques son hijos u otros campos)
             value_type = self._dynamic_reader(spec, entry.key.text)
             try:
                 result[entry.key.text] = value_type.read(entry.value)
@@ -350,7 +427,7 @@ class Record:
         """Claves fijas del bloque destino: las del record (raíz) o las del grupo."""
         fields, groups, _ = self._index_schema()
         if container is None:
-            return frozenset(fields) | frozenset(groups)
+            return frozenset(fields) | frozenset(groups) | self._opaque_keys()
         group = groups.get(container)
         return frozenset(field.key for field in group.fields if isinstance(field, Field)) \
             if group is not None else frozenset()
@@ -358,15 +435,21 @@ class Record:
     def set_dynamic(self, name: str, key: str, value: object) -> None:
         """Escribe ``key`` de un ``DynamicKeys``. Con ``only_true`` y valor falso, borra la clave
         en vez de escribir ``= no`` (§10.10). Dentro de una transacción (I5)."""
+        spec, _, _ = self._dynamic(name)
+        removing = value is None or value is MISSING or (spec.only_true and not value)
+        if not removing:
+            self._dynamic_reader(spec, key).write(value, None)   # valida antes de ensuciar
         self._touch()
         spec, block, container = self._dynamic(name)
         if block is None:
+            if removing:
+                return
             block = Block()
             fields, _, _ = self._index_schema()
             index = insertion_index(self.block, key=container, order=SchemaOrder(self._ordered_keys(fields)),
                                     first_dated=first_dated_index(self.block))
             self.block.insert(index, container, block)
-        if value is None or value is MISSING or (spec.only_true and not value):
+        if removing:
             entry = block.find(key)
             if entry is not None:
                 block.remove_entry(entry)
@@ -378,20 +461,39 @@ class Record:
             entry.value = written
             return
         fixed = self._fixed_keys(container)
+        if container is None and _children_spec(self._effective_fields()) is not None:
+            # Con hijos (bloques) en el mismo nivel, las claves sueltas van antes del primer hijo.
+            fixed = fixed | {entry.key.text for entry in block.entries
+                             if entry.key is not None and isinstance(entry.value, Block)}
         block.insert(dynamic_insert_index(block, fixed=fixed), key, written)
 
     # --- resto del esquema --------------------------------------------------------------
 
     def children(self) -> list[Record]:
-        """Registros hijos (``Children``): culturas dentro del grupo."""
-        raise NotImplementedError
+        """Registros hijos (``Children``): culturas dentro del grupo, en orden de archivo. Son los
+        bloques que el esquema no reclama como campos (``REMAINING_BLOCKS``) o los que dé ``match``."""
+        spec = _children_spec(self._effective_fields()) if hasattr(self, "schema") else None
+        if spec is None:
+            return []
+        fields, groups, _ = self._index_schema()
+        claimed = set(fields) | set(groups) | self._opaque_keys()
+        found: list[Record] = []
+        for entry in self.block.entries:
+            if entry.key is None or not isinstance(entry.value, Block) or entry.key.text in claimed:
+                continue
+            if spec.match is not None and callable(spec.match) and not spec.match(entry):
+                continue
+            ref = RecordRef(spec.schema.kind, entry.key.text, self.ref.rel)
+            found.append(Record(spec.schema, ref, self.handle, entry.value, self.origin, ws=self._ws,
+                                index=self._index, entry=entry, document=self._document))
+        return found
 
     def script(self, key: str):
         """Árbol de guion de ``key`` (lo edita ``core.script``, iteración 7)."""
         raise NotImplementedError
 
     def at(self, date):  # ClausewitzDate | None
-        """Vista de historia en la fecha ``date`` (§10.6)."""
+        """Vista de historia en la fecha ``date`` (§10.6, iteración 5)."""
         raise NotImplementedError
 
     def unknown(self) -> list[Entry]:
@@ -399,20 +501,22 @@ class Record:
 
         Las claves de un ``DynamicKeys`` solo las reclama su catálogo (B2): una clave suelta que
         no está en el índice (``electoin``, ``foo_bar``) va a ``unknown`` y da ``unknown_field``.
+        Los bloques hijos de un ``Children`` y las claves de ``Script``/``Opaque`` no son desconocidos.
         """
         fields, groups, dynamics = self._index_schema()
         found: list[Entry] = []
-        covered_root = set(fields) | set(groups)
-        free_dynamic = any(container is None for _, container in dynamics.values())
-        root_catalog: frozenset[str] | None = None
-        if free_dynamic:
-            for spec, container in dynamics.values():
-                if container is None:
-                    root_catalog = self._catalog(spec)
+        covered_root = set(fields) | set(groups) | self._opaque_keys()
+        children = _children_spec(self._effective_fields())
+        root_specs = [spec for spec, container in dynamics.values() if container is None]
         for entry in self.block.entries:
             if entry.key is None or entry.key.text in covered_root:
                 continue
-            if free_dynamic and root_catalog is not None and entry.key.text in root_catalog:
+            if children is not None and isinstance(entry.value, Block):
+                continue
+            key = entry.key.text
+            if any(self._in_catalog(spec, self._catalog(spec), key)
+                   and not (spec.key_kind == OPEN_CATALOG and isinstance(entry.value, Block))
+                   for spec in root_specs):
                 continue
             found.append(entry)
         for key, group in groups.items():
@@ -422,26 +526,25 @@ class Record:
             covered = frozenset(field.key for field in group.fields if isinstance(field, Field))
             dynamic_spec = next((spec for name, (spec, container) in dynamics.items()
                                  if container == key), None)
-            if dynamic_spec is not None:
-                catalog = self._catalog(dynamic_spec)
-            else:
-                catalog = None
             for sub in entry.value.entries:
                 if sub.key is None or sub.key.text in covered:
                     continue
-                if catalog is not None and sub.key.text in catalog:
+                if dynamic_spec is not None and self._in_catalog(dynamic_spec, self._catalog(dynamic_spec),
+                                                                 sub.key.text):
                     continue
                 found.append(sub)
         return found
 
     def issues(self, ctx: CheckContext = None) -> list[Problem]:
         """Problemas de este registro: campos (tipo, repetición, obligatorios), validadores del
-        esquema y claves desconocidas; sin tocar nada (I4)."""
+        esquema, compañeros y claves desconocidas (salvo ``unknown="keep"``); sin tocar nada (I4).
+        Los compañeros que necesitan el ``Workspace`` no dan nada con ``ctx.ws`` None (validación
+        en segundo plano)."""
         fields, _, _ = self._index_schema()
         problems: list[Problem] = []
         for key, field in fields.items():
             entries = self.block.find_all(key, ignore_case=field.ignore_case)
-            if len(entries) > 1:
+            if len(entries) > 1 and not field.repeat:
                 problems.append(make_issue("duplicate_field", self, field=(key,), key=key))
             for entry in entries:
                 try:
@@ -456,9 +559,13 @@ class Record:
                                            kind=self.ref.kind))
         for validator in self.schema.validators:
             problems.extend(validator(self, ctx))
-        for entry in self.unknown():
-            problems.append(make_issue("unknown_field", self, field=(entry.key.text,),
-                                       key=entry.key.text, kind=self.ref.kind))
+        if ctx is not None:
+            for companion in self.schema.companions:
+                problems.extend(companion.check(ctx, self) or ())
+        if self.schema.unknown != "keep":
+            for entry in self.unknown():
+                problems.append(make_issue("unknown_field", self, field=(entry.key.text,),
+                                           key=entry.key.text, kind=self.ref.kind))
         problems.sort(key=lambda p: (p.line or 0, p.code))
         return problems
 
@@ -474,14 +581,81 @@ def coerce_value(value) -> Scalar | Block:
     return cst_coerce(value)
 
 
+def build_block(schema: EntitySchema, ident: str, values: dict, index=None) -> Block:
+    """Bloque nuevo con los valores en el orden canónico del esquema (regla 6 de §10.7). Con
+    ``IdSpec.FIELD`` (bookmarks), el id se escribe en su campo."""
+    merged: dict = {}
+    if schema.template is not None:
+        merged.update(dict(schema.template(ident, index)))
+    merged.update(values)
+    if schema.ident.mode == "field":
+        merged[schema.ident.value] = ident
+    block = Block()
+
+    def emit(items) -> None:
+        for item in items:
+            if isinstance(item, Field):
+                if item.key in merged and merged[item.key] is not None and merged[item.key] is not MISSING:
+                    block.append(item.key, item.type.write(merged[item.key], None))
+            elif isinstance(item, DynamicKeys):
+                payload = merged.get(item.name)
+                if isinstance(payload, dict):
+                    for key, item_value in payload.items():
+                        if item_value is None or item_value is MISSING:
+                            continue
+                        if item.only_true and not item_value:
+                            continue
+                        value_type = item.value(key) if callable(item.value) else item.value
+                        block.append(key, value_type.write(item_value, None))
+            elif isinstance(item, Group):
+                payload = merged.get(item.key)
+                if isinstance(payload, dict):
+                    inner = Block()
+                    for sub_key, item_value in payload.items():
+                        if item_value is None or item_value is MISSING:
+                            continue
+                        if item.dynamic is not None:
+                            value_type = item.dynamic.value
+                            value_type = value_type(sub_key) if callable(value_type) else value_type
+                            if item.dynamic.only_true and not item_value:
+                                continue
+                        else:
+                            sub_field = next((f for f in item.fields if isinstance(f, Field)
+                                              and f.key == sub_key), None)
+                            if sub_field is None:
+                                continue
+                            value_type = sub_field.type
+                        inner.append(sub_key, value_type.write(item_value, None))
+                    if inner.entries or item.required:
+                        block.append(item.key, inner)
+            elif isinstance(item, Section):
+                emit(item.items)
+
+    emit(schema.fields)
+    variant = schema.variants
+    if variant is not None:
+        case = merged.get(variant.field)
+        if case in variant.cases:
+            emit(variant.cases[case])
+    return block
+
+
+def _own_roles(schema: EntitySchema) -> frozenset[str]:
+    roles: set[str] = set()
+    for companion in schema.companions:
+        roles |= set(getattr(companion, "own_roles", ()) or ())
+    return frozenset(roles)
+
+
 class Entities:
     """Servicio de entidades sobre un ``Workspace``, el ``SymbolIndex`` y el ``LocSync``.
 
-    ``list`` y la comprobación de id ocupado siguen la **vista efectiva** (I7): los documentos
-    que el ``Workspace`` tiene abiertos con cambios (nuevos, sucios o borrados) se enumeran con
-    el layout sobre el documento efectivo y ganan sobre el índice; el resto sale del índice.
-    Así lo creado y no guardado sale, lo borrado y no guardado no, y un ``undo`` lo devuelve.
-    ``create``, ``duplicate`` y ``delete`` abren su propia transacción
+    ``list`` y la comprobación de id ocupado siguen la **vista efectiva** (I7): todos los documentos
+    del layout que el ``Workspace`` tiene abiertos (nuevos, sucios, borrados y también los limpios,
+    que pueden ser lo recién guardado y aún no releído por el índice) se enumeran con el layout y ganan
+    sobre el índice; el resto sale del índice. Así lo creado y no guardado sale, lo borrado no, un
+    ``undo`` lo devuelve y tras guardar sigue saliendo aunque el índice vaya por detrás.
+    ``create``, ``duplicate``, ``delete`` y ``restore_vanilla`` abren su propia transacción
     (``undo.create_<kind>`` y compañía), I5.
     """
 
@@ -499,53 +673,96 @@ class Entities:
     def _ctx(self) -> CheckContext:
         return CheckContext(self.ws, self.index, self.loc)
 
+    def check_context(self) -> CheckContext:
+        """Contexto de lectura para ``Record.issues`` y los compañeros (leer no escribe, I4)."""
+        return self._ctx()
+
     # --- vista efectiva (I7) ------------------------------------------------------------
 
     def _layout_touches(self, schema: EntitySchema, rel: VPath) -> bool:
         """True si ``rel`` es un archivo que el layout de ``schema`` recorre."""
-        layout = schema.layout
-        if isinstance(layout, SingleFile):
-            return rel.key == VPath.of(layout.path).key
-        if isinstance(layout, OnePerFile):
-            folder = tuple(layout.folder.split("/"))
-            return tuple(rel.parts[:len(folder)]) == folder and layout._ident(rel) is not None
-        return False
+        touches = getattr(schema.layout, "touches", None)
+        return bool(touches is not None and touches(rel))
 
-    def _changed_handles(self, schema: EntitySchema) -> list:
-        """Documentos abiertos del layout con cambios (nuevos, sucios o borrados): la parte de
-        la vista efectiva que el índice no puede conocer."""
-        return [handle for handle in self.ws.documents()
-                if (handle.dirty or handle.is_new or handle.deleted)
-                and self._layout_touches(schema, handle.rel)]
+    def _open_handles(self, schema: EntitySchema) -> list:
+        """Documentos abiertos del layout (con o sin cambios, también lápidas): la parte de la vista
+        efectiva que el índice puede no conocer todavía (decisión 4 del informe)."""
+        return [handle for handle in self.ws.documents() if self._layout_touches(schema, handle.rel)]
+
+    def _underlying(self, rel: VPath):
+        """Documento del archivo que el juego cargaría sin la copia del mod (juego o dependencia), leído
+        sin pasar por el ``Workspace``; None si no hay. Leer no escribe (I4)."""
+        from ..project.codecs import parse_bytes
+
+        vfs = self.ws.vfs
+        for entry in vfs.stack(rel):
+            if entry.layer.kind is LayerKind.MOD or vfs.hidden_by_replace_path(entry):
+                continue
+            try:
+                return parse_bytes(entry.path.read_bytes()).document
+            except OSError:
+                return None
+        return None
+
+    def _effective_document(self, handle):
+        """``(documento, es_el_de_debajo)`` de un documento abierto: el suyo o, si es una lápida, el del
+        juego que vuelve a ganar; ``(None, False)`` si no se ve nada."""
+        if not handle.deleted:
+            return handle.model.document, False
+        underlying = self._underlying(handle.rel)
+        return underlying, underlying is not None
+
+    def _indexed(self, schema: EntitySchema) -> bool:
+        index = self.index
+        if index is None:
+            return False
+        try:
+            return self._provides(schema) in index.kinds()
+        except Exception:  # noqa: BLE001 - un índice falso puede no saberlo
+            return True
+
+    def _parent(self, schema: EntitySchema, document, ident: str) -> str | None:
+        parent_of = getattr(schema.layout, "parent_of", None)
+        return parent_of(document, ident) if parent_of is not None else None
 
     def _ident_exists(self, schema: EntitySchema, ident: str) -> bool:
         """True si ``ident`` ya está ocupado en la vista efectiva (índice + documentos abiertos)."""
-        if self.index.exists(self._provides(schema), ident):
-            return True
-        for handle in self._changed_handles(schema):
-            if handle.deleted:
-                continue
-            document = handle.model.document
-            if any(found == ident for found, _, _ in schema.layout.entries(document, handle.rel)):
-                return True
-        return False
+        return any(item.ref.ident == ident for item in self.list(schema.kind))
 
     # --- leer ---------------------------------------------------------------------------
 
     def list(self, kind: str, *, view: str | None = None) -> list[EntitySummary]:
-        """Registros de ``kind`` en la vista efectiva (I7): el índice, con los documentos
-        abiertos con cambios encima (lo creado sin guardar sale; lo borrado, no). Con ``view``,
-        solo los que su filtro admite."""
+        """Registros de ``kind`` en la vista efectiva (I7): el índice, con los documentos abiertos
+        encima (lo creado sin guardar sale; lo borrado, no; lo guardado sigue saliendo). Con ``view``,
+        solo los que su filtro admite. Sin el tipo en el índice, se recorren los archivos del layout."""
         schema = self._schema(kind)
-        summaries = [EntitySummary(RecordRef(kind, symbol.name), symbol.rel)
-                     for symbol in self.index.symbols(self._provides(schema))]
-        for handle in self._changed_handles(schema):
+        summaries: list[EntitySummary] = []
+        if self._indexed(schema):
+            for symbol in self.index.symbols(self._provides(schema)):
+                if not self._layout_touches(schema, symbol.rel):
+                    continue   # mismo tipo de símbolo en otro archivo (static_modifiers.txt…)
+                parent = None
+                if isinstance(schema.layout, GroupedIn) and schema.layout.level > 0:
+                    parent = (getattr(symbol, "attrs", None) or {}).get("group")
+                summaries.append(EntitySummary(RecordRef(kind, symbol.name), symbol.rel, parent))
+        else:
+            for entry in schema.layout.files(self.ws.vfs):
+                handle = self.ws.peek(entry.rel)
+                if handle is not None:
+                    continue   # lo pone el bucle de abajo
+                try:
+                    handle = self.ws.open(entry.rel)
+                except (FileNotFoundError, OSError):
+                    continue
+                summaries.extend(self._summaries_of(schema, kind, handle.model.document, handle.rel))
+        open_keys: set[str] = set()
+        for handle in self._open_handles(schema):
+            open_keys.add(handle.rel.key)
             summaries = [item for item in summaries if item.rel.key != handle.rel.key]
-            if handle.deleted:
+            document, _ = self._effective_document(handle)
+            if document is None:
                 continue
-            document = handle.model.document
-            for ident, _, _ in schema.layout.entries(document, handle.rel):
-                summaries.append(EntitySummary(RecordRef(kind, ident), handle.rel))
+            summaries.extend(self._summaries_of(schema, kind, document, handle.rel))
         summaries.sort(key=lambda item: item.ref.ident)
         if view is not None:
             spec = next((candidate for candidate in schema.views if candidate.key == view), None)
@@ -554,59 +771,148 @@ class Entities:
             summaries = [item for item in summaries if spec.filter(self.open(item.ref))]
         return summaries
 
+    def _summaries_of(self, schema, kind, document, rel) -> list[EntitySummary]:
+        found = []
+        grouped = isinstance(schema.layout, GroupedIn) and schema.layout.level > 0
+        if grouped:
+            for group, block, _ in schema.layout.groups(document):
+                for child in block.entries:
+                    if child.key is not None and isinstance(child.value, Block) and not child.key.is_date():
+                        found.append(EntitySummary(RecordRef(kind, child.key.text), rel, group))
+            return found
+        for ident, _, _ in schema.layout.entries(document, rel):
+            found.append(EntitySummary(RecordRef(kind, ident), rel))
+        return found
+
     def _rel_of(self, schema: EntitySchema, ident: str, ref_rel: VPath | None) -> VPath:
         if ref_rel is not None:
             return VPath.of(ref_rel)
-        symbol = self.index.get(self._provides(schema), ident)
-        if symbol is not None:
-            return symbol.rel
-        rel, _ = schema.layout.target_for_new(None, ident, {})
+        for handle in self._open_handles(schema):
+            document, _ = self._effective_document(handle)
+            if document is not None and any(found == ident for found, _, _ in
+                                            schema.layout.entries(document, handle.rel)):
+                return handle.rel
+        if self._indexed(schema):
+            for symbol in self.index.lookup(self._provides(schema), ident) or []:
+                if self._layout_touches(schema, symbol.rel):
+                    return symbol.rel
+        for entry in schema.layout.files(self.ws.vfs):
+            try:
+                document = self.ws.open(entry.rel).model.document
+            except (FileNotFoundError, OSError):
+                continue
+            if any(found == ident for found, _, _ in schema.layout.entries(document, entry.rel)):
+                return entry.rel
+        rel, _ = schema.layout.target_for_new(None, ident, {"group": "_"})
         return rel
 
     def open(self, ref: RecordRef) -> Record:
-        """Registro vivo de ``ref``: abre el documento efectivo si hace falta. Leer no escribe (I4)."""
+        """Registro vivo de ``ref``: abre el documento efectivo si hace falta. Leer no escribe (I4).
+
+        Si el documento es la lápida de una copia del mod y el juego tiene el archivo, el registro se
+        lee del archivo del juego; mutarlo revive el documento (ver ``Record``)."""
         schema = self._schema(ref.kind)
         rel = self._rel_of(schema, ref.ident, ref.rel)
-        handle = self.ws.open(rel)
-        document = handle.model.document
-        for ident, block, entry in schema.layout.entries(document, rel):
+        handle = self.ws.peek(rel)
+        document = None
+        if handle is not None and handle.deleted:
+            document = self._underlying(rel)
+            if document is None:
+                raise FileNotFoundError(str(rel))
+        else:
+            handle = self.ws.open(rel)
+        source = document if document is not None else handle.model.document
+        for ident, block, entry in schema.layout.entries(source, rel):
             if ident == ref.ident:
-                origin = None if handle.origin is None else handle.origin.layer.kind
+                if document is not None:
+                    origin = LayerKind.GAME
+                else:
+                    origin = None if handle.origin is None else handle.origin.layer.kind
                 return Record(schema, RecordRef(ref.kind, ident, rel), handle, block, origin,
-                              ws=self.ws, index=self.index, entry=entry)
+                              ws=self.ws, index=self.index, entry=entry, document=document)
         raise KeyError(f"{ref.kind}:{ref.ident} no está en {rel}")
 
+    def parent(self, ref: RecordRef) -> str | None:
+        """Grupo del registro en un ``GroupedIn`` de nivel 1 (la cultura → su grupo); None si no tiene."""
+        record = self.open(ref)
+        document = record._document if record._document is not None else record.handle.model.document
+        return self._parent(record.schema, document, ref.ident)
+
     def where_used(self, ref: RecordRef) -> list[SymbolRef]:
-        """Referencias del índice a este registro (``index.refs_to``); leer no escribe (I4)."""
+        """Referencias del índice a este registro (``index.refs_to``) sin las de sus compañeros, que
+        las mantiene el propio motor (``peace_order``, la matriz de rebeldes); leer no escribe (I4)."""
         schema = self._schema(ref.kind)
-        return self.index.refs_to(self._provides(schema), ref.ident)
+        if self.index is None:
+            return []
+        own = _own_roles(schema)
+        uses = self.index.refs_to(self._provides(schema), ref.ident)
+        # Una fila propia («junta = junta») también nombra al registro como destino en la misma línea: es suya.
+        owned = {(use.rel.key, use.line) for use in uses if use.role in own}
+        return [use for use in uses if use.role not in own and (use.rel.key, use.line) not in owned]
+
+    def origin_of(self, ref: RecordRef) -> str:
+        """Cinta de origen de §13.5: ``"game"`` (se copiará al guardar), ``"mod"``, ``"mod_over_game"``
+        (el mod sustituye al juego) o ``"new"``."""
+        record = self.open(ref)
+        handle = record.handle
+        if record._document is not None:
+            return "game"
+        if handle.origin is None:
+            return "new"
+        if handle.origin.layer.kind is not LayerKind.MOD:
+            return "game"
+        vfs = self.ws.vfs
+        if any(entry.layer.kind is not LayerKind.MOD for entry in vfs.stack(handle.rel)):
+            return "mod_over_game"
+        return "mod"
 
     # --- escribir -----------------------------------------------------------------------
+
+    def _require_editable(self, schema: EntitySchema) -> None:
+        if not schema.editable:
+            raise ReadOnlySchemaError(f"{schema.kind} es de solo lectura")
+
+    def _container(self, schema: EntitySchema, document, path) -> Block:
+        container = path.resolve(document)
+        if container is None:
+            raise InvalidIdentError("no_group", "")
+        return container
 
     def create(self, kind: str, ident: str, values: dict | None = None, *,
                texts: Mapping[str, Mapping[str, str]] | None = None) -> RecordRef:
         """Crea un registro en una transacción (archivo + compañeros + claves de localización).
 
         Un id inválido o ya existente lanza ``InvalidIdentError`` sin cambiar nada. ``texts``:
-        ``{clave: {lang: texto}}`` de las claves de ``loc`` (``LocSync.ensure``).
+        ``{clave: {lang: texto}}`` de las claves de ``loc`` (``LocSync.ensure``). En un ``GroupedIn``
+        de nivel 1, ``values["group"]`` dice el grupo (``InvalidIdentError("no_group")`` si falta).
         """
         schema = self._schema(kind)
+        self._require_editable(schema)
         problem = ident_problem(schema, ident)
         if problem is not None:
             raise InvalidIdentError(problem, ident)
         if self._ident_exists(schema, ident):
             raise InvalidIdentError("taken", ident)
         values = dict(values or {})
+        try:
+            rel, path = schema.layout.target_for_new(self._ctx(), ident, values)
+        except ValueError:
+            raise InvalidIdentError("no_group", ident) from None
+        existing = self.ws.peek(rel)
+        if path.parts:
+            probe = existing if existing is not None and not existing.deleted else None
+            document = probe.model.document if probe is not None else self._read_only_document(rel)
+            if document is None or path.resolve(document) is None:
+                raise InvalidIdentError("no_group", ident)
         with self.ws.transaction(f"undo.create_{kind}", kind=kind, ident=ident):
-            rel, _ = schema.layout.target_for_new(self._ctx(), ident, values)
             block = self._build_block(schema, ident, values)
             handle = self.ws.open(rel, create=True)
             self.ws.touch(handle)   # la transacción captura el estado previo (I5)
             document = handle.model.document
-            schema.layout.insert(document, document, ident, block)
+            entry = schema.layout.insert(document, self._container(schema, document, path), ident, block)
             record = Record(schema, RecordRef(kind, ident, rel), handle, block,
                             None if handle.origin is None else handle.origin.layer.kind,
-                            ws=self.ws, index=self.index, entry=document.find(ident))
+                            ws=self.ws, index=self.index, entry=entry)
             self._ensure_loc(schema, ident, texts)
             from .companions import EditContext
 
@@ -615,75 +921,41 @@ class Entities:
             self._reread(handle)
         return RecordRef(kind, ident, rel)
 
+    def _read_only_document(self, rel: VPath):
+        try:
+            return self.ws.open(rel).model.document
+        except (FileNotFoundError, OSError):
+            return None
+
     def _build_block(self, schema: EntitySchema, ident: str, values: dict) -> Block:
-        """Bloque nuevo con los valores en el orden canónico del esquema (regla 6 de §10.7)."""
-        merged: dict = {}
-        if schema.template is not None:
-            merged.update(dict(schema.template(ident, self.index)))
-        merged.update(values)
-        block = Block()
-
-        def emit(items) -> None:
-            for item in items:
-                if isinstance(item, Field):
-                    if item.key in merged and merged[item.key] is not None and merged[item.key] is not MISSING:
-                        block.append(item.key, item.type.write(merged[item.key], None))
-                elif isinstance(item, DynamicKeys):
-                    payload = merged.get(item.name)
-                    if isinstance(payload, dict):
-                        for key, item_value in payload.items():
-                            if item_value is None or item_value is MISSING:
-                                continue
-                            if item.only_true and not item_value:
-                                continue
-                            value_type = item.value(key) if callable(item.value) else item.value
-                            block.append(key, value_type.write(item_value, None))
-                elif isinstance(item, Group):
-                    payload = merged.get(item.key)
-                    if isinstance(payload, dict):
-                        inner = Block()
-                        for sub_key, item_value in payload.items():
-                            if item_value is None or item_value is MISSING:
-                                continue
-                            if item.dynamic is not None:
-                                value_type = item.dynamic.value
-                                value_type = value_type(sub_key) if callable(value_type) else value_type
-                                if item.dynamic.only_true and not item_value:
-                                    continue
-                            else:
-                                sub_field = next((f for f in item.fields if isinstance(f, Field)
-                                                  and f.key == sub_key), None)
-                                if sub_field is None:
-                                    continue
-                                value_type = sub_field.type
-                            inner.append(sub_key, value_type.write(item_value, None))
-                        if inner.entries or item.required:
-                            block.append(item.key, inner)
-                elif isinstance(item, Section):
-                    emit(item.items)
-
-        emit(schema.fields)
-        return block
+        return build_block(schema, ident, values, self.index)
 
     def duplicate(self, ref: RecordRef, new_ident: str) -> RecordRef:
         """Copia un registro como ``new_ident`` («basar en…»), con sus claves de localización,
-        en una transacción."""
+        en una transacción. En un ``GroupedIn`` la copia va al mismo grupo que el original."""
         schema = self._schema(ref.kind)
+        self._require_editable(schema)
         problem = ident_problem(schema, new_ident)
         if problem is not None:
             raise InvalidIdentError(problem, new_ident)
         if self._ident_exists(schema, new_ident):
             raise InvalidIdentError("taken", new_ident)
         source = self.open(ref)
+        source_document = source._document if source._document is not None else source.handle.model.document
+        values = {}
+        group = self._parent(schema, source_document, ref.ident)
+        if group is not None:
+            values["group"] = group
+        rel, path = schema.layout.target_for_new(self._ctx(), new_ident, values)
+        clone = self._clone_source_block(source)
         with self.ws.transaction(f"undo.duplicate_{ref.kind}", kind=ref.kind, ident=new_ident):
-            rel, _ = schema.layout.target_for_new(self._ctx(), new_ident, {})
             handle = self.ws.open(rel, create=True)
             self.ws.touch(handle)   # la transacción captura el estado previo (I5)
             document = handle.model.document
-            schema.layout.insert(document, document, new_ident, self._clone_source_block(source))
-            inserted = document.find(new_ident)
-            record = Record(schema, RecordRef(ref.kind, new_ident, rel), handle,
-                            inserted.value if inserted is not None else source.block,
+            inserted = schema.layout.insert(document, self._container(schema, document, path), new_ident, clone)
+            if schema.ident.mode == "field":
+                inserted.value.set(schema.ident.value, new_ident)   # conserva las comillas del original
+            record = Record(schema, RecordRef(ref.kind, new_ident, rel), handle, inserted.value,
                             None if handle.origin is None else handle.origin.layer.kind,
                             ws=self.ws, index=self.index, entry=inserted)
             self._copy_loc(schema, ref.ident, new_ident)
@@ -709,10 +981,12 @@ class Entities:
         """Borra un registro en una transacción (compañeros y claves incluidas).
 
         Con usos en el índice y sin ``force`` lanza ``EntityInUseError`` (con ``.uses``) y no
-        cambia nada.
+        cambia nada. Las referencias que mantienen sus propios compañeros (``peace_order``, las filas
+        de la matriz de rebeldes) no cuentan como usos: el borrado las quita.
         """
         schema = self._schema(ref.kind)
-        uses = self.index.refs_to(self._provides(schema), ref.ident)
+        self._require_editable(schema)
+        uses = self.where_used(ref)
         if uses and not force:
             raise EntityInUseError(uses)
         record = self.open(ref)
@@ -721,18 +995,80 @@ class Entities:
 
             for companion in schema.companions:
                 companion.on_delete(EditContext(self.ws, self.index, self.loc), record)
-            if isinstance(schema.layout, SingleFile):
-                entry = record._entry
-                if entry is None:
-                    raise KeyError(f"{ref.kind}:{ref.ident} no tiene entrada dueña")
-                self.ws.touch(record.handle)
-                record.handle.model.document.remove_entry(entry)
-            else:
+            if isinstance(schema.layout, OnePerFile):
                 self.ws.delete(record.ref.rel)
+            else:
+                record._touch()
+                entry = record._entry
+                container = parent_block(record.handle.model.document, entry) if entry is not None else None
+                if container is None:
+                    raise KeyError(f"{ref.kind}:{ref.ident} no tiene entrada dueña")
+                container.remove_entry(entry)
             for spec in schema.loc:
                 if spec.shared:
                     continue
                 self.loc.delete(spec.template.replace("{id}", ref.ident))
+
+    def _vanilla_entry(self, record: Record):
+        """``(documento del juego, entrada del registro en él)`` si el registro se ve desde el mod o con
+        cambios y el juego (o una dependencia) tiene su versión; None si no."""
+        handle = record.handle
+        if record._document is not None:
+            return None   # ya se está viendo el del juego
+        from_mod = handle.origin is not None and handle.origin.layer.kind is LayerKind.MOD
+        if not from_mod and not handle.dirty:
+            return None
+        underlying = self._underlying(handle.rel)
+        if underlying is None:
+            return None
+        for ident, _, entry in record.schema.layout.entries(underlying, handle.rel):
+            if ident == record.ref.ident:
+                return underlying, entry
+        return None
+
+    def can_restore_vanilla(self, ref: RecordRef) -> bool:
+        """True si el registro está en el mod (o tiene cambios) y el juego tiene su versión."""
+        try:
+            return self._vanilla_entry(self.open(ref)) is not None
+        except (KeyError, FileNotFoundError):
+            return False
+
+    def restore_vanilla(self, ref: RecordRef) -> None:
+        """Vuelve a la versión del juego (§10.5), en una transacción ``undo.restore_vanilla``.
+
+        - ``OnePerFile`` con copia en el mod: la copia va a la papelera al guardar; entretanto ``list`` y
+          ``open`` leen el archivo del juego de debajo de la lápida (límite de CONTINUAR §6, resuelto).
+        - Documento del juego con cambios sin guardar: se revierte a lo del disco (queda limpio).
+        - Archivo único (gobiernos, CB…) copiado en el mod: el bloque del registro se sustituye por el
+          del juego, con su formato exacto; el resto del archivo no cambia.
+
+        ``KeyError`` si no hay versión del juego que restaurar; no cambia nada.
+        """
+        from ..project.codecs import parse_bytes
+
+        schema = self._schema(ref.kind)
+        self._require_editable(schema)
+        record = self.open(ref)
+        found = self._vanilla_entry(record)
+        if found is None:
+            raise KeyError(f"{ref.kind}:{ref.ident} no tiene versión en el juego base")
+        underlying, vanilla_entry = found
+        handle = record.handle
+        from_mod = handle.origin is not None and handle.origin.layer.kind is LayerKind.MOD
+        with self.ws.transaction("undo.restore_vanilla", kind=ref.kind, ident=ref.ident):
+            if not from_mod:
+                self.ws.revert(handle.rel)
+                return
+            if isinstance(schema.layout, OnePerFile):
+                self.ws.delete(handle.rel)
+                return
+            record._touch()
+            vanilla = next(entry for entry in self.ws.vfs.stack(handle.rel)
+                           if entry.layer.kind is not LayerKind.MOD and not self.ws.vfs.hidden_by_replace_path(entry))
+            reparsed = parse_bytes(vanilla.path.read_bytes()).document
+            fresh = follow_path(reparsed, entry_path(underlying, vanilla_entry))
+            record._entry.value = fresh.value
+            self._reread(record.handle)
 
     # --- localización -------------------------------------------------------------------
 
@@ -773,25 +1109,36 @@ class Entities:
 
         ``Block.clone`` es «sin formato de origen» por diseño (los tokens son privados y la copia
         se formatea según el destino, M2): para conservarlo se reparsea el texto del documento y
-        se toma la entrada homóloga del documento reparseado, que lleva los tokens tal como se
-        leyeron. Si no hay homóloga (archivo roto o sin entrada dueña), ``clone()``.
+        se toma la entrada homóloga del documento reparseado (por su posición en el árbol, también
+        dentro de un grupo), que lleva los tokens tal como se leyeron. Si no hay homóloga (archivo
+        roto o sin entrada dueña), ``clone()``.
         """
         from ..project.codecs import codec_for, parse_bytes
 
         owner = record._entry
         if owner is None:
             return record.block.clone()
-        document = record.handle.model.document
-        index = document.entries.index(owner)
-        data = codec_for(record.handle.kind).snapshot(record.handle.model)
+        if record._document is not None:
+            # Visto desde debajo de una lápida: el texto es el del archivo del juego.
+            document = record._document
+            vfs = self.ws.vfs
+            vanilla = next((entry for entry in vfs.stack(record.handle.rel)
+                            if entry.layer.kind is not LayerKind.MOD and not vfs.hidden_by_replace_path(entry)),
+                           None)
+            if vanilla is None:
+                return record.block.clone()
+            data = vanilla.path.read_bytes()
+        else:
+            document = record.handle.model.document
+            data = codec_for(record.handle.kind).snapshot(record.handle.model)
+        path = entry_path(document, owner)
         reparsed = parse_bytes(data).document
-        copied = reparsed.entries[index] if index < len(reparsed.entries) else None
+        copied = follow_path(reparsed, path) if path is not None else None
         if copied is None or owner.key is None or copied.key is None \
-                or copied.key.text != owner.key.text:
-            copied = next((entry for entry in reparsed.entries
-                           if entry.key is not None and owner.key is not None
-                           and entry.key.text == owner.key.text and isinstance(entry.value, Block)),
-                          None)
-        if copied is None or not isinstance(copied.value, Block):
+                or copied.key.text != owner.key.text or not isinstance(copied.value, Block):
             return record.block.clone()
         return copied.value
+
+
+__all__ = ["build_block", "Entities", "EntityInUseError", "EntitySummary", "InvalidIdentError", "ReadOnlySchemaError", "Record",
+           "RecordRef", "ident_problem"]

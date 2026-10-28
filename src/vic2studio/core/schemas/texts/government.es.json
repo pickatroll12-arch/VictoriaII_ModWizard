@@ -16,5 +16,9 @@
   "schema.government.enum.flag_type.fascist": "Fascista",
   "issue.government_without_ideology": "El gobierno no admite ninguna ideología: ningún partido podrá gobernar con él.",
   "explain.title.government_without_ideology": "Por qué el gobierno no admite ideologías",
-  "explain.outcome.government_without_ideology": "En partida, ningún partido podrá ser elegido ni nombrado con este gobierno."
+  "explain.outcome.government_without_ideology": "En partida, ningún partido podrá ser elegido ni nombrado con este gobierno.",
+  "schema.government.title": "Gobiernos",
+  "schema.government.name": "Gobierno",
+  "schema.government.doc": "Formas de gobierno de common/governments.txt: ideologías permitidas, elecciones y tipo de bandera. Al crear uno se añade a las tablas de destino de common/rebel_types.txt.",
+  "schema.government.field.appoint_ruling_party.help": "Si el jefe del estado elige el partido gobernante."
 }

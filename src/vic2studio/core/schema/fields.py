@@ -27,6 +27,9 @@ MISSING = object()
 # Centinela para ``Children.match``: todo bloque que el esquema no haya reclamado.
 REMAINING_BLOCKS = object()
 
+# ``DynamicKeys.key_kind`` de un catálogo abierto: cualquier clave que no sea un campo fijo.
+OPEN_CATALOG = "*"
+
 
 class Condition:
     """Condición de visibilidad de un campo (``Field.visible_if``).
@@ -46,7 +49,7 @@ class When(Condition):
     value: object
 
     def evaluate(self, record) -> bool:  # noqa: F821
-        raise NotImplementedError
+        return record.get(self.field, None) == self.value
 
 
 @dataclass(frozen=True)
@@ -104,7 +107,8 @@ class DynamicKeys:
 
     ``name`` da el nombre para ``Record.dynamic``; ``key_kind``, el tipo de símbolo del índice
     (``"technology"``, ``"invention"``, ``"issue_group"``, ``"ideology"``, ``"tag"``,
-    ``"government"``, ``"goods"``…). ``key_filter`` descarta claves (solo reformas políticas y
+    ``"government"``, ``"goods"``…). ``OPEN_CATALOG`` (``"*"``) admite cualquier clave que no sea
+    un campo fijo: los efectos de un modificador (``event_modifiers.txt``), que el índice no cataloga. ``key_filter`` descarta claves (solo reformas políticas y
     sociales, solo unidades navales…). ``value`` puede ser un tipo o una función
     ``Callable[[str], ValueType]`` que lo elige según la clave. ``only_true`` escribe solo las
     claves ``yes``/``1`` y borra en vez de escribir ``= no`` (§10.10: ideologías).
