@@ -259,6 +259,46 @@ entorno y corpus):
 3. `government_election_without_duration` ya existía en `core/validate` como aviso; el esquema
    reutiliza ese código y sus textos (no se duplican).
 
+## Corrección tras la revisión
+
+Sobre la misma rama, un commit por punto, cada uno con su prueba:
+
+- **B1 (`38b0f39`).** `Entities.list` y la comprobación de id ocupado siguen la vista efectiva
+  (I7): los documentos abiertos con cambios (nuevos, sucios o borrados) se enumeran con el
+  layout sobre el documento efectivo y ganan sobre el índice. Ocho pruebas nuevas (los cuatro
+  casos con `unit` y con `government`): lo creado sin guardar sale; un segundo
+  `create`/`duplicate` lanza `InvalidIdentError("taken")` sin efectos; borrar y deshacer lo
+  quita y lo devuelve; `ws.delete` de un archivo del mod lo quita.
+- **B2 (`672e99e`).** Las claves de un `DynamicKeys` son solo las de su `key_kind` en el índice
+  (`Record` recibe el índice): `electoin = yes` da `unknown_field` y no cuenta como ideología.
+  El arnés de dinámicos usa una clave real del catálogo y el conformance del corpus cataloga
+  ideologías y bienes con el índice real.
+- **M1 (`d44d1b1`).** `duplicate` ejecuta el `on_create` de los compañeros en su transacción:
+  duplicar un gobierno añade la clave a las 2 tablas del minijuego y a las 14 de vanilla
+  (`duplicate(democracy, "democracia2")`), y un undo lo quita todo.
+- **M2 (`062c421`).** `duplicate` conserva el formato del origen: `Block.clone` es «sin formato
+  de origen» por diseño (tokens privados), así que se reparsea el texto del documento y se toma
+  la entrada homóloga con sus tokens leídos; el bloque duplicado es byte a byte el original
+  salvo la clave (líneas en blanco y sangría incluidas).
+- **Huecos (`0ce0019`).** Tres pruebas nuevas: el comentario de final de línea
+  (`election = yes  # election = no`, H14) sobrevive a `set` de otro campo; las vistas dan 11
+  unidades land y 10 naval en vanilla sin solaparse; y `attack = abc` en una unidad sintética
+  da `bad_type`.
+
+**Mutantes de la corrección.** Repetidos los 12 del cierre y añadidos tres, todos matados:
+`list` sin la vista del Workspace (B1), `DynamicKeys` aceptando cualquier clave (B2) y
+`duplicate` sin compañeros (M1).
+
+**Baterías.** Con `-B` y caché limpia:
+
+- **3.12**: 1535 pruebas, `failures=5` — los de línea base/entorno (3 de disposición por
+  fuentes, `test_tasks` de PRUEBAS.md §5 verificado en la rama base, y el de latencia de
+  `test_ui_integration`). **Ninguno del corte.**
+- **3.10**: 1535 pruebas, `failures=4` — 3 de disposición y el de latencia (falla también en
+  la rama base con 3.10). **Ninguno del corte.**
+- Con corpus: las 50 pruebas del motor (criterios, arnés con conformidad, vista efectiva y
+  correcciones) en verde, incluidas las 14 tablas de M1 y el formato de M2.
+
 ## Fases siguientes
 
 (Ninguna: corte terminado.)
