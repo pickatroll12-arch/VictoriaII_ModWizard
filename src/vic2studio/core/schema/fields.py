@@ -10,6 +10,7 @@ congeladas sin E/S; la lógica llega en la fase 2.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Union
@@ -188,6 +189,16 @@ class Section:
 
 
 FieldLike = Union[Field, Group, DynamicKeys, Values, Children, Script, Opaque]
+
+_CAMEL_RE = re.compile(r"(?<=[a-z0-9])([A-Z])")
+
+
+def field_text_key(kind: str, key: str) -> str:
+    """Clave del catálogo de un campo: ``schema.<kind>.field.<clave>`` con la clave técnica en
+    minúsculas con guiones (``flagType`` → ``flag_type``): el patrón de claves de i18n no
+    admite mayúsculas (test_i18n). La etiqueta visible lleva el nombre técnico aparte."""
+    snake = _CAMEL_RE.sub(r"_\1", key).lower()
+    return f"schema.{kind}.field.{snake}"
 
 
 def field(key: str, type: ValueType, **kwargs) -> Field:

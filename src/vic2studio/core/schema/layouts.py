@@ -5,22 +5,24 @@
 nuevo (``target_for_new``: archivo del mod y contenedor) y cómo se inserta
 (``insert``). ``merge`` es el ``LoadMode`` de la VFS (§3.3) del archivo.
 
-Solo ``SingleFile`` (gobiernos) y ``OnePerFile`` (unidades) llevan lógica real
-en este corte; las demás disposiciones quedan como contrato.
+En este corte solo ``SingleFile`` (gobiernos) y ``OnePerFile`` (unidades)
+llevan lógica real; las demás disposiciones quedan como contrato.
 """
 
 from __future__ import annotations
 
+import re
 from collections.abc import Iterator
 from dataclasses import dataclass
+from pathlib import PurePosixPath
 from typing import TYPE_CHECKING, Protocol
 
+from ..clausewitz.nodes import Block, Document, Entry
 from ..vfs.model import FileEntry
 from ..vfs.paths import VPath
 from ..vfs.rules import LoadMode
 
 if TYPE_CHECKING:
-    from ..clausewitz.nodes import Block, Document, Entry
     from ..vfs.vfs import VirtualFS
     from .validate import CheckContext
 
@@ -46,8 +48,8 @@ class FileLayout(Protocol):
         ...
 
     def entries(self, doc: Document, rel: VPath) -> Iterator[tuple[str, Block, Entry | None]]:
-        """Registros de ``doc``: ``(id, bloque, entrada dueña)``. La entrada es None cuando el
-        bloque es la raíz del documento (``OnePerFile``: ``<id> = { … }`` como raíz)."""
+        """Registros de ``doc``: ``(id, bloque, entrada dueña)``; la entrada es None cuando el
+        bloque es la raíz del documento (``OnePerFile`` da la entrada ``<id>`` como dueña)."""
         ...
 
     def target_for_new(self, ctx: CheckContext, ident: str, values: dict) -> tuple[VPath, BlockPath]:
@@ -69,14 +71,34 @@ class SingleFile:
     skip: tuple[str, ...] = ()
     merge: LoadMode = LoadMode.WHOLE_FILE
 
+    def files(self, vfs: VirtualFS) -> list[FileEntry]:
+        entry = vfs.resolve(self.path)
+        return [] if entry is None else [entry]
+
+    def entries(self, doc: Document, rel: VPath) -> Iterator[tuple[str, Block, Entry | None]]:
+        for entry in doc.entries:
+            if entry.key is None:
+                continue
+            key = entry.key.text
+            if key in self.skip or not isinstance(entry.value, Block):
+                continue
+            yield key, entry.value, entry
+
+    def target_for_new(self, ctx: CheckContext, ident: str, values: dict) -> tuple[VPath, BlockPath]:
+        # El documento efectivo (juego o mod): abrirlo y editarlo lo copia al mod al guardar (I1, I4).
+        return VPath.of(self.path), BlockPath()
+
+    def insert(self, doc: Document, container: Block, ident: str, block: Block) -> Entry:
+        # La clave es el id y no tiene orden de esquema: lo nuevo va al final, como hace el usuario (H16).
+        return doc.append(ident, block)
+
 
 @dataclass(frozen=True)
 class OnePerFile:
-    """Un documento por entidad (``units/<id>.txt``): el registro es el bloque raíz del archivo.
-
-    ``regex`` captura el id del nombre de archivo (``^(?P<id>...)\\.txt$``); ``new_name`` es la
-    plantilla del archivo nuevo (``"{id}.txt"``). ``merge`` es ``UNION_BY_PATH``: cada archivo
-    del mod sustituye solo al suyo. Lo nuevo va a ``<folder>/<new_name>`` en el mod.
+    """Un documento por entidad (``units/<id>.txt``): el registro es el bloque ``<id> = { … }``,
+    única entrada de la raíz. ``regex`` captura el id del nombre de archivo; ``new_name`` es la
+    plantilla del archivo nuevo (``"{id}.txt"``). ``merge`` es ``UNION_BY_PATH``: cada archivo del
+    mod sustituye solo al suyo. Lo nuevo va a ``<folder>/<new_name>`` en el mod.
     """
 
     folder: str
@@ -84,6 +106,36 @@ class OnePerFile:
     new_name: str
     recursive: bool = False
     merge: LoadMode = LoadMode.UNION_BY_PATH
+
+    def _ident(self, rel: VPath) -> str | None:
+        match = re.search(self.regex, rel.name)
+        if match is None:
+            return None
+        if "id" in match.groupdict():
+            return match.group("id")
+        return match.group(1)
+
+    def _pattern(self) -> str:
+        return f"*{PurePosixPath(self.new_name).suffix or '.txt'}"
+
+    def files(self, vfs: VirtualFS) -> list[FileEntry]:
+        return [entry for entry in vfs.list(self.folder, self._pattern(), recursive=self.recursive)
+                if self._ident(entry.rel) is not None]
+
+    def entries(self, doc: Document, rel: VPath) -> Iterator[tuple[str, Block, Entry | None]]:
+        ident = self._ident(rel)
+        if ident is None:
+            return
+        for entry in doc.entries:
+            if entry.key is not None and entry.key.text == ident and isinstance(entry.value, Block):
+                yield ident, entry.value, entry
+
+    def target_for_new(self, ctx: CheckContext, ident: str, values: dict) -> tuple[VPath, BlockPath]:
+        return VPath.of(f"{self.folder}/{self.new_name.format(id=ident)}"), BlockPath()
+
+    def insert(self, doc: Document, container: Block, ident: str, block: Block) -> Entry:
+        # Documento nuevo: el registro es la única entrada de la raíz.
+        return doc.append(ident, block)
 
 
 @dataclass(frozen=True)

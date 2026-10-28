@@ -101,6 +101,105 @@ pasa entero en solitario y el contrato no toca nada fuera de `core/schema` y su 
 más probable es el fallo de latencia conocido de PRUEBAS.md §5; se confirma en la batería de
 cierre de la fase 2.
 
+## Fase 2 — Motor (hecho)
+
+- **Tipos** (`types.py`): `Int`, `Float`, `Bool`, `Word`, `Text`, `Enum`, `Date` con lectura y
+  escritura sin pérdidas. `Float.write` conserva los decimales del texto anterior (``4.00`` → 5
+  → ``5.00``; ``8`` → 9 → ``9``, como en vanilla). `FromSymbol.resolve` usa el índice.
+  `Ref.read/write/check` parcial (sus esquemas no lo usan aún); `Color`, `ListOf`, `Path`,
+  `LocKey`, `SpriteFrame`, `Picture` y `from_spec` siguen como contrato.
+- **Campos, secciones, dinámicos, variantes y vistas** (`record.py`): `Record` implementa la API
+  fija (`get/set/dynamic/set_dynamic/unknown/issues/loc_keys`) más `node/get_all/add/remove/
+  group(s)/add_group`; `issues` emite `duplicate_field` (código de core/validate),
+  `bad_type`, `required_missing` y `unknown_field` y corre los validadores del esquema.
+  `DynamicKeys` suelto vive en la raíz (gobierno); el de un `Group` (``build_cost``,
+  ``supply_cost``), en el bloque del grupo. `Variant` añade los campos de la variante activa
+  según ``type``; `View` filtra `list`. Toda mutación pasa por `ws.touch` (transacción de quien
+  llama); leer no escribe (I4).
+- **Disposiciones** (`layouts.py`): `SingleFile` (gobiernos: lo nuevo al final del documento) y
+  `OnePerFile` (unidades: archivo nuevo ``units/<id>.txt``, id del nombre con el regex).
+- **Colocación** (`placement.py`): `insertion_index` (orden del esquema + bloques fechados),
+  `dynamic_insert_index` (tras la última clave del catálogo) y `registry_index`.
+- **`Entities`** (`record.py`): `list` (índice, vista efectiva, filtro por vista), `open`
+  (documento efectivo, registro por el layout), `create`/`duplicate`/`delete` en una transacción
+  propia con archivo + compañeros + claves (un `undo` lo deshace todo, I5), `where_used`.
+  `InvalidIdentError` (empty/bad_chars/taken) y `EntityInUseError` (con `.uses`) sin efectos.
+- **`validate.py`**: `@validator`/`issue` sobre el `Problem` real; `SEVERITY_FALLBACK` para los
+  códigos del motor (unknown_field aviso, bad_type/required_missing error; duplicate_field aviso,
+  como en core/validate).
+- **`companions.py`**: `MappingTable` real (la matriz de rebeldes: tablas en cualquier nivel —
+  en vanilla están anidadas bajo cada tipo de rebelde, no en la raíz como decía H16 —; crear
+  añade la clave a todas con el propio id como destino propuesto, borrar la quita, `check` da
+  `government_missing_in_rebel_map`). El resto de compañeros, contrato.
+- **Errores encontrados y corregidos al probar**: `create`/`duplicate` mutaban el documento sin
+  `ws.touch`, con lo que la transacción no capturaba el archivo (ni undo ni guardado lo veían):
+  corregido y cubierto por los criterios 3 y 4.
+
+## Fase 3 — Esquemas y criterios (hecho)
+
+- **`core/schemas/government.py`**: el ejemplo de §10.10 tal cual, con `government_without_ideology`
+  (error, nuevo) y `government_election_without_duration` (aviso, código y textos de
+  core/validate; caso real de VSM `absolute_monarchy`), compañero `MappingTable` y plantilla.
+- **`core/schemas/unit.py`**: campos comunes + `Variant` por ``type`` (land/naval) + dos `View`;
+  `build_cost`/`supply_cost` como `Group` con `DynamicKeys` de bienes; el esquema cubre las 21
+  unidades de vanilla sin `unknown_field` ni `bad_type` (verificado contra el corpus).
+- **Textos** (`core/schemas/texts/`): `schema`, `government` y `unit` × `es/en` (paridad 435/435,
+  sin duplicados con los existentes). Desviación de §10.9: las etiquetas de los valores `Enum`
+  son `schema.<kind>.enum.<campo>.<valor>` (la dataclass `Enum` no lleva nombre propio).
+- **`tests/schema_harness.py`**: `SchemaContract` (§19.3) con textos, abrir-guardar-sin-cambios,
+  set de cada campo, dinámicos, plantilla válida, claves de localización, compañeros, colocación
+  y conformidad con el corpus (0 `unknown_field`, 0 `bad_type`). `test_docgen` no se genera:
+  `docgen` no está en la lista de archivos del corte (petición para Claude).
+- **`tests/test_schema_government.py` / `test_schema_unit.py`**: subclases de 3 líneas.
+- **`tests/test_schema_criteria.py`**: los 6 criterios — con corpus: 8 gobiernos + 21 unidades
+  conformes y sin escritura al leer (1); `set attack` de infantry cambia una sola línea, CRLF y
+  comentarios intactos (2); clave desconocida y comentario sobreviven a `set` de
+  `maximum_speed` y ``4.00`` queda ``5.00`` (6). Con minijuego: `duplicate(infantry, my_unit)`
+  crea `units/my_unit.txt` y las claves en una transacción, undo lo quita todo (3);
+  `create("government", "junta")` copia governments.txt al mod con junta al final, crea las
+  claves y `election=yes` sin `duration` da el aviso (4); `delete(infantry)` bloquea con el
+  `activate_unit` de la tecnología y borrar `my_unit` funciona y se deshace (5).
+- **`SMOKE_KEYS`** de `src/vic2studio/app.py`: una clave por archivo de textos nuevo (3), único
+  cambio fuera de la lista (permitido por REGLAS.md §5).
+
+**Resultado con corpus**: `tests.test_schema_*` al completo en verde (24 pruebas + criterios),
+incluida la conformidad con el corpus real.
+
+## Fase 4 — Cierre (hecho)
+
+**Mutantes a mano (PRUEBAS.md §6), 12 piezas, todos matados por las pruebas:**
+
+1. `Float.write` sin conservar decimales → `test_criterion6_unknown_and_comment_survive` (5.00).
+2. `Bool.write` con yes/no invertidos → `test_set_each_field` del arnés (roundtrip «lo escrito se lee igual»).
+3. `Record.set` insertando al principio → `test_placement` del arnés.
+4. `SingleFile.insert` al principio → `test_placement` + criterio 4 (junta al final).
+5. `Variant` con clave «sea» en vez de «land» → `test_corpus_conformance` de unit (con corpus).
+6. Validador `government_without_ideology` con la condición invertida → `test_template_validates`.
+7. `only_true` escribiendo en vez de borrar → `test_dynamic_keys` del arnés.
+8. `create` con las claves de localización en otra transacción (dos pasos) → criterio 4 (una sola).
+9. `create` sin las claves de localización → criterio 4.
+10. `duplicate` sin `ws.touch` → criterio 3 (el deshacer no lo quita todo).
+11. `MappingTable` añadiendo solo a la primera tabla → `test_companions` del arnés.
+12. `delete` sin comprobar los usos → criterio 5.
+
+**Baterías.** Resultados de cierre (los fallos ajenos se confirman en la rama base con el mismo
+entorno y corpus):
+
+- Línea base: 4 fallos de disposición de UI por las fuentes del sistema (PRUEBAS.md §5).
+- `test_tasks...garbage_frozen...`: falla igual en la rama base (Python 3.12 + PySide6 por pip,
+  el caso declarado en PRUEBAS.md §5).
+- `test_ui_integration...validating_a_large_file...`: latencia; pasa en solitario.
+- Con corpus: `test_modcheck.UserModTests`, los dos de VSM de `test_ui_integration` y los
+  aleatorios de `test_clausewitz_edit`/`test_clausewitz_fuzz` fallan **también en la rama base**
+  con este corpus: la copia local del VSM ya no tiene los dos bloques sin cerrar de H14 (el
+  usuario la ha cambiado o es otra versión) y algún archivo del juego local difiere del de
+  referencia. No son de este corte.
+- Incidente propio, corregido: un mutante restaurado en el mismo segundo dejó un `.pyc` con el
+  bytecode mutado y una batería intermedia corrió con él; se limpia `__pycache__` y las
+  baterías de cierre corren con `-B`. Ninguna prueba quedó rota.
+
+Python 3.10: venv `.venv310` con PySide6 6.11.3 preparado; resultado de su batería: [se rellena].
+
 ## Fases siguientes
 
-(Pendientes: se añaden las entradas al cerrar cada fase.)
+(Ninguna: corte terminado.)

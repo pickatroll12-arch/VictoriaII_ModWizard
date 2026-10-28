@@ -24,9 +24,11 @@ if str(PROJECT_ROOT / "tests") not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT / "tests"))
 
 from vic2studio.core.clausewitz.diagnostics import Severity  # noqa: E402
+from vic2studio.core.clausewitz.nodes import Block, Scalar  # noqa: E402
 from vic2studio.core.schema import (  # noqa: E402
     MISSING,
     Bool,
+    Color,
     DynamicKeys,
     Entities,
     EntityInUseError,
@@ -36,14 +38,20 @@ from vic2studio.core.schema import (  # noqa: E402
     Field,
     Int,
     InvalidIdentError,
+    ListOf,
+    LocKey,
     LocSpec,
     MappingTable,
+    Path,
+    Picture,
     Record,
     RecordRef,
     SchemaRegistry,
     Section,
     SingleFile,
+    SpriteFrame,
     When,
+    from_spec,
     issue,
     registry,
     validator,
@@ -108,13 +116,21 @@ class PublicApiTests(unittest.TestCase):
         self.assertIs(summary.ref, ref)
 
     def test_unimplemented_contract_raises(self):
-        """Lo no implementado en esta fase lanza NotImplementedError, no falsos resultados."""
+        """Las piezas que este corte no necesita siguen lanzando NotImplementedError, no falsos
+        resultados (history, guion, hijos, tipos y recetas fuera del alcance)."""
         record = Record.__new__(Record)
-        for call in (lambda: record.get("election"), lambda: record.set("election", True),
-                     lambda: record.dynamic("ideology"), lambda: record.unknown(),
-                     lambda: record.issues(), lambda: record.loc_keys()):
+        record.schema = EntitySchema(kind="x", layout=SingleFile("y.txt"), fields=())
+        record.block = Block()
+        for call in (lambda: record.children(), lambda: record.script("trigger"),
+                     lambda: record.at(None)):
             with self.assertRaises(NotImplementedError):
                 call()
+        for value_type in (Color(), ListOf(Int()), Path("history"), LocKey(), SpriteFrame("s"),
+                           Picture("events")):
+            with self.assertRaises(NotImplementedError):
+                value_type.read(Scalar("x"))
+        with self.assertRaises(NotImplementedError):
+            from_spec({"type": "int"})
 
 
 class ExampleBuildsTests(unittest.TestCase):

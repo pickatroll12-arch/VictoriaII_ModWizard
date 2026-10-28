@@ -11,9 +11,9 @@ docgen («entero de 0 a 100»).
 ``check`` de los tipos simples está vacío: la forma la comprueba ``read`` y
 ``Record.issues`` emite ``bad_type`` con la línea exacta; las referencias
 rotas de ``Ref`` llegarán con los esquemas que lo usen. La lógica de los tipos
-que no usan ``government`` ni ``unit`` (``Ref``, ``Color``, ``ListOf``,
-``Path``, ``LocKey``, ``SpriteFrame``, ``Picture``, ``from_spec``) sigue como
-contrato y lanza ``NotImplementedError``.
+que no usan ``government`` ni ``unit`` (``Color``, ``ListOf``, ``Path``,
+``LocKey``, ``SpriteFrame``, ``Picture``, ``from_spec``) sigue como contrato y
+lanza ``NotImplementedError``.
 
 ``widget`` es una pista para el formulario generado (``int``, ``float``,
 ``bool``, ``date``, ``word``, ``text``, ``enum``, ``ref``, ``color``, ``list``,
@@ -119,10 +119,11 @@ class Int(ValueType):
         return 0
 
     def describe(self, lang: str = "en") -> str:
+        unit = f" {self.unit}" if self.unit else ""
         if self.min is not None and self.max is not None and not isinstance(self.min, FromSymbol) \
                 and not isinstance(self.max, FromSymbol):
-            return text("schema.type.int_range", lang, min=self.min, max=self.max, unit=self.unit or "")
-        return text("schema.type.int", lang, unit=self.unit or "")
+            return text("schema.type.int_range", lang, min=self.min, max=self.max, unit=unit)
+        return text("schema.type.int", lang, unit=unit)
 
 
 @dataclass(frozen=True)
@@ -138,13 +139,16 @@ class Float(ValueType):
         return _scalar(node, "número").as_float()
 
     def write(self, value: object, old: Scalar | Block | None) -> object:
-        number = float(value)   # ValueError si no es numérico; rechaza bool por su tipo
+        number = float(value)   # ValueError si no es numérico
         if isinstance(value, bool):
             raise ValueError("se esperaba un número, no un booleano")
         places = _decimal_places(old.text) if isinstance(old, Scalar) else 0
         if places:
             return Scalar(f"{number:.{places}f}", False)
-        return Scalar(format_float(number), False)
+        rendered = format_float(number)
+        if rendered.endswith(".0"):
+            rendered = rendered[:-2]   # «8» se conserva entero, como en vanilla
+        return Scalar(rendered, False)
 
     def example(self, ctx: CheckContext) -> float:
         return 0.0 if self.min is None else self.min
@@ -302,30 +306,24 @@ class Ref(ValueType):
         return Scalar(value, False)
 
     def check(self, node: Scalar | Block, ctx: CheckContext) -> Iterable[Problem]:
+        from ..clausewitz.diagnostics import Severity
         from ..validate.model import Problem
 
         try:
             name = self.read(node)
         except ValueError:
             return ()
-        if ctx.index.exists(self.kind, name) or self.allow_new:
+        if ctx.index is None or ctx.index.exists(self.kind, name) or self.allow_new:
             return ()
-        return (Problem("ref_missing", Severity_(), None, None, None, None, (),
+        return (Problem("ref_missing", Severity.ERROR, None, None, None, None, (),
                         {"kind": self.kind, "name": name}),)
 
     def example(self, ctx: CheckContext) -> str:
-        names = ctx.index.names(self.kind)
+        names = ctx.index.names(self.kind) if ctx.index is not None else []
         return names[0] if names else "example"
 
     def describe(self, lang: str = "en") -> str:
         return text("schema.type.ref", lang, kind=self.kind)
-
-
-def Severity_():
-    """``Severity.ERROR`` sin importarlo arriba (el módulo se importa antes que el resto del motor)."""
-    from ..clausewitz.diagnostics import Severity
-
-    return Severity.ERROR
 
 
 @dataclass(frozen=True)
