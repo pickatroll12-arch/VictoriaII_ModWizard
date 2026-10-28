@@ -1,0 +1,15 @@
+{
+  "pickers.color.choose": "Choose colour…",
+  "pickers.color.similar": "Looks like the colour of: {names}",
+  "pickers.date.placeholder": "year.month.day",
+  "pickers.goods.add": "Add",
+  "pickers.goods.amount": "Amount",
+  "pickers.goods.good": "Good",
+  "pickers.goods.remove": "Remove",
+  "pickers.names.count": "{count} names",
+  "pickers.names.dedupe": "Remove duplicates",
+  "pickers.names.not_cp1252": "The game cannot show: {names}",
+  "pickers.sprite.of": "of {count}",
+  "pickers.sprite.placeholder": "frame",
+  "pickers.symbol.placeholder": "Search by id or name…"
+}

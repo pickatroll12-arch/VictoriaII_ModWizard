@@ -1,0 +1,15 @@
+{
+  "pickers.color.choose": "Elegir color…",
+  "pickers.color.similar": "Se parece al color de: {names}",
+  "pickers.date.placeholder": "año.mes.día",
+  "pickers.goods.add": "Añadir",
+  "pickers.goods.amount": "Cantidad",
+  "pickers.goods.good": "Bien",
+  "pickers.goods.remove": "Quitar",
+  "pickers.names.count": "{count} nombres",
+  "pickers.names.dedupe": "Quitar repetidos",
+  "pickers.names.not_cp1252": "El juego no puede mostrar: {names}",
+  "pickers.sprite.of": "de {count}",
+  "pickers.sprite.placeholder": "fotograma",
+  "pickers.symbol.placeholder": "Buscar por id o nombre…"
+}
