@@ -53,9 +53,9 @@ FLOWS = (
     (N_("home.flow.descriptor"), "file_mod", None, "project:descriptor"),
     (N_("home.flow.files"), "folder_open", None, "project:files"),
     (N_("home.flow.translate"), "localisation", None, "localisation:pending"),
-    (N_("home.flow.unit"), "helmet", 4, "war:land"),
-    (N_("home.flow.government"), "crown", 4, "nations:governments"),
-    (N_("home.flow.culture"), "culture", 4, "nations:cultures"),
+    (N_("home.flow.unit"), "helmet", None, "war:land"),           # iteración 4: ya existen
+    (N_("home.flow.government"), "crown", None, "nations:governments"),
+    (N_("home.flow.culture"), "culture", None, "nations:cultures"),
     (N_("home.flow.provinces"), "map", 5, "map:world"),
     (N_("home.flow.country"), "countries", 6, "nations:countries"),
     (N_("home.flow.war"), "swords", 6, "war:wars"),

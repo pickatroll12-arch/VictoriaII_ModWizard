@@ -128,7 +128,11 @@ class GovernmentEffectiveTests(EffectiveViewCase):
         self.assertIn("republic2", self.idents("government"))
         with self.project.ws.transaction("test.undo_delete", rel="common/governments.txt"):
             self.project.ws.delete(VPath("common/governments.txt"))
-        self.assertEqual(self.idents("government"), [], "el archivo borrado no aporta gobiernos")
+        # Iteración 4 (límite de CONTINUAR §6 resuelto): borrada la copia del mod, vuelve a ganar el archivo del
+        # juego, así que se ven sus gobiernos y no el que solo estaba en la copia. Antes la lápida lo tapaba todo
+        # y esta prueba exigía una lista vacía, que no es lo que cargaría el juego (I7).
+        self.assertEqual(self.idents("government"), ["council", "monarchy", "republic"],
+                         "borrada la copia del mod, se ven los gobiernos del juego y no los de la copia")
         self.project.ws.undo()
         self.assertIn("republic2", self.idents("government"))
 

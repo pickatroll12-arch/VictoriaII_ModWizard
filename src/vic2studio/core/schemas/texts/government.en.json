@@ -16,5 +16,9 @@
   "schema.government.enum.flag_type.fascist": "Fascist",
   "issue.government_without_ideology": "The government allows no ideology: no party will be able to rule with it.",
   "explain.title.government_without_ideology": "Why the government allows no ideology",
-  "explain.outcome.government_without_ideology": "In game, no party will be elected or appointed under this government."
+  "explain.outcome.government_without_ideology": "In game, no party will be elected or appointed under this government.",
+  "schema.government.title": "Governments",
+  "schema.government.name": "Government",
+  "schema.government.doc": "Forms of government in common/governments.txt: allowed ideologies, elections and flag type. Creating one adds it to the target tables of common/rebel_types.txt.",
+  "schema.government.field.appoint_ruling_party.help": "Whether the head of state picks the ruling party."
 }

@@ -19,16 +19,21 @@ from vic2studio.ui.pages.planned import CURRENT_ITERATION, ROADMAP_KEYS  # noqa:
 from vic2studio.ui.widgets import RoadmapStrip  # noqa: E402
 
 # Iteración en que llega cada sección planificada según docs/diseno/wizard.md §22 (iteración 2 en curso).
+# Iteración 4: las secciones de entidades (Culturas, Gobiernos, Fechas de inicio, Casus belli, Unidades terrestres y
+# navales, y Modificadores, que llega con el esquema event_modifier) ya existen: salen del registro de esquemas.
 PLAN = {
     "map:world": 5, "map:regions": 5, "map:climates": 5, "map:straits": 5, "map:forge": 9,
-    "nations:countries": 6, "nations:cultures": 4, "nations:governments": 4,
-    "war:bookmarks": 4, "war:wars": 6, "war:diplomacy": 6, "war:cb": 4, "war:land": 4, "war:naval": 4,
-    "events:events": 7, "events:decisions": 7, "events:modifiers": 7,
+    "nations:countries": 6,
+    "war:wars": 6, "war:diplomacy": 6,
+    "events:events": 7, "events:decisions": 7,
     "interface:windows": 8, "interface:sprites": 8, "interface:images": 8,
 }
-# Lo que ya existe: lo de la iteración 2 y, desde la 3, Validación, Todos los textos y Pendientes de traducir.
+# Lo que ya existe: lo de la iteración 2 y, desde la 3, Validación, Todos los textos y Pendientes de traducir; desde
+# la 4, las secciones que generan los esquemas.
 READY = {"project:home", "project:descriptor", "project:files", "project:validation", "project:pending",
-         "localisation:all", "localisation:pending", "localisation:csv"}
+         "localisation:all", "localisation:pending", "localisation:csv",
+         "nations:cultures", "nations:governments", "war:bookmarks", "war:cb", "war:land", "war:naval",
+         "events:modifiers"}
 
 
 class ColumnsTests(unittest.TestCase):

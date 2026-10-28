@@ -164,8 +164,9 @@ class MainWindowTests(UiTestCase):
         self.assertIs(window.page("project"), window.hall("project").section_widget("files"))
         self.assertIs(window.page("localisation"), window.hall("localisation").section_widget("csv"))
         self.assertIs(window.page("home"), window.page("project:home"))
-        self.assertIsInstance(window.page("war:cb"), PlannedSectionPage)
-        self.assertIs(window.page("war.cb"), window.page("war:cb"))
+        # war:cb ya no es una tarjeta planificada (iteración 4): la comprobación pasa a war:wars.
+        self.assertIsInstance(window.page("war:wars"), PlannedSectionPage)
+        self.assertIs(window.page("war.wars"), window.page("war:wars"))
         for bad in ("nope", "war:nope", "nope:cb"):
             with self.assertRaises(KeyError):
                 window.page(bad)

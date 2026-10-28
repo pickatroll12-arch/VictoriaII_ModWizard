@@ -14,9 +14,13 @@ Mayús+Intro en Ctrl+K abre el código (``open_symbol_code``): el script en la p
 Código, un CSV que no es de localización en su ficha con la línea a la vista, y una
 clave de texto, su CSV en «Archivos CSV» en su línea. Lo que solo está en memoria (un
 documento nuevo o con cambios sin guardar) no se abre en el archivo del disco, cuyas
-líneas son otras: la barra de estado lo dice. Los diálogos de las secciones de la
-iteración 3 (plan de un arreglo, «Añadir clave») pasan por ``exec_dialog``, que las
-pruebas sustituyen.
+líneas son otras: desde la iteración 4 se abre en el editor de texto de Archivos, que
+enseña lo que hay en memoria, en su línea. Los diálogos de las secciones de la
+iteración 3 (plan de un arreglo, «Añadir clave») y de las de entidades pasan por
+``exec_dialog``, que las pruebas sustituyen.
+
+Iteración 4: un símbolo o un problema de una entidad con esquema abre su editor de
+entidad (``open_entity``) en su sección y, si el problema dice el campo, en ese campo.
 
 Los contadores del índice lateral (``SectionSpec.badge``) se recalculan una vez por vuelta
 del bucle de eventos (``_badge_timer``: una edición avisaba tres veces) y solo los de la
@@ -359,8 +363,10 @@ class MainWindow(QMainWindow):
         self.palette.section_activated.connect(self.navigate)
         # Los diálogos de las secciones nuevas pasan por exec_dialog (las pruebas lo sustituyen).
         for widget in (self.validation_page, self.page("localisation:all"), self.page("localisation:pending"),
-                       self.problems_dock):
+                       self.problems_dock, *self.entity_pages()):
             widget.exec_dialog = lambda dialog: self.exec_dialog(dialog)
+        for page in self.entity_pages():
+            page.location_requested.connect(self._open_use)
 
     def _wire_session(self) -> None:
         # Solo métodos: la sesión puede venir de fuera y vivir más que la ventana.
@@ -544,13 +550,15 @@ class MainWindow(QMainWindow):
             project.set_mod_path(mod)
 
     def commit_edits(self) -> None:
-        """Lleva al documento lo que haya a medio teclear: los campos del descriptor y el editor de scripts
-        confirman al perder el foco, y Ctrl+S, deshacer o cerrar la ventana no lo quitan."""
+        """Lleva al documento lo que haya a medio teclear: los campos del descriptor, los formularios de entidades y
+        los editores de scripts confirman al perder el foco, y Ctrl+S, deshacer o cerrar la ventana no lo quitan."""
         if self.session.project is not None:
             editor = getattr(self.page("project"), "script_editor", None)
             if editor is not None:
                 editor.commit_pending()
             self.descriptor_page.commit_pending()
+            for page in self.entity_pages():
+                page.commit_pending()
 
     def save_project(self) -> bool:
         """Guarda (Ctrl+S). Revisión previa solo con copias del juego base o papelera (D13); si el guardado
@@ -649,11 +657,12 @@ class MainWindow(QMainWindow):
     def open_location(self, rel, line: int | None = None, column: int | None = None, layer=None, *,
                       tab: str | None = None) -> bool:
         """Abre ``rel`` en Archivos en ``line`` (un CSV de localisation/, en «Archivos CSV»; otro CSV, en su ficha
-        con esa línea a la vista); False si lo que se ve solo está en memoria (un documento nuevo, o con cambios
-        sin guardar: el archivo del disco tiene otras líneas) o no existe. ``tab``: la pestaña del visor de
-        scripts («source» para el código)."""
-        if self._refuse_in_memory(rel, layer):
-            return False
+        con esa línea a la vista). Lo que solo está en memoria (un documento nuevo, o con cambios sin guardar: el
+        archivo del disco tiene otras líneas) se abre en el editor de texto, que enseña la memoria (iteración 4;
+        antes se negaba). False si no existe o no se puede abrir. ``tab``: la pestaña del visor de scripts
+        («source» para el código)."""
+        if self.session.in_memory(rel, layer) is not None:
+            return self._open_in_memory(rel, line, column)
         path = self.session.location_path(rel, layer)
         if path is None:
             self.show_status("status.location_in_memory", name=str(rel))
@@ -662,6 +671,25 @@ class MainWindow(QMainWindow):
         if not self.page("project").open_file(path, line=line, column=column, tab=tab):
             self.show_status("status.file_missing", name=str(rel))
             return False
+        return True
+
+    def _open_in_memory(self, rel, line: int | None = None, column: int | None = None) -> bool:
+        """El editor de texto de Archivos sobre el documento del ``Workspace`` (lo que hay en memoria), en ``line``."""
+        from PySide6.QtGui import QTextCursor
+
+        files = self.show_page("project")
+        scripts = getattr(files, "scripts", None)
+        if scripts is None or not scripts._show(rel):
+            return self._refuse_in_memory(rel) and False
+        if line:
+            text = scripts.editor.editor
+            block = text.document().findBlockByNumber(max(line - 1, 0))
+            cursor = QTextCursor(block)
+            if column:
+                cursor.setPosition(block.position() + min(max(column - 1, 0), max(block.length() - 1, 0)))
+            text.setTextCursor(cursor)
+            text.centerCursor()
+        self.show_status(N_("entity.location_in_editor"), name=str(rel))
         return True
 
     def _refuse_in_memory(self, rel, layer=None) -> bool:
@@ -675,9 +703,77 @@ class MainWindow(QMainWindow):
                          name=str(rel))
         return True
 
+    # --- entidades (iteración 4) -------------------------------------------------------------------
+
+    def entity_pages(self) -> list:
+        from .entity import EntityEditorPage
+
+        return [widget for widget in self.sections() if isinstance(widget, EntityEditorPage)]
+
+    def _open_use(self, rel, line) -> None:
+        self.open_location(rel, line)
+
+    def _entity_section(self, kind: str, ident: str, rel=None):
+        """``(clave «sala:sección», RecordRef)`` del editor que muestra ``kind:ident``; None si no hay ninguno.
+
+        ``kind`` puede ser el del esquema (``unit``) o el del índice (``unit_type``). Un grupo de culturas se
+        muestra en la sección de las culturas (el árbol por grupo); una unidad, en la vista que la admite."""
+        from ..core.schema import RecordRef, registry
+        from ..core.schema.layouts import GroupedIn
+
+        schemas = list(registry.all_schemas())
+        candidates = [s for s in schemas if s.kind == kind] or [s for s in schemas if (s.provides or s.kind) == kind]
+        entities = self.session.entities
+        if entities is None:
+            return None
+        for schema in candidates:
+            touches = getattr(schema.layout, "touches", None)
+            if rel is not None and touches is not None and not touches(rel):
+                continue
+            ref = RecordRef(schema.kind, ident)
+            host = schema
+            if not (schema.editable and schema.hall and schema.section):
+                layout = schema.layout
+                host = next((other for other in schemas if other.editable and other.hall and other.section
+                             and isinstance(other.layout, GroupedIn) and isinstance(layout, GroupedIn)
+                             and other.layout.path == layout.path), None)
+                if host is None:
+                    continue
+            try:
+                record = entities.open(ref)
+            except (KeyError, FileNotFoundError):
+                continue
+            ref = record.ref
+            if host.views:
+                view = next((v for v in host.views if host is not schema or v.filter(record)), None)
+                if view is None:
+                    continue
+                return f"{host.hall}:{view.section}", ref
+            return f"{host.hall}:{host.section}", ref
+        return None
+
+    def open_entity(self, kind: str, ident: str, field=(), rel=None) -> bool:
+        """El editor de la entidad ``kind:ident`` en su sección y, con ``field``, en ese campo. False si no hay
+        editor para ella."""
+        target = self._entity_section(kind, ident, rel)
+        if target is None:
+            return False
+        key, ref = target
+        try:
+            page = self.show_page(key)
+        except KeyError:
+            return False
+        return page.focus_field(ref, tuple(field or ()))
+
     def open_problem(self, problem) -> bool:
-        """Doble clic en un problema: su archivo en su línea."""
-        if problem is None or problem.rel is None:
+        """Doble clic en un problema: el editor de su entidad en su campo si tiene esquema; si no, su archivo en su
+        línea (en el editor de texto si tiene cambios sin guardar)."""
+        if problem is None:
+            return False
+        entity = getattr(problem, "entity", None)
+        if entity is not None and self.open_entity(entity[0], entity[1], getattr(problem, "field", ()), problem.rel):
+            return True
+        if problem.rel is None:
             return False
         return self.open_location(problem.rel, problem.line, problem.column)
 
@@ -687,13 +783,20 @@ class MainWindow(QMainWindow):
         return page.show_explanation(problem)
 
     def open_symbol(self, symbol) -> bool:
-        """Un resultado de Ctrl+K: una clave de localización, en Textos; lo demás, su archivo en su línea."""
+        """Un resultado de Ctrl+K: una clave de localización, en Textos; un símbolo con esquema, su editor de entidad
+        (iteración 4); lo demás, su archivo en su línea."""
         from ..core.index.model import KIND_LOC_KEY
+        from ..core.vfs import LayerKind
 
         if symbol.kind == KIND_LOC_KEY:
             page = self.show_page("localisation:all")
             if page.select_key(symbol.name):
                 return True
+        effective = symbol.layer is LayerKind.MOD or self.session.project is None or \
+            self.session.project.vfs.resolve(symbol.rel) is None or \
+            self.session.project.vfs.resolve(symbol.rel).layer.kind is symbol.layer
+        if effective and self.open_entity(symbol.kind, symbol.name, rel=symbol.rel):
+            return True
         return self.open_location(symbol.rel, symbol.line, layer=symbol.layer)
 
     def open_symbol_code(self, symbol) -> bool:

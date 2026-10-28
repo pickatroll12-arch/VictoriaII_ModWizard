@@ -1,0 +1,18 @@
+{
+  "forms.add_as_code": "Añadir como código…",
+  "forms.bool_default": "Sin valor (el juego usa «{value}»)",
+  "forms.bool_unset": "Sin valor",
+  "forms.default_value": "Por defecto: {value}",
+  "forms.dynamic.add": "Añadir",
+  "forms.dynamic.key": "Clave",
+  "forms.dynamic.new_key": "Clave nueva",
+  "forms.dynamic.remove": "Quitar",
+  "forms.dynamic.value": "Valor",
+  "forms.edit_as_code": "Editar como código…",
+  "forms.edit_failed": "No se pudo cambiar «{field}»: {error}",
+  "forms.label": "{label} ({key})",
+  "forms.no": "No",
+  "forms.no_value": "Sin valor",
+  "forms.undo_edit": "Cambiar {field} de {ident}",
+  "forms.yes": "Sí"
+}
