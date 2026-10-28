@@ -1,0 +1,20 @@
+{
+  "schema.government.section.ideologies": "Ideologies",
+  "schema.government.section.elections": "Elections",
+  "schema.government.section.flag": "Flag",
+  "schema.government.dynamic.ideology": "Allowed ideologies",
+  "schema.government.field.election": "Elections",
+  "schema.government.field.election.help": "Whether the government holds elections.",
+  "schema.government.field.duration": "Duration",
+  "schema.government.field.duration.help": "How many months between elections.",
+  "schema.government.field.appoint_ruling_party": "Appoints the ruling party",
+  "schema.government.field.flag_type": "Flag type",
+  "schema.government.field.flag_type.help": "Without a value, the game uses TAG.tga.",
+  "schema.government.enum.flag_type.monarchy": "Monarchy",
+  "schema.government.enum.flag_type.republic": "Republic",
+  "schema.government.enum.flag_type.communist": "Communist",
+  "schema.government.enum.flag_type.fascist": "Fascist",
+  "issue.government_without_ideology": "The government allows no ideology: no party will be able to rule with it.",
+  "explain.title.government_without_ideology": "Why the government allows no ideology",
+  "explain.outcome.government_without_ideology": "In game, no party will be elected or appointed under this government."
+}

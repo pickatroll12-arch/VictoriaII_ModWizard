@@ -1,0 +1,20 @@
+{
+  "schema.government.section.ideologies": "Ideologías",
+  "schema.government.section.elections": "Elecciones",
+  "schema.government.section.flag": "Bandera",
+  "schema.government.dynamic.ideology": "Ideologías permitidas",
+  "schema.government.field.election": "Elecciones",
+  "schema.government.field.election.help": "Si el gobierno celebra elecciones.",
+  "schema.government.field.duration": "Duración",
+  "schema.government.field.duration.help": "Cada cuántos meses hay elecciones.",
+  "schema.government.field.appoint_ruling_party": "Nombra el partido gobernante",
+  "schema.government.field.flag_type": "Tipo de bandera",
+  "schema.government.field.flag_type.help": "Sin valor, el juego usa TAG.tga.",
+  "schema.government.enum.flag_type.monarchy": "Monarquía",
+  "schema.government.enum.flag_type.republic": "República",
+  "schema.government.enum.flag_type.communist": "Comunista",
+  "schema.government.enum.flag_type.fascist": "Fascista",
+  "issue.government_without_ideology": "El gobierno no admite ninguna ideología: ningún partido podrá gobernar con él.",
+  "explain.title.government_without_ideology": "Por qué el gobierno no admite ideologías",
+  "explain.outcome.government_without_ideology": "En partida, ningún partido podrá ser elegido ni nombrado con este gobierno."
+}
