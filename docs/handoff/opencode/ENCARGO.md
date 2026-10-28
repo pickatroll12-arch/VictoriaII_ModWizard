@@ -1,5 +1,9 @@
 # Encargo: iteración 4, mitad de núcleo (agente A)
 
+> **Sustituido (28-10-2026).** Este encargo era para hacer el núcleo de la iteración 4 desde cero. El corte del
+> motor ya está hecho (`ENCARGO_MOTOR.md`, `INFORME_MOTOR.md`), y el resto de la iteración está en
+> **`ENCARGO_IT4.md`**. No lo ejecutes; se conserva como referencia.
+
 Eres el **agente A** de la iteración 4 de Victoria II Mod Studio. Construyes el **motor de esquemas**
 (`core/schema`), los **esquemas** de 7 archivos (`core/schemas`), su **arnés de pruebas** y la **referencia
 generada**. No escribes interfaz: los formularios, el editor de entidades, los selectores y las salas los hace

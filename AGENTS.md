@@ -4,12 +4,12 @@ Victoria II Mod Studio: editor de mods de Victoria II en Python (PySide6, numpy,
 El estado del proyecto está en `CONTINUAR_EN_CLAUDE_CODE.md`; el diseño, en `docs/diseno/wizard.md`; el código
 existente, en `ARCHITECTURE.md`.
 
-**Si vienes a hacer la iteración 4 (núcleo):** tu encargo está en `docs/handoff/opencode/ENCARGO.md`. Léelo
+**Si vienes a terminar la iteración 4:** tu encargo está en `docs/handoff/opencode/ENCARGO_IT4.md`. Léelo
 entero, y con él `REGLAS.md` y `PRUEBAS.md` de la misma carpeta, antes de escribir código. Trabaja en la rama
-`opencode/it4-nucleo` y rellena `docs/handoff/opencode/INFORME.md` al acabar cada fase.
+`opencode/it4-claude` y rellena `docs/handoff/opencode/INFORME_IT4.md` al acabar cada fase.
 
-**Si te piden el corte vertical del motor de esquemas:** tu encargo es `docs/handoff/opencode/ENCARGO_MOTOR.md`
-(no `ENCARGO.md`), en la rama `opencode/it4-motor`, con su informe en `INFORME_MOTOR.md`.
+`ENCARGO.md` y `ENCARGO_MOTOR.md` son encargos anteriores, ya hechos o sustituidos: no los ejecutes. Sus informes
+(`INFORME_MOTOR.md` e `INFORME_EDITOR.md`) sí son lectura obligada si tocas el motor o el editor.
 
 Lo imprescindible, para cualquier tarea:
 
