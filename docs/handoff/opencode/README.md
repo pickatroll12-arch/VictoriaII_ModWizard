@@ -44,7 +44,7 @@ No uses Python 3.14 para las pruebas. Las carpetas `.venv*` no se suben: añáde
 QT_QPA_PLATFORM=offscreen .venv/bin/python -m unittest discover -s tests
 ```
 
-Debe acabar en `OK (skipped=40)`. Si fallan pruebas de disposición («… recortado»), son las fuentes: instala
+Debe acabar en `OK (skipped=54)`. Si fallan pruebas de disposición («… recortado»), son las fuentes: instala
 `fonts-dejavu` (`PRUEBAS.md` §5). Cualquier otro fallo es del entorno: arréglalo antes.
 
 ## 2. El corpus (recomendado)

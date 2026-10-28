@@ -21,5 +21,5 @@ Lo imprescindible, para cualquier tarea:
 - Textos ES y EN a la par; ningún texto visible escrito en el código.
 - **Nunca** subas datos de Paradox (archivos del juego o líneas copiadas de ellos). El corpus vive fuera del
   repositorio y solo se usan copias. Nunca abras el mod real del usuario como proyecto.
-- Batería: `QT_QPA_PLATFORM=offscreen python -m unittest discover -s tests` (sin corpus: `OK (skipped=40)`).
+- Batería: `QT_QPA_PLATFORM=offscreen python -m unittest discover -s tests` (sin corpus: `OK (skipped=54)`).
 - No abras PR, no fusiones, no toques `main` ni ramas ajenas, no reescribas historia ya subida.

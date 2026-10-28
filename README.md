@@ -350,11 +350,11 @@ pruebas que necesitan archivos que la muestra no tiene (un `text.csv` grande,
 una historia de provincia) usan una plantilla sintética generada por código
 (`tests/_corpus.py`).
 
-Resultado actual (28-10-2026): **1588 pruebas** en 105 archivos. Con el
-corpus completo (la instalación de vanilla, la plantilla y el Shago Mod) pasan
-todas con Python 3.13 y PySide6 6.12, y solo se omite la clase base del arnés
-de esquemas. Sin `VIC2_CORPUS` pasan con **40 omitidas** (39 de corpus y esa
-clase base) con Python 3.10 y PySide6 6.11. La última pasada con PySide6 6.5 y
+Resultado actual (28-10-2026, con la iteración 4): **1803 pruebas** en 116
+archivos. Con el corpus completo (la instalación de vanilla, la plantilla y el
+Shago Mod) pasan todas, sin omitir ninguna, con Python 3.13 y PySide6 6.12. Sin
+`VIC2_CORPUS` pasan con **54 omitidas**, las de corpus, con Python 3.10 y
+PySide6 6.11. La última pasada con PySide6 6.5 y
 Pillow 10.0, los mínimos declarados, fue con las 1494 de la iteración 3. Con el corpus, el parser
 recorre 12 054 archivos Clausewitz (27,4 MB) con ida y vuelta byte a byte.
 
@@ -796,8 +796,8 @@ PySide6 6.11.3 and with PySide6 6.5.0, the declared minimum.
 PYTHONPATH=src python3 -m vic2studio                    # run from source
 pip install -e . && vic2studio                          # or install, then run
 QT_QPA_PLATFORM=offscreen VIC2STUDIO_SETTINGS_DIR="$(mktemp -d)" \
-    python3 -m unittest discover -s tests               # 1588 tests, 40 skipped without a corpus
-VIC2_CORPUS="/path/to/vanilla:/path/to/mod" ...         # enable real-corpus tests (last run: 1588 OK, 1 skipped)
+    python3 -m unittest discover -s tests               # 1803 tests, 54 skipped without a corpus
+VIC2_CORPUS="/path/to/vanilla:/path/to/mod" ...         # enable real-corpus tests (last run: 1803 OK, none skipped)
 PYTHONPATH=src python3 -m vic2studio.core.clausewitz check /path/to/mod --lang en
 PYTHONPATH=src python3 -m vic2studio.core.csvloc check /path/to/mod/localisation
 python3 tools/screenshot.py --out capturas --lang all   # offscreen screenshots

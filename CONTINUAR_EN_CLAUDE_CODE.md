@@ -73,9 +73,9 @@ arreglarlo, deja una prueba de regresión que falle sin el arreglo y pasa la bat
   Los 8 criterios de wizard.md §22 se cumplen, los del corpus con los archivos reales del usuario.
 - **Pruebas** (28-10-2026, con la iteración 4): 1803 en 116 archivos.
   - Con el corpus real del usuario (release `recursos-v1`, descomprimido fuera del repositorio según §4, y copias
-    de VSM y de la plantilla: nunca se abren las reales) pasan todas con Python 3.13.17 + PySide6 6.12.0. Solo se
-    omite la clase base del arnés de esquemas, y no queda ningún `.vic2studio` en el corpus real.
-  - Sin corpus pasan con 40 omitidas (39 de corpus y la clase base) con Python 3.10.20 + PySide6 6.11.3.
+    de VSM y de la plantilla: nunca se abren las reales) pasan todas, sin omitir ninguna, con Python 3.13.17 +
+    PySide6 6.12.0, y no queda ningún `.vic2studio` en el corpus real.
+  - Sin corpus pasan con 54 omitidas, las de corpus, con Python 3.10.20 + PySide6 6.11.3.
   - Las 1494 de la iteración 3 pasaron además con Python 3.10.20 + PySide6 6.5.0, Pillow 10.0 y numpy 1.24 (sin
     `XDG_RUNTIME_DIR`); esa combinación no se ha repetido con las pruebas nuevas.
 - **Iteración 4: hecha e integrada** (rama `opencode/it4-claude`, Claude Opus 5.5 en OpenCode, encargo

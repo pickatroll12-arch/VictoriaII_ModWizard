@@ -399,3 +399,50 @@ minijuego sintético (sin datos de Paradox), revisadas una a una.
 - Gasto aproximado por fase (estimación por el volumen de contexto y de salida, no medida en la consola): fase 0,
   unos 4 USD; fase 1, unos 22 USD; fase 2, unos 8 USD; fase 3, unos 15 USD; fase 4, unos 20 USD; fase 5, unos 8
   USD; fase 6, unos 15 USD. **Total aproximado: 90–95 USD**, por debajo del tope de 150 USD.
+
+## Revisión e integración (Claude Code, 28-10-2026)
+
+Puntuación con 22 comprobaciones ocultas selladas antes de mirar la rama (sha256 `581e042f…4380`), el corpus real
+en copias y 12 mutantes también decididos de antemano:
+
+| Parte | Nota |
+|---|---|
+| Comprobaciones ocultas | 37/40 (41 de 44 puntos) |
+| Criterios | 14/15 |
+| Diseño | 13/15 |
+| Invariantes y arquitectura | 10/10 |
+| Calidad de las pruebas | 10/10 (11 de 11 mutantes; un duodécimo era equivalente) |
+| Honestidad del informe | 9/10 |
+| **Total** | **93/100 a la primera, sin rondas de corrección** |
+
+- **Comprobaciones ocultas: lo que salió bien.**
+  - Recuentos y conformidad con vanilla.
+  - Sin pérdidas, y leer no escribe.
+  - `my_cb`: al final de `peace_order`, con sus 4 claves y deshecho de una vez.
+  - La autorreferencia de `peace_order` no bloquea el borrado: hay 27 CB sin más usos que esa línea.
+  - La cultura duplicada se queda en su grupo.
+  - docgen.
+  - Los problemas de esquema llegan a F7.
+  - Las 7 secciones salen por descubrimiento y abren con sus filas; Ctrl+K abre la entidad.
+  - Siguen en verde las 26 comprobaciones de las rondas del motor.
+- **Comprobaciones ocultas: los tres puntos perdidos.**
+  - N12, a medias: el criterio 6 se cumple (ningún archivo de `ui/` nombra `event_modifier`), pero el commit que lo
+    añade también toca `ui/session.py` por la decisión 3, así que no se demuestra por commits.
+  - B1 y B2: la prueba de disposición desfasada que se explica abajo.
+- **Tu mod.** Los 7 esquemas editables recorren una copia de VSM (463 registros) en 0,4 s y dan un único problema
+  propio, `absolute_monarchy` sin `duration`, sin falsos positivos.
+- **Gasto real: $32,91 en 1 h 35 min** (según OpenCode). La estimación de este informe, $90–95, se pasó de casi
+  el triple.
+
+Cambios de Claude al integrar:
+
+- **`test_ui_smoke…test_rail_is_a_column_with_room_and_a_strip_when_narrow`.** La comprobación final se hacía en
+  el último idioma del bucle, el inglés. Desde esta iteración, en inglés la franja de Guerra cabe en una línea,
+  porque cuatro secciones llevan un contador en vez de «It. N». Ahora fija el español, donde Guerra sigue en placas
+  altas, y prueba así las dos alturas. En este equipo fallaba de partida por las fuentes, así que no se podía ver.
+- **`CURRENT_ITERATION = 5`** (hoja de ruta: la 4 hecha y la 5 en curso). `test_ui_roadmap` admite secciones
+  planificadas para la iteración en curso: las del mapa.
+- **`python -m vic2studio.core.schema doc --kind …`** ya no empieza con una línea en blanco.
+- **Decisiones del usuario sobre las dos dudas** (CONTINUAR §2):
+  - `first_names` y `last_names` siguen obligatorios;
+  - `defines.lua` se queda sin códec propio, porque no compensa: un códec tocaría el núcleo del proyecto.

@@ -13,10 +13,9 @@ QT_QPA_PLATFORM=offscreen .venv/bin/python -m unittest discover -s tests        
 $env:QT_QPA_PLATFORM="offscreen"; .venv\Scripts\python -m unittest discover -s tests
 ```
 
-Punto de partida (rama `claude/keen-fermi-nw8itc`, con el editor de texto y el corte del motor integrados):
-**1588 pruebas, `OK (skipped=40)` sin corpus**: 39 de corpus y la clase base del arnés de esquemas. Cualquier
-otro resultado antes de tocar nada es un problema del entorno (bibliotecas de Qt, versión de Python): arréglalo
-antes de seguir.
+Punto de partida (`main` con la iteración 4 integrada): **1803 pruebas, `OK (skipped=54)` sin corpus**, las 54
+de corpus; con corpus no se omite ninguna. Cualquier otro resultado antes de tocar nada es un problema del entorno
+(bibliotecas de Qt, versión de Python): arréglalo antes de seguir.
 
 ## 2. Las dos versiones de Python
 
