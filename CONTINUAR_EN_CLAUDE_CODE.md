@@ -26,11 +26,21 @@ arreglarlo, deja una prueba de regresión que falle sin el arreglo y pasa la bat
 
 ---
 
-## 0. Estado actual (27-10-2026)
+## 0. Estado actual (28-10-2026)
 
-- **Rama.** `claude/keen-fermi-nw8itc`, que parte de `main` en `94bbe06` (PR #4, el de la iteración 1, ya
-  fusionado). No hay PR abierto: el usuario no lo ha pedido. Si esta rama se fusiona, empieza otra desde `main`.
-- **Hecho en esta sesión** (en orden; los mensajes de commit traen el detalle):
+- **Rama.** `claude/keen-fermi-nw8itc`. La iteración 3 entró en `main` con el PR #10, y la alfa 0.1.0 (con
+  GitHub Actions) y la carpeta de handoff `docs/handoff/opencode/`, con el PR #11. Después de eso, esta rama
+  integra dos ramas hechas por agentes de OpenCode y revisadas por Claude:
+  - `opencode/editor-texto` (DeepSeek-V4.1-Flash): el **editor de texto** de Proyecto › Archivos (encargo
+    `ENCARGO_EDITOR`, informe `docs/handoff/opencode/INFORME_EDITOR.md`). Dos rondas de revisión: la primera
+    encontró una congelación de 144 s con `map/positions.txt`, una línea perdida tras un `\r` suelto y una
+    regresión de disposición; las tres se corrigieron con su prueba.
+  - `opencode/it4-motor` (DeepSeek-V4-Pro): el **corte vertical del motor de esquemas** de la iteración 4
+    (`ENCARGO_MOTOR.md`, informe `INFORME_MOTOR.md`). Se puntuó con comprobaciones ocultas selladas antes de ver
+    el código, el corpus y mutantes: 80/100 en la primera entrega y 93/100 (más 9 de extra) tras una corrección.
+    Al integrarlo, Claude arregló las posiciones del CST tras `duplicate`/`create` (`Entities._reread`) y añadió
+    la prueba del comentario de línea al cambiar un campo existente.
+- **Hecho hasta el 27-10-2026**, ya en `main` (en orden; los mensajes de commit traen el detalle):
   - Los 6 pasos que quedaban de la iteración 1: segunda revisión adversarial de la última ronda de la interfaz
     (19 hallazgos confirmados y corregidos en `9040839`, más el grupo de compatibilidad en `563a709`), aviso al
     arrancar con PySide6 ≥ 6.12 en Python 3.10/3.11 (`093f8b3`), hoja de ruta con la numeración de wizard.md §22
@@ -61,12 +71,13 @@ arreglarlo, deja una prueba de regresión que falle sin el arreglo y pasa la bat
   - capturas 21 a 26 en `docs/capturas/`.
 
   Los 8 criterios de wizard.md §22 se cumplen, los del corpus con los archivos reales del usuario.
-- **Pruebas**: 1494 en 97 archivos.
+- **Pruebas** (28-10-2026): 1588 en 105 archivos.
   - Con el corpus real del usuario (release `recursos-v1`, descomprimido fuera del repositorio según §4, y copias
-    de VSM y de la plantilla: nunca se abren las reales) pasan las 1494 sin omitir ninguna, y no queda ningún
-    `.vic2studio` en el corpus real.
-  - Sin corpus pasan con 31 omitidas en tres combinaciones: Python 3.13.17 + PySide6 6.12.0, Python 3.10.20 +
-    PySide6 6.11.3 y Python 3.10.20 + PySide6 6.5.0 con Pillow 10.0 y numpy 1.24 (sin `XDG_RUNTIME_DIR`).
+    de VSM y de la plantilla: nunca se abren las reales) pasan todas con Python 3.13.17 + PySide6 6.12.0. Solo se
+    omite la clase base del arnés de esquemas, y no queda ningún `.vic2studio` en el corpus real.
+  - Sin corpus pasan con 40 omitidas (39 de corpus y la clase base) con Python 3.10.20 + PySide6 6.11.3.
+  - Las 1494 de la iteración 3 pasaron además con Python 3.10.20 + PySide6 6.5.0, Pillow 10.0 y numpy 1.24 (sin
+    `XDG_RUNTIME_DIR`); esa combinación no se ha repetido con las pruebas nuevas.
 - **Queda**: la iteración 4, el motor de esquemas (§5.4). Lo que la iteración 3 deja sin código, con su motivo,
   está en §6.
 - **Segunda tanda de Gemini (G4–G7): hecha por Claude.** La plataforma de Gemini se cayó y el usuario pidió
@@ -386,11 +397,12 @@ El detalle de diseño está en ARCHITECTURE.md §2.3, §2.6, §2.7 y §8.1.1, y 
 
 ### Pruebas
 
-1494 pruebas en 97 archivos `tests/test_*.py`. Las de la iteración 3 son `test_index_*`, `test_validate_*`,
+1588 pruebas en 105 archivos `tests/test_*.py`. Las del motor de esquemas son `test_schema_*` (con el arnés
+`tests/schema_harness.py`), y las del editor de texto, `test_textsplice` y `test_ui_script_editor`. Las de la iteración 3 son `test_index_*`, `test_validate_*`,
 `test_rules_*`, `test_lua_defines`, `test_locsync`, `test_loc_effective`, `test_ui_loc_edit`, `test_ui_validation`,
 `test_ui_palette`, `test_contract_it3`, `test_e2e_it3` y los tres `test_*_review_it3`; las de G4–G7,
-`test_tablecsv`, `test_map_*` y `test_gfx_*`. Sin corpus se omiten 31 (las que necesitan vanilla, VSM o la
-plantilla reales). Antes de la iteración 3 eran 1089 pruebas en 70 archivos (las de la iteración 1 más `test_vfs_*`, `test_project_*`,
+`test_tablecsv`, `test_map_*` y `test_gfx_*`. Sin corpus se omiten 40 (39 que necesitan vanilla, VSM o la
+plantilla reales, y la clase base del arnés de esquemas). Antes de la iteración 3 eran 1089 pruebas en 70 archivos (las de la iteración 1 más `test_vfs_*`, `test_project_*`,
 `test_journal_*`, `test_undo_*`, `test_workspace_*`, `test_recovery_autosave`, `test_lock`, `test_arch_writes`,
 `test_texts`, `test_appdirs`, `test_modfile_write`, `test_ui_shell`, `test_ui_session`, `test_ui_descriptor`,
 `test_ui_new_mod`, `test_ui_roadmap`, `test_ui_real_project`, de Gemini `test_no_paradox_data`,
@@ -582,7 +594,26 @@ que quedó sin código, con su motivo, está en §6.
 ### 4. Iteración 4 (wizard.md §22): lo siguiente
 
 Motor de esquemas y editor genérico: gobiernos, casus belli, bookmarks, culturas, unidades terrestres y navales
-(capacidades 4, 9, 10, 11, 12 y 13). Mismo ritmo. Lo que la iteración 3 deja preparado:
+(capacidades 4, 9, 10, 11, 12 y 13). Mismo ritmo.
+
+**Ya hecho (corte vertical, `opencode/it4-motor`, integrado).**
+- El contrato completo de wizard §10 en `core/schema/`.
+- `Record` y `Entities`, con la vista efectiva, una transacción por operación e ids validados.
+- `SingleFile` y `OnePerFile`, y `MappingTable` sobre las 14 tablas de `rebel_types.txt`.
+- Los esquemas `government` y `unit`, con vistas `land` y `naval`.
+- `tests/schema_harness.py` (`SchemaContract`) y sus pruebas.
+
+**Falta.**
+- Los esquemas `casus_belli` (con `AppendToList` sobre `peace_order`), `bookmark`, `culture`, `event_modifier`
+  y `readonly`.
+- Los compañeros `ActivateUnit` y `UnitNamesSlot`.
+- `history.py` y `recipes.py`, que hoy son solo contrato.
+- `docgen.py` y `__main__.py`.
+- La conexión de `schema_problems` a F7.
+- Toda la interfaz (agente B).
+
+Las decisiones y desviaciones del motor están en `docs/handoff/opencode/INFORME_MOTOR.md`. Lo que la iteración 3
+deja preparado:
 
 - `SymbolIndex` y `GameRules` son la fuente de los selectores (`SymbolPicker`) y de las validaciones de
   esquema.
@@ -636,6 +667,8 @@ Medidos sobre una máquina de 4 CPU compartidas.
 | Primera edición del `text.csv` de VSM (iteración 3) | Unos 0,1 s analizando 3,6 MB en el hilo de la interfaz | Por debajo del límite de 0,5 s; una API para adoptar un modelo leído en segundo plano no compensa todavía. |
 | `LocSync.entries()` con VSM (iteración 3) | 0,15–0,3 s por edición (21 661 claves) | Se reutiliza mientras nada cambia, y la página oculta no se refresca. Trocearlo sería un índice de localización incremental. |
 | Construir la ventana | Unos 0,65 s | Hallazgo opcional 23 de la revisión de la iteración 3; se reducirá con el empaquetado (iteración 10). |
+| Editor de texto con archivos de más de 1 MB | Cada pausa al teclear en `map/positions.txt` (1,35 MB) cuesta 0,6–1 s; uno de 200 KB, 50–80 ms | Reanalizar el documento entero en cada pausa (`replace_text`) en el hilo de la interfaz (I12). En vanilla solo pasa con `positions.txt`. |
+| `Entities` tras borrar la copia del mod de algo que también está en vanilla | `list` deja de mostrarlo y `open` lanza `FileNotFoundError` hasta guardar, aunque en la vista efectiva vuelve a ganar el del juego | El `Workspace` tiene un documento por ruta, y la lápida de la copia del mod la ocupa. Lo resolverá `Entities.restore_vanilla` (§10.5) leyendo la capa de debajo, como `core/validate/fixes.py` (`_effective_name`). |
 
 ## 7. Problemas detectados en el mod del usuario (Shago Mod)
 

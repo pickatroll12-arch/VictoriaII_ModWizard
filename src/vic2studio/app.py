@@ -25,6 +25,9 @@ SMOKE_KEYS = (
     "project.save_outside_mod",        # core/project/texts
     "issue.unclosed_block",            # core/validate/texts
     "issue.definition_bad_row",        # core/map/texts
+    "issue.unknown_field",             # core/schemas/texts/schema
+    "schema.government.section.elections",   # core/schemas/texts/government
+    "schema.unit.field.attack",        # core/schemas/texts/unit
 )
 
 

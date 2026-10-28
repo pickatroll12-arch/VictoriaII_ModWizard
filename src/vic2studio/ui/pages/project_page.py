@@ -718,6 +718,7 @@ class ProjectPage(BasePage):
     icon_name = "project"
 
     file_activated = Signal(object)    # Path del archivo seleccionado
+    edit_requested = Signal(object)    # Path del script que se quiere editar como texto
     game_path_changed = Signal(object)  # Path | None
     mod_path_changed = Signal(object)   # Path | None
     explorer_loaded = Signal()
@@ -872,6 +873,14 @@ class ProjectPage(BasePage):
         self.clausewitz_viewer = ClausewitzViewer()
         self.image_viewer = ImageViewer()
         self.clausewitz_viewer.loaded.connect(self._on_viewer_loaded)
+        self.edit_button = QToolButton()
+        self.edit_button.setObjectName("editScriptButton")
+        self.edit_button.setIcon(make_icon("quill", "gold_light"))
+        self.edit_button.setIconSize(QSize(16, 16))
+        self.edit_button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        self.edit_button.setVisible(False)
+        self.edit_button.clicked.connect(self._request_edit)
+        self.clausewitz_viewer.tabs.setCornerWidget(self.edit_button, Qt.Corner.TopRightCorner)
         # Al volver a la aplicación (p. ej. tras corregir el archivo en otro editor) se relee lo que se ve.
         QGuiApplication.instance().applicationStateChanged.connect(self._on_application_state)
         for viewer in (self.clausewitz_viewer, self.image_viewer):
@@ -1242,6 +1251,7 @@ class ProjectPage(BasePage):
     def _show_preview(self, path: Path, *, line: int | None = None, column: int | None = None,
                       tab: str | None = None) -> None:
         kind = None if path.is_dir() else preview_kind(path)
+        self.edit_button.setVisible(kind == PREVIEW_CLAUSEWITZ)
         # Un análisis que ya no se va a ver deja libre su hilo, y también el JSON a medio generar. Si el
         # visor ya tiene su archivo cargado, lo conserva para no repetir el análisis al volver.
         viewer = self.clausewitz_viewer
@@ -1270,6 +1280,11 @@ class ProjectPage(BasePage):
             self.set_preview_widget(None)
             self.preview.show_facts(facts)   # ya a la vista: el extracto se cuelga y va a su línea en el acto
         self._preview_path = path
+
+    def _request_edit(self) -> None:
+        path = self._preview_path
+        if path is not None and not path.is_dir() and preview_kind(path) == PREVIEW_CLAUSEWITZ:
+            self.edit_requested.emit(path)
 
     def _on_application_state(self, state: Qt.ApplicationState) -> None:
         if state == Qt.ApplicationState.ApplicationActive and self.isVisible():
@@ -1397,6 +1412,8 @@ class ProjectPage(BasePage):
         self.collapse_button.setToolTip(tr("project.explorer.collapse"))
         self.validate_button.setText(tr("project.validate"))
         self.validate_button.setToolTip(tr("project.validate_tooltip"))
+        self.edit_button.setText(tr("editor.edit"))
+        self.edit_button.setToolTip(tr("editor.edit_tooltip"))
         self._retranslate_left_tabs()
         self.model.retranslate()
         self._retranslate_explorer_empty()
