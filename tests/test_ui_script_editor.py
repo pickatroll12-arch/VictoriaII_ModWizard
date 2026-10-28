@@ -19,12 +19,14 @@ from _minigame import build_minigame  # noqa: E402
 from PySide6.QtCore import Qt  # noqa: E402
 from PySide6.QtGui import QTextCursor  # noqa: E402
 from PySide6.QtTest import QTest  # noqa: E402
+from PySide6.QtWidgets import QLineEdit  # noqa: E402
 from test_ui_smoke import UiTestCase  # noqa: E402
 
 APP = _qt.application()
 
 from vic2studio.core.project import Project  # noqa: E402
 from vic2studio.core.project.codecs import codec_for  # noqa: E402
+from vic2studio.core.textsplice import normalize_newlines  # noqa: E402
 from vic2studio.core.vfs import VPath  # noqa: E402
 from vic2studio.i18n import N_, load_catalog, set_language  # noqa: E402
 from vic2studio.ui.main_window import UNSAVED_DISCARD  # noqa: E402
@@ -34,11 +36,14 @@ from vic2studio.ui.viewers.script_editor import ScriptEditor  # noqa: E402
 
 CP1252_REL = VPath.of("common/editor_cp1252.txt")
 MIXED_REL = VPath.of("common/editor_mixed.txt")
+B2_REL = VPath.of("common/editor_b2.txt")
 CP1252_BYTES = b"# Caf\xe9\r\nvalue = 1\r\nlabel = \"precio\xa0final\"\r\n"
 MIXED_TEXT = "uno\r\ndos\ntres\r cuatro\r\ncinco"
+B2_BYTES = b"owner = AAA\n1861.1.1 = {\r\tcontroller = AAA\n}\n"
 EXTRA_MOD = {
     CP1252_REL: CP1252_BYTES,
     MIXED_REL: MIXED_TEXT,
+    B2_REL: B2_BYTES,
 }
 
 
@@ -197,6 +202,44 @@ class UnencodableTests(ScriptEditorCase):
         self.assertIn("Windows-1252", status)
         self.assertIn("ő", self.raw_view(), "el texto tecleado no se pierde")
 
+
+class CorrectionTests(ScriptEditorCase):
+    """B2 (defensa) y M1 de la revisión: no aplicar una vista incoherente y confirmar al perder el foco."""
+
+    def test_b2_a_lone_cr_line_keeps_the_inserted_line_and_saves(self):
+        self.open(B2_REL)
+        block = self.editor.editor.document().findBlockByNumber(1)
+        self.assertTrue(block.isValid())
+        cursor = QTextCursor(block)
+        cursor.movePosition(QTextCursor.MoveOperation.EndOfBlock)
+        self.editor.editor.setTextCursor(cursor)
+        self.editor.editor.insertPlainText("\n")
+        self.assertTrue(self.editor.commit_pending(), self.editor.status_label.text())
+        self.editor.editor.insertPlainText("\tadd_core = AAA")
+        self.assertTrue(self.editor.commit_pending(), self.editor.status_label.text())
+        report = self.session.save()
+        self.assertTrue(report.ok, report.problems)
+        saved = self.game.mod(B2_REL).read_bytes()
+        self.assertIn(b"\tadd_core = AAA", saved)
+        self.assertEqual(normalize_newlines(saved.decode("cp1252")), self.raw_view())
+
+    def test_b2_a_splice_that_does_not_match_the_view_is_not_applied(self):
+        self.open()
+        before = self.snapshot(CP1252_REL)
+        self.editor.editor.setPlainText("texto distinto")
+        with mock.patch("vic2studio.ui.viewers.script_editor.splice_text", return_value="otra cosa"):
+            self.assertFalse(self.editor.commit_pending())
+        self.assertEqual(self.snapshot(CP1252_REL), before)
+        self.assertIn("No se pudo aplicar", self.editor.status_label.text())
+
+    def test_b2_a_value_error_from_splice_does_not_escape(self):
+        self.open()
+        before = self.snapshot(CP1252_REL)
+        self.editor.editor.setPlainText("otra vista")
+        with mock.patch("vic2studio.ui.viewers.script_editor.splice_text", side_effect=ValueError("roto")):
+            self.assertFalse(self.editor.commit_pending())
+        self.assertEqual(self.snapshot(CP1252_REL), before)
+        self.assertIn("No se pudo aplicar", self.editor.status_label.text())
 
 class ExternalChangeTests(ScriptEditorCase):
     def test_criterion9_an_external_transaction_reloads_the_editor(self):

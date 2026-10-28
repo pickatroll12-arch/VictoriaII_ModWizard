@@ -331,7 +331,14 @@ class ScriptEditor(QWidget):
         new_view = self.editor.document().toRawText().replace("\u2029", "\n").replace("\u2028", "\n")
         if new_view == self._view:
             return False
-        new_text = splice_text(self._original, self._view, new_view, self._newline)
+        try:
+            new_text = splice_text(self._original, self._view, new_view, self._newline)
+        except ValueError:
+            self._set_status(N_("editor.apply_failed"))
+            return False
+        if normalize_newlines(new_text) != new_view:
+            self._set_status(N_("editor.apply_failed"))
+            return False
         try:
             data = encode_text(new_text, self._encoding)
         except UnencodableTextError as exc:
