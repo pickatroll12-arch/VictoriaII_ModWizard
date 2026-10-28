@@ -544,9 +544,12 @@ class MainWindow(QMainWindow):
             project.set_mod_path(mod)
 
     def commit_edits(self) -> None:
-        """Lleva al documento lo que haya a medio teclear: los campos del descriptor confirman al perder el foco,
-        y Ctrl+S o cerrar la ventana no lo quitan."""
+        """Lleva al documento lo que haya a medio teclear: los campos del descriptor y el editor de scripts
+        confirman al perder el foco, y Ctrl+S, deshacer o cerrar la ventana no lo quitan."""
         if self.session.project is not None:
+            editor = getattr(self.page("project"), "script_editor", None)
+            if editor is not None:
+                editor.commit_pending()
             self.descriptor_page.commit_pending()
 
     def save_project(self) -> bool:
@@ -616,11 +619,13 @@ class MainWindow(QMainWindow):
         return True
 
     def undo(self) -> None:
+        self.commit_edits()  # Ctrl+Z justo después de teclear deshace lo tecleado, no lo anterior
         step = self.session.undo()
         if step is not None:
             self.show_status("status.undone", step=lambda s=step: tr(s.label, **dict(s.fmt)))
 
     def redo(self) -> None:
+        self.commit_edits()
         step = self.session.redo()
         if step is not None:
             self.show_status("status.redone", step=lambda s=step: tr(s.label, **dict(s.fmt)))
