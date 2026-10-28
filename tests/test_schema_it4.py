@@ -310,6 +310,18 @@ class CompanionTests(Case):
             table.set_target(self.ctx(), "council", "loyal_rebels", "monarchy")
         self.assertEqual(table.rows(self.ctx(), "council")[1], ("loyal_rebels", "monarchy"))
 
+    def test_missing_rebel_row_message_is_complete(self):
+        """Hallazgo de las capturas: el mensaje salía con «{government}» y «{rebel}» sin rellenar."""
+        council = self.entities.open(RecordRef("government", "council"))
+        problems = [p for p in council.issues(self.entities.check_context())
+                    if p.code == "government_missing_in_rebel_map"]
+        self.assertEqual(len(problems), 1)
+        message = problems[0].message("es")
+        self.assertNotIn("{", message)
+        self.assertIn("council", message)
+        self.assertIn("loyal_rebels", message)
+        self.assertEqual(problems[0].line, 8, "la línea del tipo de rebelde (loyal_rebels)")
+
     def test_delete_ignores_own_references_but_not_real_uses(self):
         self.entities.create("government", "junta")
         self.entities.index = build_index(self.project.vfs.snapshot(), None,

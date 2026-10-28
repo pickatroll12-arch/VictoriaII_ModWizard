@@ -153,6 +153,7 @@ class DynamicTable(QWidget):
         self.table.verticalHeader().hide()
         self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         self.table.itemChanged.connect(lambda _item: self._emit())
+        self.table.setMaximumHeight(180)
         outer.addWidget(self.table)
         row = QHBoxLayout()
         self.key_edit = mark_data(QLineEdit())

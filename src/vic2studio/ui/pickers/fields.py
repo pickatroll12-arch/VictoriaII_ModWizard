@@ -336,6 +336,7 @@ class GoodsAmountsField(_Picker):
         self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         self.table.verticalHeader().hide()
         self.table.itemChanged.connect(lambda _item: self._commit())
+        self.table.setMaximumHeight(150)
         outer.addWidget(self.table)
         row = QHBoxLayout()
         row.setSpacing(6)

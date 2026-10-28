@@ -273,3 +273,129 @@ fallos de entorno de la línea base y solo omitidas de corpus. Con corpus, `test
 `test_e2e_it4` en verde.
 
 **Gasto aproximado:** fase 2, unos 8 USD; fase 3, unos 15 USD; fase 4, unos 20 USD; fase 5, unos 8 USD.
+
+## Fase 6 — Revisión adversarial y cierre
+
+### Revisión (las pruebas, antes de creerse el arreglo)
+
+`tests/test_schema_review_it4.py` y ampliaciones de las pruebas de la ventana:
+
+| Caso | Resultado |
+|---|---|
+| `peace_order` con saltos LF, con `\r` sueltos y en una sola línea | Ya iba bien tras el arreglo de la fase 5; quedan fijados (LF y CR se conservan; en una línea, sigue en una línea). |
+| Gobiernos `nombre =\r\n{` con `election = yes  # election = no` (VSM): duplicar y cambiar un campo | Bien: la copia conserva el formato y el comentario; el original no cambia ni un byte. |
+| Errores sin efectos: valores que no encajan, ids malos o repetidos, un compañero que falla a mitad de crear | Bien: nada sucio, nada en el historial, las claves de texto también se deshacen. |
+| Un valor malo en un documento que no se puede tocar | Bien, y la prueba mata al mutante 7: el error es el del valor (se valida antes de `touch`). |
+| Restaurar sin versión del juego | `KeyError` sin efectos. |
+| Borrar una cultura dentro de su grupo y deshacer | Solo su bloque; deshacer devuelve el archivo exacto. |
+| Cambiar `type` de una unidad | La vista la cambia de sección al momento; deshacer la devuelve. |
+| Leer todas las listas, abrir, `issues`, `where_used`, `origin_of`, `can_restore_vanilla` | No ensucia nada, guardar no escribe, no aparece `.vic2studio/` (I4). |
+| Duplicar un gobierno visto a través de la lápida de su copia del mod | Revive el documento con el contenido del juego y añade la copia. |
+| Catálogos de solo lectura | Sin avisos de claves desconocidas (si no, F7 se llenaría de las de tecnologías e invenciones). |
+| Latencia con vanilla: listar y abrir 50 registros de culturas, CB, unidades y gobiernos | < 0,5 s cada uno en el hilo de la interfaz. |
+| **Capturas** | Encontraron dos fallos reales, ya corregidos con su prueba: el mensaje de `government_missing_in_rebel_map` del compañero salía con `{government}` y `{rebel}` sin rellenar (faltaba `rebel`; ahora un problema por tabla, con su línea), y el árbol de culturas recortaba los ids. |
+| El formulario volvía a escribir el texto (y movía el cursor) al re-enlazar tras cada pausa al teclear | Corregido: solo si el valor cambió. La pestaña Textos ya no se puede editar en un proyecto de solo lectura. |
+
+### Mutantes (`PRUEBAS.md` §6), todos detectados
+
+| # | Archivo | Mutante | Lo mató |
+|---|---|---|---|
+| 1 | `core/schema/companions.py` | `my_cb` antes del último valor de `peace_order` | `It4CriteriaTests.test_criterion3_my_cb` |
+| 2 | `core/schema/companions.py` | `AppendToList.on_delete` no quita nada | `CasusBelliContract.test_companions` |
+| 3 | `core/schema/record.py` | `where_used` sin quitar las referencias de los compañeros | `CompanionTests.test_delete_ignores_own_references_but_not_real_uses` |
+| 4 | `core/schema/record.py` | la vista efectiva solo con los documentos sucios (como antes) | `EffectiveAfterSaveTests.test_create_save_list_with_a_stale_index` |
+| 5 | `core/schema/record.py` | la lápida tapa el archivo del juego (como antes) | `RestoreVanillaTests.test_deleting_the_mod_copy_shows_the_game_file` |
+| 6 | `core/schema/types.py` | `ListOf` reescribe el bloque entero | `RichTypesTests.test_list_edits_in_place` |
+| 7 | `core/schema/record.py` | `Record.set` sin validar antes de `touch` | `test_a_bad_value_is_refused_before_touching_the_document` (**añadida**: el primer intento sobrevivió porque la transacción revierte igual) |
+| 8 | `core/schema/validate.py` | lo sin guardar de un archivo del juego, heredado | `BackgroundValidationTests` |
+| 9 | `core/schema/layouts.py` | `GroupedIn` inserta al principio del grupo | `LayoutTests.test_create_culture_goes_to_the_end_of_its_group` |
+| 10 | `core/schema/docgen.py` | la referencia sin el ejemplo mínimo | `test_criterion7_reference_is_complete_and_up_to_date` (`--check`) |
+| 11 | `ui/forms/form.py` | `merge_key` distinto en cada edición | `test_typing_in_the_same_field_is_one_undo_step` (el primer intento, con `id(object())`, repetía el id y no era un mutante) |
+| 12 | `ui/halls/registry.py` | la sección del esquema no sustituye a la planificada | `RegistrySectionTests.test_a_new_schema_appears_without_touching_ui` |
+| 13 | `ui/main_window.py` | F7 no abre el editor de la entidad | `NavigationTests.test_f7_problem_of_an_entity_leads_to_its_field` |
+| 14 | `ui/entity/editor_page.py` | Borrar con `force=True` | `test_delete_with_uses_is_blocked_and_shows_them` |
+| 15 | `ui/session.py` | sin quitar los problemas repetidos con la validación global | `test_criterion4_junta` («una vez») |
+| 16 | `ui/pickers/fields.py` | `NameListEditor` confirma nombres que no caben en cp1252 | `NameListTests.test_split_dedupe_and_cp1252` |
+| 17 | `core/schema/record.py` | `unknown="keep"` sin efecto | `test_read_only_catalogues_do_not_warn_about_their_keys` (**añadida**: sin corpus sobrevivía) |
+| 18 | `ui/main_window.py` | lo que está en memoria se vuelve a negar | `InMemoryTests` |
+
+El guion de los mutantes aplica cada cambio, pasa solo las pruebas de su pieza con `-B` y restaura el archivo;
+`git status` limpio después de cada tanda.
+
+### Capturas
+
+`docs/capturas/27`–`38`: las 6 secciones en español a 1100×700 y en inglés a 1920×1080 (Culturas, Gobiernos,
+Fechas de inicio, Casus belli, Unidades terrestres y navales), con `tools/screenshot.py --no-game-art` sobre un
+minijuego sintético (sin datos de Paradox), revisadas una a una.
+
+## Criterios de aceptación (wizard §22, iteración 4)
+
+| # | Criterio | Estado | Pruebas |
+|---|---|---|---|
+| 1 | Conformidad con vanilla sin `unknown_field` ni `bad_type`: 8 gobiernos, 31 CB, 2 bookmarks, 34 grupos y 226 culturas, y 21 unidades; abrir y guardar sin cambios no escribe | **Cumple** (con corpus) | `test_schema_criteria.It4CriteriaTests.test_criterion1_all_schemas_conform_to_vanilla`, `test_corpus_conformance` de cada esquema, `test_e2e_it4.test_open_and_save_without_changes_writes_nothing` |
+| 2 | Cambiar `attack` de infantry modifica una sola línea | **Cumple**, también desde la interfaz | `test_criterion2_set_attack_single_line`, `test_e2e_it4.test_criterion2_attack_from_the_form_changes_one_line`, `VanillaWindowTests.test_criterion2_on_a_copy_of_vanilla` |
+| 3 | `my_cb` al final de `peace_order`, 4 claves en `00_<P>_cb.csv`, borrado bloqueado con usos, un Ctrl+Z | **Cumple**, núcleo e interfaz | `test_criterion3_my_cb`, `test_criterion3_my_cb_on_vanilla`, `test_e2e_it4.test_criterion3_my_cb` |
+| 4 | `junta`: copia los dos archivos, 14 tablas (2 en el minijuego), `junta` y `junta_ruler`, aviso de `election` sin `duration` | **Cumple**, núcleo e interfaz | `test_criterion4_create_government`, `test_duplicate_democracy_fills_all_14_tables`, `test_e2e_it4.test_criterion4_junta` |
+| 5 | Terrestres y navales en dos secciones de un esquema; «basada en infantry» crea `units/<id>.txt` y `<id>`, `<id>_short` | **Cumple** | `test_vanilla_views_are_11_land_and_10_naval`, `test_e2e_it4.test_criterion5_unit_based_on_infantry`, `SectionWindowTests.test_naval_unit_based_on_frigate_offers_unit_names` |
+| 6 | `event_modifier` sin tocar `ui/`; su prueba es una subclase de 3 líneas | **Cumple** | `test_criterion6_event_modifier_touches_no_ui_file`, `RegistrySectionTests` |
+| 7 | Referencia ES/EN sin claves sin traducir; capturas ES/EN de las 6 secciones; verificación adversarial | **Cumple** | `test_criterion7_reference_is_complete_and_up_to_date`, `test_docgen` de cada esquema, `docs/capturas/27`–`38`, `test_schema_review_it4.py` |
+
+## Desviaciones de §10 y §13
+
+1. `DynamicKeys.key_kind = OPEN_CATALOG` (`"*"`): catálogo abierto para los efectos de los modificadores, que el
+   índice no cataloga (§10.2 solo prevé catálogos del índice).
+2. `GroupedIn(path, level=0|1)` y `NestedIn(glob, "", …)` con contenedor raíz: §10.4 no dice cómo se distinguen
+   padre e hijos ni prevé archivos de tecnologías con varias entidades sin contenedor.
+3. Las disposiciones dan además `touches(rel)` y `context_rels(ctx)`.
+4. `RecordRef` de los grupos de culturas usa el esquema `culture_group` dentro de la sección de culturas (el árbol
+   por grupo de §14.13).
+5. `bookmark`: el id es `name` (`IdSpec.FIELD`), con `LocSpec("{id}")` y `LocSpec("{id}_DESC", required=False)`:
+   en vanilla `GC_NAME` describe con `GC_DESC`, así que la segunda clave solo es la propuesta para los nuevos.
+6. `casus_belli` no declara `NORMAL_/AGRESSION_<war_name>` como `LocSpec`: la plantilla de §10.3 solo reemplaza
+   `{id}` y son claves compartidas que no se crean ni se borran con ningún CB.
+7. Los números se editan en una línea con validador, no en `QSpinBox` (vacío = sin valor).
+8. La pestaña Código usa el `ScriptEditor` sobre el archivo entero (decisión 2), no el `ClausewitzViewer` sobre el
+   bloque de §13.5.
+9. `end_date` entra con `Workspace.restore_bytes`: `defines.lua` no tiene códec propio y `test_project_codecs`
+   exige que siga así.
+10. Las etiquetas de los valores `Enum` siguen la convención del corte (`schema.<kind>.enum.<campo>.<valor>`).
+
+## Límites conocidos nuevos
+
+- **Renombrar** (§15) no existe: ni el botón ni `Entities.rename`; el `name` de un bookmark no se edita en el
+  formulario.
+- **Historia fechada** (`history.py`) y **guion** (`Record.script`) siguen como contrato: los bloques de guion de
+  los CB se editan en la pestaña Código.
+- **Vistas con muchas entidades**: `Entities.list(view=…)` abre cada registro para aplicar el filtro; con las 21
+  unidades de vanilla es inmediato, pero un esquema con cientos de archivos y vistas lo notaría.
+- La hoja de ruta de Inicio sigue diciendo «iteración 3 en curso» (`CURRENT_ITERATION` de `ui/pages/planned.py`,
+  fuera de la lista de archivos): ver peticiones.
+- `test_ui_integration…test_validating_a_large_file_keeps_the_interface_responsive` falla con corpus en esta
+  máquina **también en la rama de partida** (comprobado con un `git worktree` de `9927674`): es de la máquina.
+
+## Peticiones y dudas para el usuario
+
+1. **Hoja de ruta.** `ui/pages/planned.py: CURRENT_ITERATION = 3`: con la iteración 4 integrada debería pasar a 4 o
+   5 (y `test_ui_roadmap` con ella). No lo toqué porque no está en la lista y cambia algo visible.
+2. **`[verificar en juego]`**: ¿el juego exige `first_names`/`last_names` en una cultura? Los marco obligatorios
+   (los 226 de vanilla los llevan).
+3. **Códec LUA**: el editor de `end_date` funciona sobre el documento binario; un códec propio de `defines.lua` en
+   `core/project/codecs.py` lo dejaría más limpio (cambia `test_project_codecs`).
+4. La línea base de este entorno no es `OK (skipped=40)` (4 fallos de fuentes y de PySide6 por pip, y una omitida
+   por no poder crear carpetas en `/`), como en las rondas anteriores en esta misma máquina.
+
+## Baterías de cierre
+
+| Combinación | Resultado |
+|---|---|
+| Python 3.12.13 + PySide6 6.12.0, sin corpus, `-B` (fase 4–5) | 1788 pruebas, `FAILED (failures=4, skipped=54)`: los 4 de la línea base (3 de fuentes y `test_tasks…garbage_frozen…`); solo omitidas de corpus |
+| Python 3.12.13 + PySide6 6.12.0, **con corpus** (vanilla, Plantilla Mod y una copia de ShagoMod), `-B` | 1802 pruebas, `FAILED (failures=6, skipped=1)`: los 4 de la línea base; `test_ui_integration…validating_a_large_file…` (latencia, falla igual en `9927674` en esta máquina), y `test_ui_palette.CorpusCriterion7Tests` «north_german», que esperaba el archivo y ahora abre el editor de la cultura: actualizada de forma explícita (el criterio 7 de la iteración 3 ya decía «o el editor de la entidad cuando exista») y en verde al repetirla. La omitida es la de crear una carpeta en la raíz del disco. Ningún `.vic2studio/` quedó en el corpus. |
+| Python 3.10.20 + PySide6 6.11.3, sin corpus, `-B` | 1803 pruebas, `FAILED (failures=4, skipped=55)`: 3 de fuentes y la de latencia de `test_ui_integration` (también falla en la rama de partida con 3.10, como anotó INFORME_MOTOR). `test_tasks` pasa con 3.10. |
+
+## Gasto y tiempo
+
+- Tiempo total de la sesión: unas 1 h 35 min de reloj (28-10-2026, de las 13:58 a las 15:33, hora local), baterías
+  incluidas.
+- Gasto aproximado por fase (estimación por el volumen de contexto y de salida, no medida en la consola): fase 0,
+  unos 4 USD; fase 1, unos 22 USD; fase 2, unos 8 USD; fase 3, unos 15 USD; fase 4, unos 20 USD; fase 5, unos 8
+  USD; fase 6, unos 15 USD. **Total aproximado: 90–95 USD**, por debajo del tope de 150 USD.

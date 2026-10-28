@@ -78,8 +78,10 @@ arreglarlo, deja una prueba de regresión que falle sin el arreglo y pasa la bat
   - Sin corpus pasan con 40 omitidas (39 de corpus y la clase base) con Python 3.10.20 + PySide6 6.11.3.
   - Las 1494 de la iteración 3 pasaron además con Python 3.10.20 + PySide6 6.5.0, Pillow 10.0 y numpy 1.24 (sin
     `XDG_RUNTIME_DIR`); esa combinación no se ha repetido con las pruebas nuevas.
-- **Queda**: la iteración 4, el motor de esquemas (§5.4). Lo que la iteración 3 deja sin código, con su motivo,
-  está en §6.
+- **Iteración 4: completa en `opencode/it4-claude`** (Claude en OpenCode, encargo `ENCARGO_IT4.md`), pendiente
+  de la revisión de Claude Code (comprobaciones ocultas, corpus y mutantes). El informe, con las decisiones 1–4,
+  la tabla de criterios, los mutantes y las baterías, está en `docs/handoff/opencode/INFORME_IT4.md`. Lo
+  siguiente, tras revisarla e integrarla, es la iteración 5 (§5.4).
 - **Segunda tanda de Gemini (G4–G7): hecha por Claude.** La plataforma de Gemini se cayó y el usuario pidió
   asumirlas. Son piezas del núcleo para iteraciones futuras, en archivos nuevos:
   - G4 (`8c33ae6`): `core/tablecsv.py` y `core/map/definition.py`;
@@ -603,14 +605,11 @@ Motor de esquemas y editor genérico: gobiernos, casus belli, bookmarks, cultura
 - Los esquemas `government` y `unit`, con vistas `land` y `naval`.
 - `tests/schema_harness.py` (`SchemaContract`) y sus pruebas.
 
-**Falta.**
-- Los esquemas `casus_belli` (con `AppendToList` sobre `peace_order`), `bookmark`, `culture`, `event_modifier`
-  y `readonly`.
-- Los compañeros `ActivateUnit` y `UnitNamesSlot`.
-- `history.py` y `recipes.py`, que hoy son solo contrato.
-- `docgen.py` y `__main__.py`.
-- La conexión de `schema_problems` a F7.
-- Toda la interfaz (agente B).
+**Hecho después (rama `opencode/it4-claude`).** Los esquemas `casus_belli`, `bookmark`, `culture`/`culture_group`,
+`event_modifier` y `readonly`; los compañeros `ActivateUnit` y `UnitNamesSlot`; docgen, la CLI y
+`docs/referencia/`; `schema_problems` en F7; toda la interfaz (formularios, selectores, editor de entidades, las 7
+secciones, matriz de rebeldes y `end_date`); `Session.entities`; `restore_vanilla`. Siguen como contrato
+`history.py` (iteración 5), el guion (`Record.script`, iteración 7) y las recetas con nombre (iteración 6).
 
 Las decisiones y desviaciones del motor están en `docs/handoff/opencode/INFORME_MOTOR.md`. Lo que la iteración 3
 deja preparado:
@@ -668,7 +667,10 @@ Medidos sobre una máquina de 4 CPU compartidas.
 | `LocSync.entries()` con VSM (iteración 3) | 0,15–0,3 s por edición (21 661 claves) | Se reutiliza mientras nada cambia, y la página oculta no se refresca. Trocearlo sería un índice de localización incremental. |
 | Construir la ventana | Unos 0,65 s | Hallazgo opcional 23 de la revisión de la iteración 3; se reducirá con el empaquetado (iteración 10). |
 | Editor de texto con archivos de más de 1 MB | Cada pausa al teclear en `map/positions.txt` (1,35 MB) cuesta 0,6–1 s; uno de 200 KB, 50–80 ms | Reanalizar el documento entero en cada pausa (`replace_text`) en el hilo de la interfaz (I12). En vanilla solo pasa con `positions.txt`. |
-| `Entities` tras borrar la copia del mod de algo que también está en vanilla | `list` deja de mostrarlo y `open` lanza `FileNotFoundError` hasta guardar, aunque en la vista efectiva vuelve a ganar el del juego | El `Workspace` tiene un documento por ruta, y la lápida de la copia del mod la ocupa. Lo resolverá `Entities.restore_vanilla` (§10.5) leyendo la capa de debajo, como `core/validate/fixes.py` (`_effective_name`). |
+| ~~`Entities` tras borrar la copia del mod de algo que también está en vanilla~~ | **Resuelto en la iteración 4**: `list` y `open` leen la capa de debajo de la lápida, y editar revive el documento (`Entities.restore_vanilla`, §10.5) | — |
+| ~~F7 sobre un archivo con cambios sin guardar~~ | **Resuelto en la iteración 4**: se abre en el editor de texto, que enseña la memoria, en su línea | — |
+| `defines.lua` sin códec propio (iteración 4) | `end_date` se cambia con `Workspace.restore_bytes` sobre el documento binario | `test_project_codecs` exige que el tipo LUA siga sin códec; un códec LUA es de `core/project` (iteración 10). |
+| Renombrar entidades (iteración 4) | Ni el botón ni `Entities.rename`; el id de un bookmark (`name`) no se edita en el formulario | Llega con el renombrado seguro (§15); los `on_rename` de los compañeros siguen como contrato. |
 
 ## 7. Problemas detectados en el mod del usuario (Shago Mod)
 

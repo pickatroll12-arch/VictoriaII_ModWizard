@@ -39,12 +39,22 @@ Versión **0.1.0**, pre-alfa.
   - la localización editable y sincronizada en la sala Textos;
   - el buscador universal Ctrl+K.
 
+- **Iteración 4** (motor de esquemas y editor genérico): completa en la rama
+  `opencode/it4-claude`, pendiente de la revisión de Claude Code. Llegan:
+  - el motor de esquemas con gobiernos, casus belli, fechas de inicio,
+    culturas, unidades terrestres y navales y modificadores de evento, más seis
+    catálogos de solo lectura;
+  - el editor genérico de entidades (lista, formulario generado, textos, usos,
+    código y otros campos) en sus 7 secciones, que salen solas del registro de
+    esquemas;
+  - la referencia ES/EN de cada esquema en
+    [docs/referencia/](docs/referencia/es/README.md).
+
 La iteración 2 pasó dos rondas de revisión adversarial: 55 hallazgos
 confirmados, todos corregidos con su prueba de regresión. La iteración 3 pasó
 la suya, por componentes, con las correcciones también probadas con
-mutaciones. Lo siguiente es la
-[iteración 4](docs/diseno/wizard.md#22-plan-de-iteraciones), el motor de
-esquemas. El estado detallado está en el
+mutaciones. La 4 lleva su propia revisión adversarial y 18 mutantes
+(`docs/handoff/opencode/INFORME_IT4.md`). El estado detallado está en el
 [documento de traspaso](CONTINUAR_EN_CLAUDE_CODE.md).
 
 ### Qué funciona hoy
@@ -179,6 +189,27 @@ terminal:
   cambia `defines.lua` sin perder ni un byte de lo demás.
 - `locsync`: edita la localización con la política del juego, sobre la vista
   efectiva (también lo que no se ha guardado).
+- `schema` y `schemas` (iteración 4): el motor de esquemas. Un esquema declara
+  dónde viven los registros, sus campos, claves de texto, validadores y
+  compañeros (`peace_order`, la matriz de rebeldes, qué activa una unidad, los
+  nombres de barcos); el motor da la lista, la lectura y escritura sin pérdidas,
+  la validación (también en F7), las claves de localización y la referencia.
+
+- **Secciones de entidades** (iteración 4): Naciones › Culturas y Gobiernos;
+  Guerra › Fechas de inicio, Casus belli, Unidades terrestres y Unidades
+  navales; Eventos › Modificadores.
+  - A la izquierda, la lista con filtro y su origen (juego base, mod, nuevo) y
+    los botones Nuevo (de la plantilla o «basado en…»), Duplicar, Borrar (se
+    bloquea y enseña los usos si la entidad se usa) y Restaurar (vuelve a la
+    versión del juego base).
+  - A la derecha, el formulario generado del esquema (cada cambio se deshace
+    con Ctrl+Z; teclear en el mismo campo es un solo paso) y las pestañas
+    Textos (español e inglés), Usos, Código (el editor de texto, en la línea
+    de la entidad) y Otros campos (lo que el esquema no conoce se conserva).
+  - Gobiernos tiene la matriz de rebeldes; Fechas de inicio, el editor de
+    `end_date` de `defines.lua`; al crear una unidad naval se ofrecen sus
+    listas de nombres de barcos.
+  - Ctrl+K abre el editor de la entidad, y F7 lleva al campo del problema.
 
 ### Qué viene
 
@@ -195,16 +226,16 @@ iteración en que llega cada una:
 1. Generar el archivo `.mod` (2, hecha).
 2. Países: asistente, ficha, banderas `.tga` e historial (6).
 3. Provincias (5; las nuevas, 9).
-4. Unidades terrestres (4).
+4. Unidades terrestres (4, hecha).
 5. Decisiones (7).
 6. Suite de modificación de interfaces `.gui`/`.gfx` (8).
 7. Eventos (7).
 8. Guerras de inicio (6).
-9. Casus belli (4).
-10. Bookmarks o fechas de inicio (4).
-11. Gobiernos nuevos (4).
-12. Unidades navales (4).
-13. Culturas (4).
+9. Casus belli (4, hecha).
+10. Bookmarks o fechas de inicio (4, hecha).
+11. Gobiernos nuevos (4, hecha).
+12. Unidades navales (4, hecha).
+13. Culturas (4, hecha).
 14. Regiones, continentes y climas (5).
 15. Taller de mapas nuevos: generación procedural al estilo de Azgaar's
     Fantasy Map Generator o importación de bitmaps, con todos sus archivos
@@ -212,7 +243,7 @@ iteración en que llega cada una:
 
 La iteración 3 (hecha) añadió el índice de símbolos, la validación con línea
 base, la localización editable sincronizada y Ctrl+K, que necesitan todas las
-capacidades. La 4 trae el motor de esquemas y la 10, el pulido, la exportación
+capacidades. La 4 (hecha) trae el motor de esquemas y la 10, el pulido, la exportación
 a zip y el empaquetado final. Los prototipos del taller de mapas están en
 [docs/diseno/prototipos/mapforge/](docs/diseno/prototipos/mapforge/README.md).
 
@@ -336,6 +367,16 @@ por rotas.
 El núcleo no depende de Qt y se puede usar desde la terminal (con
 `PYTHONPATH=src` si no está instalado). Los ejemplos se ejecutan desde la raíz
 del proyecto sobre la muestra del mod del usuario que trae el repositorio.
+
+### Esquemas: `vic2studio.core.schema`
+
+```bash
+PYTHONPATH=src python -m vic2studio.core.schema list                 # esquemas y su sección
+PYTHONPATH=src python -m vic2studio.core.schema show casus_belli --lang en
+PYTHONPATH=src python -m vic2studio.core.schema doc --lang es        # la referencia, en la salida estándar
+PYTHONPATH=src python -m vic2studio.core.schema check JUEGO [MOD]    # problemas de esquema; no escribe nada
+python tools/gen_reference.py [--check]                              # regenera docs/referencia/{es,en}/
+```
 
 ### Scripts Clausewitz: `vic2studio.core.clausewitz`
 

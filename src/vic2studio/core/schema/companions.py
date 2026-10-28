@@ -276,20 +276,31 @@ class MappingTable:
         raise NotImplementedError
 
     def check(self, ctx: CheckContext, rec: Record) -> Iterable[Problem]:
-        """``government_missing_in_rebel_map`` (código de core/validate) si falta en alguna
-        tabla de la matriz."""
+        """``government_missing_in_rebel_map`` (código de core/validate) por cada tipo de rebelde cuya tabla no
+        tiene el gobierno, con sus argumentos (``government`` y ``rebel``) y su línea."""
         from ..clausewitz.diagnostics import Severity
         from ..validate.model import Problem
         from ..vfs.paths import VPath
 
         if ctx is None or ctx.ws is None:
             return   # validación en segundo plano: el código ya lo da core/validate (I12)
-        tables = self._tables(ctx)
-        for table in tables:
-            if table.find(rec.ref.ident) is None:
-                yield Problem("government_missing_in_rebel_map", Severity.ERROR, VPath.of(self.rel),
-                              None, None, (rec.ref.kind, rec.ref.ident), (), {"government": rec.ref.ident})
-                return
+        handle = ctx.ws.open(self.rel, create=True)
+        found: list[tuple[str, int | None]] = []
+
+        def walk(block: Block, owner: str, line) -> None:
+            for entry in block.entries:
+                if entry.key is None or not isinstance(entry.value, Block):
+                    continue
+                if entry.key.text == self.table:
+                    if entry.value.find(rec.ref.ident) is None:
+                        found.append((owner, line))
+                else:
+                    walk(entry.value, entry.key.text, entry.line)
+
+        walk(handle.model.document, "", None)
+        for owner, line in found:
+            yield Problem("government_missing_in_rebel_map", Severity.ERROR, VPath.of(self.rel), line, None,
+                          (rec.ref.kind, rec.ref.ident), (), {"government": rec.ref.ident, "rebel": owner})
 
 
 ROLE_ACTIVATE_UNIT = "activate_unit"

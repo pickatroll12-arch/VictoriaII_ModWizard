@@ -936,6 +936,31 @@ del mod sustituye al del juego con el mismo nombre.
 
 ---
 
+### 2.8 Motor de esquemas y editor genérico (`core/schema`, `core/schemas`, `ui/forms`, `ui/entity`)
+
+Iteración 4 (wizard §10, §13.5–13.7). El informe con las decisiones y las desviaciones está en
+`docs/handoff/opencode/INFORME_IT4.md` (y el del corte del motor, en `INFORME_MOTOR.md`).
+
+- **Esquemas** (`core/schemas/<kind>.py`, por descubrimiento): `government`, `casus_belli`, `bookmark`,
+  `culture` y `culture_group`, `unit` (vistas `land` y `naval`), `event_modifier` y los seis catálogos de solo
+  lectura de `readonly.py`. Textos en `core/schemas/texts/<kind>.{es,en}.json`; referencia generada en
+  `docs/referencia/{es,en}/` (`tools/gen_reference.py`, `python -m vic2studio.core.schema doc`).
+- **Disposiciones** con lógica: `SingleFile`, `OnePerFile`, `RepeatedKey`, `GroupedIn` (nivel 0 y 1) y
+  `NestedIn`; cada una sabe qué archivos son suyos (`touches`) y cuáles leer en una instantánea
+  (`context_rels`).
+- **`Entities`**: la vista efectiva es el índice con **todos** los documentos abiertos del layout encima (lo
+  sin guardar, lo borrado y lo recién guardado que el índice aún no ha releído); una lápida de una copia del mod
+  deja ver el archivo del juego, y editarlo lo revive. `create`, `duplicate`, `delete` y `restore_vanilla` son
+  una transacción cada una, con los compañeros y las claves de texto.
+- **Compañeros**: `AppendToList` (`peace_order`), `MappingTable` (la matriz de rebeldes), `ActivateUnit` y
+  `UnitNamesSlot`. Sus propias referencias (`own_roles`) no bloquean el borrado.
+- **Validación**: `Record.issues` en vivo (el editor) y `schema_problems(ValidationContext)` en la tarea de F7
+  (sin el `Workspace`, I12), que `Session` añade al informe sin repetir los de la validación global.
+- **Interfaz**: `ui/halls/registry.py` genera una `SectionSpec` por esquema editable con sala y sección (una por
+  vista) y sustituye la tarjeta planificada de la misma clave; `EntityEditorPage` (navegador y pestañas),
+  `EntityForm`/`FormBuilder` con `EDITORS` (un editor por `ValueType.widget`) y los selectores de `ui/pickers`.
+  `Session.entities` da el servicio; cada edición es una transacción con `merge_key` por campo.
+
 ## 3. Herencia Vanilla + Mod (VFS)
 
 Implementada en la iteración 2 (`core/vfs`, wizard §5): `paths.py` (rutas
@@ -2403,6 +2428,11 @@ adversarial, correcciones, capturas e informe.
 | 10 | Pulido, rendimiento, exportación y empaquetado | — |
 
 La 9b depende de la receta `new_country` de la iteración 6.
+
+**Iteración 4.** Completa en `opencode/it4-claude` (28-10-2026), pendiente de revisión: el resto del núcleo
+del motor de esquemas, docgen y la CLI, los formularios generados, los selectores, el editor de entidades y sus
+7 secciones, la integración con `Session` y la prueba de punta a punta (`tests/test_e2e_it4.py`). Los 7 criterios
+de wizard §22, con su prueba, están en la tabla de `docs/handoff/opencode/INFORME_IT4.md`.
 
 ### 6.2 Riesgos del diseño
 

@@ -87,6 +87,8 @@ class EntityNavigator(QWidget):
         self.tree.setColumnCount(2)
         self.tree.setRootIsDecorated(self.grouped)
         self.tree.setUniformRowHeights(True)
+        self.tree.header().setStretchLastSection(True)
+        self.tree.header().setSectionResizeMode(0, self.tree.header().ResizeMode.ResizeToContents)
         self.tree.currentItemChanged.connect(self._on_current)
         outer.addWidget(self.tree, 1)
         buttons = QHBoxLayout()
@@ -160,7 +162,6 @@ class EntityNavigator(QWidget):
                 item.setData(0, _REF_ROLE, RecordRef(summary.ref.kind, summary.ref.ident, summary.rel))
                 item.setData(1, _REF_ROLE, origin)
                 item.setText(1, tr(ORIGIN_KEYS[origin]))
-            self.tree.resizeColumnToContents(0)
         self._apply_filter(self.filter_edit.text())
         if current is not None and self.select(current, emit=False):
             pass
