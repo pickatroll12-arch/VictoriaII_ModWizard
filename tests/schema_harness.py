@@ -190,18 +190,20 @@ class SchemaContract(unittest.TestCase):
         for summary in self.entities.list(self.schema.kind):
             record = self.entities.open(summary.ref)
             for spec, container in self._all_dynamics():
+                catalog = sorted(self.entities.index.names(spec.key_kind))
+                key = catalog[0] if catalog else "test_dynamic_key"
                 with self.subTest(record=summary.ref.ident, dynamic=spec.name):
                     before = record.dynamic(spec.name)
-                    value_type = spec.value("test_dynamic_key") if callable(spec.value) else spec.value
+                    value_type = spec.value(key) if callable(spec.value) else spec.value
                     example = value_type.example(self._ctx())
                     with ws.transaction("test.undo_edit", key=spec.name, ident=summary.ref.ident):
-                        record.set_dynamic(spec.name, "test_dynamic_key", example)
-                    self.assertIn("test_dynamic_key", record.dynamic(spec.name),
+                        record.set_dynamic(spec.name, key, example)
+                    self.assertIn(key, record.dynamic(spec.name),
                                   f"set_dynamic de {spec.name} no aparece")
                     if spec.only_true:
                         with ws.transaction("test.undo_edit", key=spec.name, ident=summary.ref.ident):
-                            record.set_dynamic(spec.name, "test_dynamic_key", False)
-                        self.assertNotIn("test_dynamic_key", record.dynamic(spec.name),
+                            record.set_dynamic(spec.name, key, False)
+                        self.assertNotIn(key, record.dynamic(spec.name),
                                          f"only_true no borra la clave falsa de {spec.name}")
                         ws.undo()
                     ws.undo()
@@ -294,6 +296,7 @@ class SchemaContract(unittest.TestCase):
         project = Project.open(game_root, mod_root)
         self.addCleanup(project.close, discard=True)
         ws = project.ws
+        index = build_index(project.vfs.snapshot(), None, {})   # catálogos de los DynamicKeys (B2)
         layout = self.schema.layout
         seen = 0
         for entry in layout.files(project.vfs):
@@ -303,7 +306,7 @@ class SchemaContract(unittest.TestCase):
                 seen += 1
                 record = Record(self.schema, RecordRef(self.schema.kind, ident, entry.rel),
                                 handle, block, None if handle.origin is None else handle.origin.layer.kind,
-                                ws=ws, entry=owner)
+                                ws=ws, index=index, entry=owner)
                 problems = record.issues()
                 for code, expected in self.allowed.items():
                     self.assertEqual(sum(1 for p in problems if p.code == code), expected,

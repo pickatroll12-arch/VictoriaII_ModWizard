@@ -133,5 +133,29 @@ class GovernmentEffectiveTests(EffectiveViewCase):
         self.assertIn("republic2", self.idents("government"))
 
 
+class DynamicCatalogTests(EffectiveViewCase):
+    """Corrección B2: las claves dinámicas sueltas son solo las de su índice."""
+
+    def test_typo_ideology_is_unknown_and_not_dynamic(self):
+        record = self.entities.open(RecordRef("government", "council"))
+        with self.project.ws.transaction("test.undo_edit", key="electoin", ident="council"):
+            record.block.append("electoin", "yes")
+        reopened = self.entities.open(RecordRef("government", "council"))
+        unknown = [entry.key.text for entry in reopened.unknown()]
+        self.assertIn("electoin", unknown, "la errata no sale en Otros campos")
+        self.assertNotIn("electoin", reopened.dynamic("ideology"),
+                         "la errata no puede contar como ideología")
+        problems = {problem.code: problem.field for problem in reopened.issues()}
+        self.assertIn("unknown_field", problems, "la errata no avisa")
+        self.assertEqual(problems["unknown_field"], ("electoin",))
+        self.assertNotIn("bad_type", problems)
+        self.project.ws.undo()
+
+    def test_known_ideologies_are_dynamic_and_not_unknown(self):
+        record = self.entities.open(RecordRef("government", "council"))
+        self.assertEqual(record.dynamic("ideology"), {"socialist": True})
+        self.assertEqual([entry.key.text for entry in record.unknown()], [])
+
+
 if __name__ == "__main__":
     unittest.main()

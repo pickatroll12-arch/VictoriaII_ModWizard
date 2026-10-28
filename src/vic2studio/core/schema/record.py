@@ -119,7 +119,7 @@ class Record:
     origin: LayerKind | None = None           # capa de la que se leyó (juego, mod, nuevo)
 
     def __init__(self, schema: EntitySchema, ref: RecordRef, handle: DocHandle, block: Block,
-                 origin: LayerKind | None = None, *, ws: Workspace = None,
+                 origin: LayerKind | None = None, *, ws: Workspace = None, index=None,
                  entry: Entry | None = None) -> None:
         self.schema = schema
         self.ref = ref
@@ -127,6 +127,7 @@ class Record:
         self.block = block
         self.origin = origin
         self._ws = ws                          # para touch (mutar exige transacción)
+        self._index = index                    # catálogos de los DynamicKeys (B2)
         self._entry = entry                    # la entrada dueña en el documento (borrar)
 
     # --- esquema efectivo ---------------------------------------------------------------
@@ -277,12 +278,12 @@ class Record:
         if index >= len(entries) or not isinstance(entries[index].value, Block):
             raise KeyError(f"no hay grupo {key!r} #{index}")
         return Record(self.schema, self.ref, self.handle, entries[index].value, self.origin,
-                      ws=self._ws, entry=entries[index])
+                      ws=self._ws, index=self._index, entry=entries[index])
 
     def groups(self, key: str) -> list[Record]:
         """Vistas de todas las repeticiones del grupo ``key``."""
         return [Record(self.schema, self.ref, self.handle, entry.value, self.origin, ws=self._ws,
-                       entry=entry)
+                       index=self._index, entry=entry)
                 for entry in self.block.find_all(key) if isinstance(entry.value, Block)]
 
     def add_group(self, key: str, values: dict) -> Record:
@@ -292,7 +293,8 @@ class Record:
         for sub_key, value in values.items():
             block.append(sub_key, coerce_value(value))
         entry = self.block.append(key, block)
-        return Record(self.schema, self.ref, self.handle, block, self.origin, ws=self._ws, entry=entry)
+        return Record(self.schema, self.ref, self.handle, block, self.origin, ws=self._ws,
+                      index=self._index, entry=entry)
 
     # --- claves dinámicas ---------------------------------------------------------------
 
@@ -315,16 +317,26 @@ class Record:
         value_type = spec.value(key) if callable(spec.value) else spec.value
         return value_type
 
+    def _catalog(self, spec: DynamicKeys) -> frozenset[str]:
+        """Claves del catálogo del ``DynamicKeys``: los símbolos de su ``key_kind`` en el índice.
+        Sin índice, el catálogo es vacío y ninguna clave suelta cuenta como dinámica (B2)."""
+        index = getattr(self, "_index", None)
+        if index is None:
+            return frozenset()
+        return frozenset(index.names(spec.key_kind))
+
     def dynamic(self, name: str) -> dict[str, object]:
         """Los valores de un ``DynamicKeys`` (``{"flintlock_rifles": 1, …}``): las claves del
-        bloque que no son campos fijos del esquema, leídas con su tipo (crudas si no encajan)."""
+        bloque que no son campos fijos y están en el catálogo del índice; el resto va a
+        ``unknown()`` (B2). Se leen con su tipo (crudas si no encajan)."""
         spec, block, container = self._dynamic(name)
         if block is None:
             return {}
         fixed = self._fixed_keys(container)
+        catalog = self._catalog(spec)
         result: dict[str, object] = {}
         for entry in block.entries:
-            if entry.key is None or entry.key.text in fixed:
+            if entry.key is None or entry.key.text in fixed or entry.key.text not in catalog:
                 continue
             value_type = self._dynamic_reader(spec, entry.key.text)
             try:
@@ -385,29 +397,41 @@ class Record:
     def unknown(self) -> list[Entry]:
         """Entradas que el esquema no declara: se conservan (I6) y salen en «Otros campos».
 
-        Las claves de un ``DynamicKeys`` suelto (gobierno: las ideologías de la raíz) y las de un
-        grupo con ``dynamic`` (unidad: los bienes de ``build_cost``) no cuentan como desconocidas.
+        Las claves de un ``DynamicKeys`` solo las reclama su catálogo (B2): una clave suelta que
+        no está en el índice (``electoin``, ``foo_bar``) va a ``unknown`` y da ``unknown_field``.
         """
         fields, groups, dynamics = self._index_schema()
         found: list[Entry] = []
         covered_root = set(fields) | set(groups)
         free_dynamic = any(container is None for _, container in dynamics.values())
+        root_catalog: frozenset[str] | None = None
+        if free_dynamic:
+            for spec, container in dynamics.values():
+                if container is None:
+                    root_catalog = self._catalog(spec)
         for entry in self.block.entries:
             if entry.key is None or entry.key.text in covered_root:
                 continue
-            if not free_dynamic:
-                found.append(entry)
+            if free_dynamic and root_catalog is not None and entry.key.text in root_catalog:
+                continue
+            found.append(entry)
         for key, group in groups.items():
             entry = self.block.find(key)
             if entry is None or not isinstance(entry.value, Block):
                 continue
             covered = frozenset(field.key for field in group.fields if isinstance(field, Field))
-            has_dynamic = any(container == key for _, container in dynamics.values())
-            if has_dynamic:
-                continue
+            dynamic_spec = next((spec for name, (spec, container) in dynamics.items()
+                                 if container == key), None)
+            if dynamic_spec is not None:
+                catalog = self._catalog(dynamic_spec)
+            else:
+                catalog = None
             for sub in entry.value.entries:
-                if sub.key is not None and sub.key.text not in covered:
-                    found.append(sub)
+                if sub.key is None or sub.key.text in covered:
+                    continue
+                if catalog is not None and sub.key.text in catalog:
+                    continue
+                found.append(sub)
         return found
 
     def issues(self, ctx: CheckContext = None) -> list[Problem]:
@@ -549,7 +573,7 @@ class Entities:
             if ident == ref.ident:
                 origin = None if handle.origin is None else handle.origin.layer.kind
                 return Record(schema, RecordRef(ref.kind, ident, rel), handle, block, origin,
-                              ws=self.ws, entry=entry)
+                              ws=self.ws, index=self.index, entry=entry)
         raise KeyError(f"{ref.kind}:{ref.ident} no está en {rel}")
 
     def where_used(self, ref: RecordRef) -> list[SymbolRef]:
@@ -582,7 +606,7 @@ class Entities:
             schema.layout.insert(document, document, ident, block)
             record = Record(schema, RecordRef(kind, ident, rel), handle, block,
                             None if handle.origin is None else handle.origin.layer.kind,
-                            ws=self.ws, entry=document.find(ident))
+                            ws=self.ws, index=self.index, entry=document.find(ident))
             self._ensure_loc(schema, ident, texts)
             from .companions import EditContext
 
