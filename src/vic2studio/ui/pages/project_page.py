@@ -880,7 +880,7 @@ class ProjectPage(BasePage):
         self.edit_button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
         self.edit_button.setVisible(False)
         self.edit_button.clicked.connect(self._request_edit)
-        self.clausewitz_viewer.header.layout().addWidget(self.edit_button, 0, Qt.AlignmentFlag.AlignVCenter)
+        self.clausewitz_viewer.tabs.setCornerWidget(self.edit_button, Qt.Corner.TopRightCorner)
         # Al volver a la aplicación (p. ej. tras corregir el archivo en otro editor) se relee lo que se ve.
         QGuiApplication.instance().applicationStateChanged.connect(self._on_application_state)
         for viewer in (self.clausewitz_viewer, self.image_viewer):
