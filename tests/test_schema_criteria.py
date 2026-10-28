@@ -254,5 +254,52 @@ class DuplicateCompanionTests(CriteriaCase):
             "el duplicado no conserva el formato del origen")
 
 
+class GapTests(CriteriaCase):
+    """Huecos de la revisión: comentario de línea, vistas land/naval y bad_type."""
+
+    def test_line_comment_survives_set_of_another_field(self):
+        """Un comentario al final de la línea sobrevive a ``set`` de otro campo (el caso real
+        de VSM ``election = yes  # election = no``, H14)."""
+        from vic2studio.core.project.codecs import codec_for
+
+        project, entities, loc = self.open_minigame()
+        handle = project.ws.open("common/governments.txt")
+        original = codec_for(handle.kind).snapshot(handle.model)
+        edited = original.replace(b"council = {\r\n\tsocialist = yes\r\n\telection = yes\r\n",
+                                  b"council = {\r\n\tsocialist = yes\r\n"
+                                  b"\telection = yes  # election = no\r\n", 1)
+        with project.ws.transaction("test.undo_edit", rel="common/governments.txt"):
+            project.ws.replace_text(handle, edited)
+        record = entities.open(RecordRef("government", "council"))
+        with project.ws.transaction("test.undo_edit", key="duration", ident="council"):
+            record.set("duration", 48)
+        rendered = codec_for(handle.kind).snapshot(handle.model).decode("cp1252")
+        self.assertIn("election = yes  # election = no", rendered,
+                      "el comentario de la línea no sobrevive al set")
+        self.assertIn("\tduration = 48", rendered, "el set no escribió el campo")
+        project.ws.undo()
+
+    @unittest.skipUnless(vanilla_root(), "sin corpus")
+    def test_vanilla_views_are_11_land_and_10_naval(self):
+        project, entities, _, _ = self.open_vanilla()
+        land = entities.list("unit", view="land")
+        naval = entities.list("unit", view="naval")
+        self.assertEqual(len(land), 11, "11 unidades terrestres en vanilla")
+        self.assertEqual(len(naval), 10, "10 unidades navales en vanilla")
+        self.assertFalse({s.ref.ident for s in land} & {s.ref.ident for s in naval},
+                         "ninguna unidad está en las dos vistas")
+
+    def test_bad_type_is_reported(self):
+        project, entities, loc = self.open_minigame()
+        record = entities.open(RecordRef("unit", "infantry"))
+        with project.ws.transaction("test.undo_edit", key="attack", ident="infantry"):
+            record.block.append("attack", "abc")
+        reopened = entities.open(RecordRef("unit", "infantry"))
+        problems = {problem.code: problem.field for problem in reopened.issues()}
+        self.assertIn("bad_type", problems, "attack = abc no da bad_type")
+        self.assertEqual(problems["bad_type"], ("attack",))
+        project.ws.undo()
+
+
 if __name__ == "__main__":
     unittest.main()
