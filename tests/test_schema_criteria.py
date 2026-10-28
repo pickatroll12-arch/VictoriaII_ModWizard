@@ -184,5 +184,56 @@ class MinigameTests(CriteriaCase):
         self.assertFalse(handle.deleted, "el deshacer no devuelve my_unit")
 
 
+class DuplicateCompanionTests(CriteriaCase):
+    """Corrección M1: duplicate pasa por los compañeros (la matriz de rebeldes)."""
+
+    @staticmethod
+    def _rebel_tables(project) -> list:
+        handle = project.ws.open("common/rebel_types.txt")
+        document = handle.model.document
+        tables = []
+
+        def walk(block):
+            for entry in block.entries:
+                if entry.key is not None and entry.key.text == "government" \
+                        and hasattr(entry.value, "entries"):
+                    tables.append(entry.value)
+                if hasattr(entry.value, "entries"):
+                    walk(entry.value)
+
+        walk(document)
+        return tables
+
+    def test_duplicate_government_fills_the_rebel_tables(self):
+        """Minijuego: las dos tablas ganan la clave, en la misma transacción, y el deshacer
+        lo quita todo."""
+        project, entities, loc = self.open_minigame()
+        entities.duplicate(RecordRef("government", "republic"), "republic2")
+        tables = self._rebel_tables(project)
+        self.assertEqual(len(tables), 2)
+        for table in tables:
+            self.assertIsNotNone(table.find("republic2"),
+                                 "el duplicado no está en todas las tablas")
+        self.assertEqual(len(project.ws.history()), 1, "una sola transacción")
+        project.ws.undo()
+        self.assertEqual(project.ws.dirty(), [], "el deshacer no quita la duplicación")
+        tables = self._rebel_tables(project)
+        for table in tables:
+            self.assertIsNone(table.find("republic2"))
+
+    @unittest.skipUnless(vanilla_root(), "sin corpus")
+    def test_duplicate_democracy_fills_all_14_tables(self):
+        project, entities, _, _ = self.open_vanilla()
+        entities.duplicate(RecordRef("government", "democracy"), "democracia2")
+        tables = self._rebel_tables(project)
+        self.assertEqual(len(tables), 14, "vanilla tiene 14 tablas de rebeldes (H16)")
+        for table in tables:
+            self.assertIsNotNone(table.find("democracia2"),
+                                 "el duplicado no está en las 14 tablas")
+        self.assertEqual(len(project.ws.history()), 1)
+        project.ws.undo()
+        self.assertEqual(project.ws.dirty(), [], "el deshacer no quita la duplicación")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -680,7 +680,16 @@ class Entities:
             self.ws.touch(handle)   # la transacción captura el estado previo (I5)
             document = handle.model.document
             schema.layout.insert(document, document, new_ident, source.block.clone())
+            inserted = document.find(new_ident)
+            record = Record(schema, RecordRef(ref.kind, new_ident, rel), handle,
+                            inserted.value if inserted is not None else source.block,
+                            None if handle.origin is None else handle.origin.layer.kind,
+                            ws=self.ws, index=self.index, entry=inserted)
             self._copy_loc(schema, ref.ident, new_ident)
+            from .companions import EditContext
+
+            for companion in schema.companions:
+                companion.on_create(EditContext(self.ws, self.index, self.loc), record)
         return RecordRef(ref.kind, new_ident, rel)
 
     def delete(self, ref: RecordRef, *, force: bool = False) -> None:
