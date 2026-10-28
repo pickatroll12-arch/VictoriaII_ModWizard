@@ -196,7 +196,8 @@ class ValidationEngine:
     def validate(self, context, baseline, *, progress=None, cancelled=None):
         from ..core.validate import Validator
 
-        return Validator(context, baseline=baseline).validate(progress=progress, cancelled=cancelled)
+        report = Validator(context, baseline=baseline).validate(progress=progress, cancelled=cancelled)
+        return with_schema_problems(report, context, cancelled=cancelled)
 
     def explain(self, problem, context):
         from ..core.validate import explain
@@ -227,6 +228,39 @@ class BaselineEngine:
         from ..core.validate import baseline_for
 
         return baseline_for(snapshot, date=date, cancelled=cancelled)
+
+
+def with_schema_problems(report, context, *, cancelled=None):
+    """El informe con los problemas de esquema de la iteración 4 añadidos (decisión 3 del informe IT4).
+
+    Se calculan en la misma tarea que la validación, sobre el ``ValidationContext`` inmutable (I12):
+    ``core.schema.validate.schema_problems``. Uno que ya da la validación global (mismo código y archivo, y misma
+    línea o entidad) no se repite. Un contexto que no es el real (pruebas con motores falsos) deja el informe igual.
+    """
+    from dataclasses import replace
+
+    from ..core.schema.validate import schema_problems
+    from ..core.validate import ValidationContext
+    from ..core.validate.validator import _sort_key
+
+    if not isinstance(context, ValidationContext) or report is None:
+        return report
+    known = set()
+    for problem in report.problems:
+        rel = problem.rel.key if problem.rel is not None else ""
+        known.add((problem.code, rel, problem.line))
+        if problem.entity is not None:
+            known.add((problem.code, rel, problem.entity[1]))
+    extra = []
+    for problem in schema_problems(context, cancelled=cancelled):
+        rel = problem.rel.key if problem.rel is not None else ""
+        if (problem.code, rel, problem.line) in known or \
+                (problem.entity is not None and (problem.code, rel, problem.entity[1]) in known):
+            continue
+        extra.append(problem)
+    if not extra:
+        return report
+    return replace(report, problems=tuple(sorted((*report.problems, *extra), key=_sort_key)))
 
 
 def document_overrides(project) -> dict[VPath, bytes | None]:
@@ -371,6 +405,8 @@ class Session(QObject):
         self._explain_runner.finished.connect(self._on_explained)
         self._explain_runner.failed.connect(self._on_explain_failed)
         self._explaining = None             # el problema que se está explicando
+        # Entidades (iteración 4): el servicio del motor de esquemas sobre el proyecto abierto
+        self._entities = None
 
     # --- estado ----------------------------------------------------------------------------
 
@@ -566,6 +602,7 @@ class Session(QObject):
         self._baseline_error = None
         self._revalidate = False
         self._explaining = None
+        self._entities = None
         for name in (HELD_INDEX, HELD_TEXTS, HELD_VALIDATION, HELD_EXPLAIN):
             self._held.pop(name, None)
         return had
@@ -746,6 +783,22 @@ class Session(QObject):
         if self._revalidate and not self._reindex_pending and not self._reindex_timer.isActive():
             self._revalidate = False
             self.validate()
+
+    # --- entidades (iteración 4) --------------------------------------------------------------------
+
+    @property
+    def entities(self):
+        """``core.schema.Entities`` del proyecto abierto (con el índice que haya, o sin él: entonces recorre los
+        archivos), o None sin proyecto. Siempre sobre el ``Workspace`` vivo de este hilo (I12)."""
+        project = self._project
+        if project is None or self._locsync is None:
+            return None
+        if self._entities is None or self._entities.ws is not project.ws:
+            from ..core.schema import Entities
+
+            self._entities = Entities(project.ws, self._index, self._locsync)
+        self._entities.index = self._index
+        return self._entities
 
     # --- localización -------------------------------------------------------------------------------
 
@@ -1349,5 +1402,5 @@ def _is_loc(rel) -> bool:
 __all__ = [
     "BUSY", "BaselineEngine", "DEFAULT_WORKING_DATE", "FAILED", "FIX_STEP_PREFIX", "IDLE", "IN_MEMORY_MODIFIED",
     "IN_MEMORY_NEW", "IndexEngine", "READY", "REINDEX_DELAY_MS", "Session", "ValidationEngine", "WAITING",
-    "document_overrides",
+    "document_overrides", "with_schema_problems",
 ]

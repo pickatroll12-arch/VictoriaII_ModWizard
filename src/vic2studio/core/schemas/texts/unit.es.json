@@ -55,5 +55,8 @@
   "schema.unit.field.torpedo_attack": "Ataque de torpedos",
   "schema.unit.field.transport": "Transporte",
   "schema.unit.field.move_sound": "Sonido al mover",
-  "schema.unit.field.select_sound": "Sonido al seleccionar"
+  "schema.unit.field.select_sound": "Sonido al seleccionar",
+  "schema.unit.title": "Unidades",
+  "schema.unit.name": "Unidad",
+  "schema.unit.doc": "Unidades terrestres y navales de units/<id>.txt, un tipo por archivo. La variante por «type» decide los campos de combate. Se activan con activate_unit en tecnologías e invenciones."
 }

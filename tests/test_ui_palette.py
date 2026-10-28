@@ -239,6 +239,12 @@ class CorpusCriterion7Tests(PaletteCase):
                 self.assertIn((kind, name), [(s.kind, s.name) for s in found])
                 symbol = next(s for s in found if (s.kind, s.name) == (kind, name))
                 self.assertTrue(window.open_symbol(symbol))
+                if kind == "culture":
+                    # Iteración 4: una cultura tiene esquema y abre su editor de entidad («o el editor de la entidad
+                    # cuando exista», wizard §22, iteración 3, criterio 7), no el archivo.
+                    self.assertEqual(window.current_page_key(), "nations:cultures")
+                    self.assertEqual(window.current_page().current_ref().ident, name)
+                    continue
                 expected = session.location_path(symbol.rel, symbol.layer)
                 self.assertTrue(_qt.wait_until(lambda: files.shown_location() == (expected, symbol.line)
                                                and not window.is_busy(), 20000),

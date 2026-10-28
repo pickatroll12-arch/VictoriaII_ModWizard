@@ -4,7 +4,9 @@ Vanilla trae 21 unidades: 11 con ``type = land`` y 10 con ``type = naval`` (H18)
 sin ``unknown_field`` ni ``bad_type``. Los campos comunes están en «general» y los propios de
 cada tipo, en la variante por ``type`` (§10.3), con una vista por sección («land» y «naval»).
 Los costes (``build_cost``, ``supply_cost``) son bloques de bienes (``DynamicKeys`` sobre el
-índice de bienes). Lo nuevo va a ``units/<id>.txt`` en el mod.
+índice de bienes). Lo nuevo va a ``units/<id>.txt`` en el mod. Las vistas dan las secciones Guerra › Unidades terrestres
+(``war:land``) y Unidades navales (``war:naval``); el compañero ``ActivateUnit`` dice qué la activa y avisa si
+nada lo hace, y ``UnitNamesSlot`` ofrece su lista de nombres en los países al crear una naval.
 
 Los campos de la variante activa salen solo de la clave ``type`` leída del bloque; una unidad
 sin ``type`` no muestra campos de variante (nunca ocurre en vanilla).
@@ -13,6 +15,7 @@ sin ``type`` no muestra campos de variante (nunca ocurre en vanilla).
 from __future__ import annotations
 
 from ..schema import (
+    ActivateUnit,
     Bool,
     DynamicKeys,
     EntitySchema,
@@ -24,6 +27,7 @@ from ..schema import (
     LocSpec,
     OnePerFile,
     Section,
+    UnitNamesSlot,
     Variant,
     View,
     Word,
@@ -90,11 +94,15 @@ UNIT = EntitySchema(
     fields=(_COMMON,),
     variants=Variant("type", {"land": (_LAND,), "naval": (_NAVAL,)}),
     views=(
-        View("land", lambda rec: rec.get("type") == "land", "units_land"),
-        View("naval", lambda rec: rec.get("type") == "naval", "units_naval"),
+        View("land", lambda rec: rec.get("type") == "land", "land"),
+        View("naval", lambda rec: rec.get("type") == "naval", "naval"),
     ),
     loc=(LocSpec("{id}", "units"), LocSpec("{id}_short", "units")),
-    hall="war", section="units", order=20, icon="soldier",
+    companions=(ActivateUnit(), UnitNamesSlot()),
+    template=lambda ident, idx: {"type": "land", "unit_type": "infantry", "active": True, "priority": 1,
+                                 "max_strength": 3, "default_organisation": 30, "maximum_speed": 4.0,
+                                 "build_time": 90, "attack": 2.0, "defence": 2},
+    hall="war", section="units", order=5, icon="helmet",
 )
 
 SCHEMAS = (UNIT,)

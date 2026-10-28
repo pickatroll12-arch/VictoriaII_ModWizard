@@ -42,6 +42,7 @@ SEVERITY_FALLBACK = {
     "bad_type": Severity.ERROR,
     "required_missing": Severity.ERROR,
     "duplicate_field": Severity.WARNING,    # coincide con core/validate/rules/countries.py
+    "unit_never_active": Severity.INFO,     # compañero ActivateUnit (§14.4)
 }
 
 RecordValidator = Callable[["Record", "CheckContext"], "Iterable[Problem]"]
@@ -58,6 +59,7 @@ def validator(code: str, severity: str = "error"):
         if code in VALIDATORS:
             raise ValueError(f"código de validador repetido: {code}")
         VALIDATORS[code] = _SEVERITIES[severity]
+        fn.validator_code = code   # docgen lo lista en «Comprobaciones propias»
         return fn
 
     return register
@@ -81,8 +83,13 @@ def issue(code: str, rec: Record, *, field: tuple[str, ...] = (), **args) -> Pro
         node = rec.node(field[0])
         if node is not None:
             line, column = node.line, node.column
-    elif rec.block.line is not None:
-        line, column = rec.block.line, rec.block.column
+    if line is None:
+        # Sin el campo (falta, que es justo el problema): la línea del registro.
+        owner = getattr(rec, "_entry", None)
+        if owner is not None and owner.line is not None:
+            line, column = owner.line, owner.column
+        elif rec.block.line is not None:
+            line, column = rec.block.line, rec.block.column
     entity = (rec.ref.kind, rec.ref.ident)
     return Problem(code, severity_of(code), rel, line, column, entity, tuple(field), args)
 
@@ -91,10 +98,72 @@ def issue(code: str, rec: Record, *, field: tuple[str, ...] = (), **args) -> Pro
 class CheckContext:
     """Contexto inmutable de lectura para tipos, campos, compañeros y validadores: el
     ``Workspace`` (solo lectura), el índice, la localización y las reglas del juego. Leer a
-    través de él no escribe nada (I4)."""
+    través de él no escribe nada (I4).
+
+    En segundo plano (``schema_problems``) no hay ``Workspace`` (``ws`` None, I12): ``source`` es el
+    ``ValidationContext`` inmutable, con los bytes efectivos de cada archivo."""
 
     ws: Workspace
     index: object
     loc: LocSync
     rules: object = None
     languages: tuple[str, ...] = ("es", "en")
+    source: object = None
+
+
+class _DetachedHandle:
+    """Lo poco de un ``DocHandle`` que lee ``Record`` en segundo plano: la ruta y el modelo (de solo lectura)."""
+
+    __slots__ = ("rel", "model", "origin", "deleted", "dirty", "kind")
+
+    def __init__(self, rel, model) -> None:
+        self.rel = rel
+        self.model = model
+        self.origin = None
+        self.deleted = False
+        self.dirty = False
+        self.kind = None
+
+
+def schema_problems(source, *, cancelled=None) -> list[Problem]:
+    """Problemas de esquema de todos los registros editables (decisión 3 del informe de la iteración 4).
+
+    ``source`` es un ``ValidationContext`` (instantánea inmutable con lo sin guardar): se puede llamar desde el
+    hilo de la validación porque no toca el ``Workspace`` (I12) ni escribe nada (I4). Cada archivo se lee una vez
+    con ``source.parse`` (en su caché). Los compañeros que necesitan el ``Workspace`` no dan nada aquí; sus
+    códigos ya los da la validación global (``government_missing_in_rebel_map``, ``cb_not_in_peace_order``).
+
+    Un problema en un archivo que no es del mod (el juego o una dependencia que el mod no sustituye) sale
+    ``inherited`` (I11): no es del mod.
+    """
+    from dataclasses import replace as dc_replace
+
+    from ..cancel import raise_if_cancelled
+    from ..vfs.model import LayerKind
+    from .record import Record, RecordRef
+    from .registry import registry
+
+    ctx = CheckContext(None, getattr(source, "index", None), None, source=source)
+    found: list[Problem] = []
+    for schema in registry.all_schemas():
+        if not schema.editable:
+            continue
+        rels_of = getattr(schema.layout, "context_rels", None)
+        if rels_of is None:
+            continue
+        for rel in rels_of(source):
+            raise_if_cancelled(cancelled)
+            parsed = source.parse(rel)
+            if parsed is None:
+                continue
+            handle = _DetachedHandle(rel, parsed)
+            # Lo sin guardar es del mod aunque venga del juego (se copiará al guardar).
+            inherited = not source.unsaved(rel) and source.layer_of(rel) is not LayerKind.MOD
+            for ident, block, entry in schema.layout.entries(parsed.document, rel):
+                record = Record(schema, RecordRef(schema.kind, ident, rel), handle, block, None,
+                                index=ctx.index, entry=entry)
+                problems = record.issues(ctx)
+                if inherited:
+                    problems = [dc_replace(problem, inherited=True) for problem in problems]
+                found.extend(problems)
+    return found

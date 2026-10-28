@@ -5,6 +5,11 @@ Cada sala es un paquete ``ui/halls/<sala>/`` cuyo ``__init__.py`` exporta
 recorre con ``pkgutil.iter_modules`` y los ordena por ``order``: no hay listas
 centrales, así que cada agente toca solo su sala. Una sección sin ``factory`` ni
 ``schema_kind`` se ve como la tarjeta «en desarrollo» con su ``iteration``.
+
+Desde la iteración 4, las secciones de entidades salen del **registro de esquemas** (``schema_sections``): cada
+esquema editable con ``hall`` y ``section`` da una ``SectionSpec`` (una por ``View`` si tiene vistas) con el
+``EntityEditorPage`` como ``factory``. Si la sala ya declara una sección con esa clave (la tarjeta planificada de
+reserva), la del esquema la sustituye. Añadir un esquema no toca ningún archivo de ``ui/`` (criterio 6).
 """
 
 from __future__ import annotations
@@ -69,7 +74,7 @@ def discover_halls() -> list[tuple[HallSpec, list[SectionSpec]]]:
         hall = getattr(module, "HALL", None)
         if hall is None:
             continue
-        sections = sorted(getattr(module, "SECTIONS", ()), key=lambda s: s.order)
+        sections = merge_schema_sections(list(getattr(module, "SECTIONS", ())), schema_sections(hall.key))
         _check_hall(hall, sections)
         halls.append((hall, sections))
     halls.sort(key=lambda item: item[0].order)
@@ -91,3 +96,50 @@ def _check_hall(hall: HallSpec, sections: list[SectionSpec]) -> None:
             raise ValueError(f"la sección {section.key!r} dice ser de {section.hall!r}, pero está en {hall.key!r}")
         if section.planned and section.iteration is None:
             raise ValueError(f"la sección planificada {hall.key}.{section.key} no dice en qué iteración llega")
+
+
+def _entity_badge(schema, view):
+    def badge(session) -> int | None:
+        entities = getattr(session, "entities", None)
+        if entities is None:
+            return None
+        try:
+            return len(entities.list(schema.kind, view=view)) or None
+        except Exception:  # noqa: BLE001 - un contador nunca rompe la ventana
+            return None
+
+    return badge
+
+
+def schema_sections(hall: str, schemas=None) -> list[SectionSpec]:
+    """Las secciones que generan los esquemas de ``hall`` (``schemas``: los del registro si es None)."""
+    if schemas is None:
+        from ...core.schema import registry
+
+        schemas = registry.all_schemas()
+    from ..entity.editor_page import entity_section_factory
+
+    specs = []
+    for schema in schemas:
+        if not schema.editable or schema.hall != hall or not schema.section:
+            continue
+        if schema.views:
+            for offset, view in enumerate(schema.views):
+                specs.append(SectionSpec(view.section, hall, schema.order + offset,
+                                         f"schema.{schema.kind}.view.{view.key}", schema.icon,
+                                         factory=entity_section_factory(schema, view.key), schema_kind=schema.kind,
+                                         view=view.key, badge=_entity_badge(schema, view.key)))
+        else:
+            specs.append(SectionSpec(schema.section, hall, schema.order, f"schema.{schema.kind}.title", schema.icon,
+                                     factory=entity_section_factory(schema), schema_kind=schema.kind,
+                                     badge=_entity_badge(schema, None)))
+    return specs
+
+
+def merge_schema_sections(declared: list[SectionSpec], generated: list[SectionSpec]) -> list[SectionSpec]:
+    """Las secciones de la sala con las de los esquemas encima: una generada sustituye a la declarada con la misma
+    clave (la tarjeta planificada de reserva); el resto se añade. Ordenadas por ``order``."""
+    by_key = {spec.key: spec for spec in generated}
+    merged = [by_key.pop(spec.key, spec) for spec in declared]
+    merged.extend(by_key.values())
+    return sorted(merged, key=lambda s: s.order)

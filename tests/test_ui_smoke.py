@@ -164,8 +164,9 @@ class MainWindowTests(UiTestCase):
         self.assertIs(window.page("project"), window.hall("project").section_widget("files"))
         self.assertIs(window.page("localisation"), window.hall("localisation").section_widget("csv"))
         self.assertIs(window.page("home"), window.page("project:home"))
-        self.assertIsInstance(window.page("war:cb"), PlannedSectionPage)
-        self.assertIs(window.page("war.cb"), window.page("war:cb"))
+        # war:cb ya no es una tarjeta planificada (iteración 4): la comprobación pasa a war:wars.
+        self.assertIsInstance(window.page("war:wars"), PlannedSectionPage)
+        self.assertIs(window.page("war.wars"), window.page("war:wars"))
         for bad in ("nope", "war:nope", "nope:cb"):
             with self.assertRaises(KeyError):
                 window.page(bad)
@@ -318,9 +319,14 @@ class MainWindowTests(UiTestCase):
                                  else SectionRail.TALL_STRIP_HEIGHT, (lang, current.spec.key))
                 if slim:
                     self.assertTrue(all("\n" not in b.label_text() for b in current.rail.buttons))
-        # A 1100 px, Proyecto (cinco secciones) cabe en placas bajas y Guerra (seis), no.
-        self.assertTrue(window.hall("project").rail.strip_fits_one_line())
-        self.assertFalse(window.hall("war").rail.strip_fits_one_line())
+        # A 1100 px y en español, Proyecto (cinco secciones) cabe en placas bajas y Guerra (seis), no: así se
+        # prueban las dos alturas. El idioma se fija aquí: el bucle de arriba acaba en inglés, donde desde la
+        # iteración 4 Guerra también cabe (cuatro de sus secciones llevan un contador en vez de «It. N»).
+        set_language("es")
+        for key, fits in (("project", True), ("war", False)):
+            window.set_current_hall(next(i for i, hall in enumerate(window.halls) if hall.spec.key == key))
+            _qt.process_events(20)
+            self.assertEqual(window.hall(key).rail.strip_fits_one_line(), fits, key)
 
     def test_planned_sections_say_their_iteration(self):
         window = self.make_window()

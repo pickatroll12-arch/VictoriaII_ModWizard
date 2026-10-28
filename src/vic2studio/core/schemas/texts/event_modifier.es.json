@@ -1,0 +1,9 @@
+{
+  "schema.event_modifier.title": "Modificadores",
+  "schema.event_modifier.name": "Modificador",
+  "schema.event_modifier.doc": "Modificadores de common/event_modifiers.txt que los eventos y decisiones aplican a países y provincias: un icono y sus efectos.",
+  "schema.event_modifier.section.general": "General",
+  "schema.event_modifier.section.effects": "Efectos",
+  "schema.event_modifier.field.icon": "Icono",
+  "schema.event_modifier.dynamic.effects": "Efectos del modificador"
+}

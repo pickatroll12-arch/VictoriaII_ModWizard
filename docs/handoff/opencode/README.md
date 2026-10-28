@@ -1,19 +1,18 @@
-# Iteración 4 con OpenCode: guía para el usuario
+# Handoff para OpenCode: guía para el usuario
 
-Esta carpeta prepara una sesión de **OpenCode** con la API de Anthropic para hacer **la mitad de núcleo de la
-iteración 4**: el motor de esquemas y los esquemas de 6 entidades, con sus pruebas. Es el trabajo del «agente A»
-de `docs/diseno/wizard.md` §22. La otra mitad (formularios, editor de entidades, selectores y salas, la integración,
-la revisión adversarial y el cierre) la hace Claude Code después, con el límite semanal renovado.
+Esta carpeta prepara sesiones de **OpenCode** para avanzar el proyecto con agentes externos. Claude Code revisa
+cada rama antes de fusionarla: comprobaciones ocultas, el corpus real y mutantes.
 
-| Archivo | Para quién | Qué dice |
+| Archivo | Para quién | Qué es |
 |---|---|---|
-| `README.md` (este) | Tú | Cómo preparar el equipo, arrancar OpenCode, vigilar el gasto y entregar |
-| `ENCARGO.md` | El agente | Qué construir, en qué orden, con qué pruebas y cuándo parar |
+| `README.md` (este) | Tú | Cómo preparar el equipo, arrancar OpenCode, elegir modelo y esfuerzo, vigilar el gasto y entregar |
+| **`ENCARGO_IT4.md`** | El agente | **El encargo actual: terminar la iteración 4** (resto del núcleo, interfaz, integración, revisión y cierre) |
 | `REGLAS.md` | El agente | Las reglas del proyecto que no se ven leyendo un archivo |
 | `PRUEBAS.md` | Los dos | Cómo pasar las pruebas, con y sin corpus, y las combinaciones de versiones |
-| `INFORME.md` | El agente | La plantilla del informe final, que Claude revisará |
+| `INFORME_MOTOR.md`, `INFORME_EDITOR.md` | El agente | Informes de los encargos ya hechos (motor de esquemas y editor de texto): decisiones y límites |
+| `ENCARGO_MOTOR.md`, `ENCARGO.md` | — | Encargos anteriores, hechos o sustituidos (no se ejecutan) |
 
-`AGENTS.md`, en la raíz del repositorio, es lo que OpenCode lee solo al empezar: apunta aquí.
+`AGENTS.md`, en la raíz del repositorio, es lo que OpenCode lee solo al empezar: apunta a `ENCARGO_IT4.md`.
 
 ## 1. Preparar el equipo (una vez)
 
@@ -22,103 +21,100 @@ Necesitas Git, [uv](https://docs.astral.sh/uv/) (instala Python y entornos sin t
 **Linux:**
 
 ```bash
-git clone https://github.com/pickatroll12-arch/VictoriaII_ModWizard.git
+git clone https://github.com/pickatroll12-arch/VictoriaII_ModWizard.git   # o git pull si ya lo tienes
 cd VictoriaII_ModWizard
-git checkout claude/keen-fermi-nw8itc          # o main, si ya fusionaste el PR #10
-git checkout -b opencode/it4-nucleo
+git checkout main && git pull           # si aún no fusionaste el PR #12: git checkout claude/keen-fermi-nw8itc
+git checkout -b opencode/it4-claude
 uv python install 3.12 3.10
 uv venv -p 3.12 .venv && uv pip install -p .venv -r requirements.txt
 uv venv -p 3.10 .venv310 && uv pip install -p .venv310 -r requirements.txt
-# Qt sin pantalla (Debian/Ubuntu):
+# Qt sin pantalla y las fuentes de las pruebas de disposición (Debian/Ubuntu):
 sudo apt-get install -y libegl1 libgl1 libxkbcommon0 libfontconfig1 libdbus-1-3 fonts-dejavu
 ```
 
-**Windows (PowerShell):**
+**Windows (PowerShell):** las mismas órdenes, con `uv venv -p 3.12 .venv; uv pip install -p .venv -r
+requirements.txt` (y lo mismo para `.venv310`).
 
-```powershell
-git clone https://github.com/pickatroll12-arch/VictoriaII_ModWizard.git
-cd VictoriaII_ModWizard
-git checkout claude/keen-fermi-nw8itc
-git checkout -b opencode/it4-nucleo
-uv python install 3.12 3.10
-uv venv -p 3.12 .venv; uv pip install -p .venv -r requirements.txt
-uv venv -p 3.10 .venv310; uv pip install -p .venv310 -r requirements.txt
-```
-
-No uses Python 3.14 para las pruebas: nadie las ha pasado con él (CONTINUAR §4). Las carpetas `.venv*` no se
-suben: añádelas a `.git/info/exclude` si `git status` las enseña.
+No uses Python 3.14 para las pruebas. Las carpetas `.venv*` no se suben: añádelas a `.git/info/exclude` si
+`git status` las enseña.
 
 **Comprueba que todo funciona** antes de gastar un céntimo de API (unos 7 minutos):
 
 ```bash
 QT_QPA_PLATFORM=offscreen .venv/bin/python -m unittest discover -s tests
-# Windows: $env:QT_QPA_PLATFORM="offscreen"; .venv\Scripts\python -m unittest discover -s tests
 ```
 
-Debe acabar en `OK (skipped=40)`. Si falla aquí, el problema es del entorno, no del código: arréglalo antes.
+Debe acabar en `OK (skipped=54)`. Si fallan pruebas de disposición («… recortado»), son las fuentes: instala
+`fonts-dejavu` (`PRUEBAS.md` §5). Cualquier otro fallo es del entorno: arréglalo antes.
 
 ## 2. El corpus (recomendado)
 
-Los criterios 1, 2, 4 y 5 de la iteración 4 se comprueban contra vanilla real. El corpus está en la release
-privada `recursos-v1` del repositorio. **Descomprímelo fuera del repositorio** (nunca dentro: no se puede subir
-ningún dato de Paradox):
+Los criterios 1 y 7 y la revisión adversarial se comprueban contra vanilla real y una copia del mod grande. El
+corpus está en la release privada `recursos-v1`. **Descomprímelo fuera del repositorio**:
 
 ```bash
 mkdir -p ~/vic2corpus && cd ~/vic2corpus
-gh auth login                                   # una vez: el repositorio es privado
+gh auth login
 gh release download recursos-v1 -R pickatroll12-arch/VictoriaII_ModWizard
-# Descomprime cada zip como dice CONTINUAR_EN_CLAUDE_CODE.md §4 («Corpus»):
-# quedan vanilla/, «Plantilla Mod»/ y ShagoMod/
+# Descomprime cada zip como dice CONTINUAR_EN_CLAUDE_CODE.md §4: quedan vanilla/, «Plantilla Mod»/ y ShagoMod/
 ```
 
-También puedes apuntar a tu instalación del juego y a tus mods, **pero siempre a copias**: las pruebas nunca abren
-el VSM real como proyecto, pero un agente con prisa podría. Con copias no hay riesgo.
+Apunta siempre a **copias** (`PRUEBAS.md` §4). Las pruebas nunca abren el mod real, pero con copias no hay riesgo.
 
-## 3. OpenCode y la API
+## 3. OpenCode, modelo y esfuerzo
 
-1. Instala OpenCode (ver [opencode.ai](https://opencode.ai)) y conecta tu clave de Anthropic (`opencode auth
-   login`, proveedor Anthropic).
-2. **Pon un tope de gasto en la consola de Anthropic** antes de empezar (en los límites de gasto de tu
-   organización; si no lo encuentras, carga solo los $100 de crédito). Si el tope corta a mitad, no se pierde
-   nada: el encargo hace commit al final de cada fase.
-3. Modelo: **Claude Opus 5.5** (`anthropic/claude-opus-5-5`) para todo. Si tu OpenCode deja elegir el esfuerzo,
-   usa `high`; `xhigh` solo para la fase 1 (el contrato).
-4. Abre OpenCode **en la raíz del repositorio**, en una sesión nueva, y escribe:
+1. Conecta tu clave de Anthropic en OpenCode (`opencode auth login`, proveedor Anthropic).
+2. **Pon un tope de gasto** en la consola de Anthropic: **$150** para esta tanda. Si corta a mitad, no se pierde
+   nada, porque cada fase termina en un commit.
+3. **Modelo: Claude Opus 5.5** (`anthropic/claude-opus-5-5`), el mismo toda la sesión. Cambiar de modelo a mitad
+   rompe la caché de prompts y encarece todo lo que viene después.
+4. **Esfuerzo:** Opus 5.5 tiene `low`, `medium`, `high`, `xhigh` y `max`, y **por defecto usa `medium`**, así que
+   ponlo a mano.
 
-   > Lee AGENTS.md y docs/handoff/opencode/ENCARGO.md y empieza por la fase 0. Respóndeme en español.
+   | Fases | Esfuerzo | Por qué |
+   |---|---|---|
+   | 0 (orientación) | `medium` | Leer y pasar pruebas: no necesita pensar mucho |
+   | 1, 3, 4, 5 (núcleo, formularios, editor, integración) | **`high`** | Programación larga con criterio: el punto dulce entre calidad y gasto |
+   | 2 (contrato de la interfaz) y 6 (revisión adversarial) | **`xhigh`** | Decisiones de diseño que condicionan todo y la búsqueda de fallos propios: aquí rinde pensar más |
+   | — | nunca `max` | Cuesta mucho más y no compensa en este tipo de trabajo |
 
-5. **En los primeros 10 minutos, mira el coste por paso** (OpenCode lo enseña en la sesión). Debe ser de céntimos.
-   Si cada paso cuesta dólares, la caché de prompts no está funcionando: para y revisa la configuración, o los $100
-   se irán en una hora.
+   Si tu OpenCode no deja cambiar el esfuerzo a mitad de sesión, usa **`high` para todo**. Si no deja elegirlo,
+   comprueba que no se queda en el `medium` por defecto.
+5. Abre OpenCode **en la raíz del repositorio**, en una sesión nueva, y escribe:
 
-## 4. Presupuesto
+   > Lee AGENTS.md y docs/handoff/opencode/ENCARGO_IT4.md y empieza por la fase 0. Respóndeme en español.
 
-El encargo está repartido para unos **$100 con Opus 5.5** (estimación; no medida):
+6. **En los primeros 10 minutos, mira el coste por paso.** Debe ser de céntimos. Si cada paso cuesta dólares, la
+   caché de prompts no funciona: para y revisa la configuración.
 
-| Fase | Qué | Coste aproximado |
+## 4. Presupuesto (estimación, no medida)
+
+| Fase | Qué | Aprox. |
 |---|---|---|
-| 0 | Orientación y comprobar el entorno | ~$5 |
-| 1 | Contrato del motor (tipos y firmas) | ~$10 |
-| 2 | El motor de esquemas | ~$35 |
-| 3 | Los 7 esquemas y los criterios del núcleo | ~$25 |
-| 4 | Documentación generada (docgen) | ~$10 |
-| 5 | Baterías, informe y entrega | ~$10 |
+| 0 | Orientación | ~$3 |
+| 1 | Resto del núcleo: 5 esquemas, compañeros, docgen | ~$20 |
+| 2 | Contrato de la interfaz | ~$8 |
+| 3 | Formularios y selectores | ~$30 |
+| 4 | Editor de entidades y las 6 secciones | ~$30 |
+| 5 | Integración y prueba de punta a punta | ~$15 |
+| 6 | Revisión adversarial, capturas y cierre | ~$15 |
+| | **Total** | **~$120** (rango probable $90–150) |
 
-Si al acabar la fase 3 llevas más de **$80**, dile que pare y haga solo la fase 5 (informe y entrega). La fase 4
-la puede hacer Claude el domingo.
+Si se acerca a **$150**, el encargo le dice que pare, haga commit y cierre con una fase 6 mínima. Lo que falte lo
+termina Claude Code.
 
 ## 5. Mientras trabaja
 
-- Cada fase termina en un **commit** y un **push** a `opencode/it4-nucleo`. Puedes cortar entre fases.
-- Si te pregunta algo de diseño que no sabes contestar, dile que lo anote en `INFORME.md` como duda abierta y siga
-  con la opción más conservadora: Claude lo revisa después.
-- Si se atasca más de 3 intentos en la misma prueba, que lo anote y pase a lo siguiente.
+- Cada fase termina en un **commit** y un **push** a `opencode/it4-claude`. Puedes cortar entre fases.
+- Si te pregunta algo de diseño, contesta si lo tienes claro. Si no, dile que lo anote en `INFORME_IT4.md` como
+  duda abierta y siga con la opción más conservadora.
+- **Apunta el gasto y el tiempo de cada fase.** Sirven para comparar con las rondas de DeepSeek.
 
 ## 6. Al terminar
 
-1. Comprueba que hizo push de `opencode/it4-nucleo` y que `docs/handoff/opencode/INFORME.md` está relleno.
-2. **No abras PR todavía** ni fusiones nada en `main`.
-3. El domingo, en una sesión nueva de Claude Code:
+1. Comprueba que hizo push de `opencode/it4-claude` y que `docs/handoff/opencode/INFORME_IT4.md` está relleno.
+2. **No abras PR todavía.**
+3. En Claude Code:
 
-   > Lee CONTINUAR_EN_CLAUDE_CODE.md y docs/handoff/opencode/INFORME.md. Revisa la rama opencode/it4-nucleo como
-   > revisaste el trabajo de Gemini (mutantes, corpus y las cuatro combinaciones) y sigue con la iteración 4.
+   > Revisa la rama opencode/it4-claude (encargo ENCARGO_IT4.md) como las anteriores: comprobaciones ocultas
+   > selladas, corpus, mutantes y puntuación.

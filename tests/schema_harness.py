@@ -6,8 +6,10 @@ claves dinámicas, plantilla válida, claves de localización, compañeros, colo
 conformidad con el corpus (0 ``unknown_field`` y 0 ``bad_type``). Las pruebas usan el
 minijuego sintético y, la de corpus, ``vanilla_root()`` (se omite sin corpus).
 
-``test_docgen`` de §19.3 no se genera: ``docgen`` queda fuera de la lista de archivos del
-corte (se pide a Claude en el informe).
+Iteración 4 (cierre): se genera también ``test_docgen`` (la página ES/EN del esquema sin claves sin
+traducir), ``test_list_finds_records`` y las pruebas de creación se adaptan a cada disposición (al final del
+archivo, del grupo o de la lista) y se saltan en los esquemas de solo lectura. El minijuego se construye con
+``SCHEMA_GAME_FILES`` (fragmentos sintéticos que solo usan los esquemas, como ``event_modifiers.txt``).
 """
 
 from __future__ import annotations
@@ -32,14 +34,20 @@ from vic2studio.core.project import Project  # noqa: E402
 from vic2studio.core.project.codecs import codec_for  # noqa: E402
 from vic2studio.core.project.diffing import counted_diff  # noqa: E402
 from vic2studio.core.schema import (  # noqa: E402
+    AppendToList,
     CheckContext,
     Entities,
     Field,
+    GroupedIn,
+    MappingTable,
+    RepeatedKey,
     SingleFile,
 )
+from vic2studio.core.schema.docgen import render as render_doc  # noqa: E402
 from vic2studio.core.schema.fields import (  # noqa: E402
     DynamicKeys,
     Group,
+    Script,
     Section,
     field_text_key,
 )
@@ -49,7 +57,7 @@ from vic2studio.core.vfs.paths import VPath  # noqa: E402
 
 from _corpus import vanilla_root  # noqa: E402
 from _layers import isolate_appdirs  # noqa: E402
-from _minigame import build_minigame  # noqa: E402
+from _minigame import SCHEMA_GAME_FILES, build_minigame  # noqa: E402
 
 
 class SchemaContract(unittest.TestCase):
@@ -72,7 +80,7 @@ class SchemaContract(unittest.TestCase):
 
     def setUp(self):
         isolate_appdirs(self)
-        game = build_minigame(mod=True)
+        game = build_minigame(mod=True, game_files=SCHEMA_GAME_FILES)
         self.addCleanup(game.cleanup)
         self.project = Project.open(game.game_root, game.mod_root)
         self.addCleanup(self.project.close, discard=True)
@@ -89,6 +97,27 @@ class SchemaContract(unittest.TestCase):
 
     def _snapshot(self, handle) -> bytes:
         return codec_for(handle.kind).snapshot(handle.model)
+
+    @property
+    def create_values(self) -> dict:
+        """Lo que hace falta además de la plantilla para crear: el grupo en un ``GroupedIn`` de nivel 1."""
+        layout = self.schema.layout
+        if isinstance(layout, GroupedIn) and layout.level > 0:
+            document = self.project.ws.open(layout.path).model.document
+            return {"group": next(name for name, _, _ in layout.groups(document))}
+        return {}
+
+    def _new_values(self, ident: str) -> dict:
+        values = dict(self.schema.template(ident, self.entities.index)) if self.schema.template is not None else {}
+        values.update(self.create_values)
+        return values
+
+    def _container_of(self, ref):
+        """El bloque donde el layout pone lo nuevo, para comprobar que queda al final."""
+        record = self.entities.open(ref)
+        from vic2studio.core.schema.layouts import parent_block
+
+        return parent_block(record.handle.model.document, record._entry)
 
     # --- recorridos del esquema ---------------------------------------------------------
 
@@ -147,6 +176,44 @@ class SchemaContract(unittest.TestCase):
             for view in self.schema.views:
                 self.assertIn(f"schema.{kind}.view.{view.key}", texts,
                               f"{lang}: falta la vista {view.key}")
+            for key in (f"schema.{kind}.title", f"schema.{kind}.name", f"schema.{kind}.doc"):
+                self.assertIn(key, texts, f"{lang}: falta {key}")
+            for script in self._all_scripts():
+                self.assertIn(field_text_key(kind, script.key), texts, f"{lang}: falta el bloque {script.key}")
+            if self.schema.editable:
+                for action in ("create", "duplicate", "delete"):
+                    self.assertIn(f"undo.{action}_{kind}", texts, f"{lang}: falta la etiqueta de deshacer")
+
+    def _all_scripts(self) -> list:
+        found = []
+
+        def walk(items):
+            for item in items:
+                if isinstance(item, Section):
+                    walk(item.items)
+                elif isinstance(item, Script):
+                    found.append(item)
+
+        walk(self.schema.fields)
+        return found
+
+    def test_docgen(self):
+        """docgen da la página ES y EN del esquema sin claves sin traducir (criterio 7)."""
+        from vic2studio.core.schema.docgen import _render, _Texts
+
+        for lang in ("es", "en"):
+            texts = _Texts(lang)
+            page = _render(self.schema, texts)
+            self.assertEqual(texts.missing, [], f"{lang}: claves sin traducir en la referencia")
+            self.assertIn(f"(`{self.schema.kind}`)", page)
+            self.assertEqual(page, render_doc(self.schema, lang), "docgen no es determinista")
+
+    def test_list_finds_records(self):
+        """El minijuego tiene registros de este esquema y todos se abren (vista efectiva, I7)."""
+        summaries = self.entities.list(self.schema.kind)
+        self.assertTrue(summaries, "el minijuego no da registros de este esquema")
+        for summary in summaries:
+            self.assertEqual(self.entities.open(summary.ref).ref.ident, summary.ref.ident)
 
     def test_open_save_unchanged(self):
         ws = self.project.ws
@@ -211,9 +278,9 @@ class SchemaContract(unittest.TestCase):
                     self.assertEqual(record.dynamic(spec.name), before)
 
     def test_template_validates(self):
-        values = dict(self.schema.template("test_created", self.entities.index)) \
-            if self.schema.template is not None else {"type": "land"}
-        ref = self.entities.create(self.schema.kind, "test_created", values)
+        if not self.schema.editable:
+            return
+        ref = self.entities.create(self.schema.kind, "test_created", self._new_values("test_created"))
         record = self.entities.open(ref)
         errors = [p for p in record.issues(self._ctx()) if p.severity is Severity.ERROR]
         self.assertEqual(errors, [], "lo nuevo nace con errores")
@@ -226,41 +293,65 @@ class SchemaContract(unittest.TestCase):
         expected = [(spec, spec.template.replace("{id}", record.ref.ident)) for spec in self.schema.loc]
         self.assertEqual(record.loc_keys(), expected)
 
-    def test_companions(self):
-        if not self.schema.companions:
-            return
-        self.entities.create(self.schema.kind, "test_companion",
-                             dict(self.schema.template("test_companion", self.entities.index)))
-        handle = self.project.ws.open("common/rebel_types.txt")
-        document = handle.model.document
+    def _tables(self, rel: str, table_key: str) -> list:
+        handle = self.project.ws.open(rel)
         tables = []
 
         def walk(block):
             for entry in block.entries:
-                if entry.key is not None and entry.key.text == "government" \
-                        and hasattr(entry.value, "entries"):
+                if entry.key is not None and entry.key.text == table_key and hasattr(entry.value, "entries"):
                     tables.append(entry.value)
                 if hasattr(entry.value, "entries"):
                     walk(entry.value)
 
-        walk(document)
-        self.assertTrue(tables, "el minijuego tiene tablas de rebeldes")
-        for table in tables:
-            self.assertIsNotNone(table.find("test_companion"),
-                                 "el compañero no añadió la clave a todas las tablas")
+        walk(handle.model.document)
+        return tables
+
+    def test_companions(self):
+        """Crear pasa por cada compañero en la misma transacción, borrar quita lo suyo y un deshacer lo
+        devuelve todo (I5)."""
+        if not self.schema.companions or not self.schema.editable:
+            return
+        values = dict(self.schema.template("test_companion", self.entities.index)) \
+            if self.schema.template is not None else {}
+        values.update(self.create_values)
+        ref = self.entities.create(self.schema.kind, "test_companion", values)
+        self.assertEqual(len(self.project.ws.history()), 1, "crear con compañeros es una sola transacción")
+        for companion in self.schema.companions:
+            if isinstance(companion, MappingTable):
+                tables = self._tables(companion.rel, companion.table)
+                self.assertTrue(tables, "el minijuego tiene tablas de rebeldes")
+                for table in tables:
+                    self.assertIsNotNone(table.find("test_companion"),
+                                         "el compañero no añadió la clave a todas las tablas")
+            elif isinstance(companion, AppendToList):
+                handle = self.project.ws.open(companion.rel)
+                block = handle.model.document
+                for key in companion.path:
+                    block = block.find(key).value
+                values = [entry.value.text for entry in block.entries if entry.key is None]
+                self.assertEqual(values[-1], "test_companion", "no queda al final de la lista")
+        self.entities.delete(ref)
+        for companion in self.schema.companions:
+            if isinstance(companion, MappingTable):
+                for table in self._tables(companion.rel, companion.table):
+                    self.assertIsNone(table.find("test_companion"), "borrar no quita la fila de la matriz")
+            elif isinstance(companion, AppendToList):
+                handle = self.project.ws.open(companion.rel)
+                self.assertNotIn(b"test_companion", self._snapshot(handle), "borrar no lo quita de la lista")
+        self.project.ws.undo()
         self.project.ws.undo()
         self.assertEqual(self.project.ws.dirty(), [], "el deshacer no quita la creación")
 
     def test_placement(self):
-        ref = self.entities.create(self.schema.kind, "test_placed",
-                                   dict(self.schema.template("test_placed", self.entities.index))
-                                   if self.schema.template is not None else {"type": "land"})
-        if isinstance(self.schema.layout, SingleFile):
-            handle = self.project.ws.open(self.schema.layout.path)
-            document = handle.model.document
-            self.assertEqual(document.entries[-1].key.text, "test_placed",
-                             "lo nuevo no queda al final del archivo")
-        self.project.ws.undo()
+        if self.schema.editable:
+            ref = self.entities.create(self.schema.kind, "test_placed", self._new_values("test_placed"))
+            if isinstance(self.schema.layout, (SingleFile, RepeatedKey, GroupedIn)):
+                container = self._container_of(ref)
+                last = container.entries[-1]
+                self.assertIs(last.value, self.entities.open(ref).block,
+                              "lo nuevo no queda al final de su archivo o de su grupo")
+            self.project.ws.undo()
         # Campo nuevo en un registro existente: queda en su sitio del orden del esquema.
         summary = self.entities.list(self.schema.kind)[0]
         record = self.entities.open(summary.ref)

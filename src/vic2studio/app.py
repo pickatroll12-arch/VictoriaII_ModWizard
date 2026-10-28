@@ -22,12 +22,20 @@ SMOKE_KEYS = (
     "checks.cancel",                   # i18n/<idioma>/validation.json
     "texts.add.area",                  # i18n/<idioma>/localisation.json
     "kind.bookmark",                   # i18n/<idioma>/palette.json
+    "forms.undo_edit",                 # i18n/<idioma>/forms.json
+    "entity.tab.form",                 # i18n/<idioma>/entity.json
+    "pickers.goods.add",               # i18n/<idioma>/pickers.json
     "project.save_outside_mod",        # core/project/texts
     "issue.unclosed_block",            # core/validate/texts
     "issue.definition_bad_row",        # core/map/texts
     "issue.unknown_field",             # core/schemas/texts/schema
     "schema.government.section.elections",   # core/schemas/texts/government
     "schema.unit.field.attack",        # core/schemas/texts/unit
+    "schema.casus_belli.field.months",       # core/schemas/texts/casus_belli
+    "schema.bookmark.field.date",      # core/schemas/texts/bookmark
+    "schema.culture.field.color",      # core/schemas/texts/culture
+    "schema.event_modifier.field.icon",      # core/schemas/texts/event_modifier
+    "schema.technology.field.year",    # core/schemas/texts/readonly
 )
 
 

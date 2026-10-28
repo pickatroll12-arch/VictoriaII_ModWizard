@@ -485,7 +485,11 @@ class InMemoryTests(ReviewCase):
     """10: abrir un símbolo o un problema de un documento sin guardar llevaba al archivo del juego en una línea que
     no era la suya."""
 
-    def test_a_symbol_of_an_unsaved_copy_says_it_is_only_in_memory(self):
+    # Iteración 4 (ENCARGO_IT4, fase 4, límite de CONTINUAR §6): lo que solo está en memoria ya no se niega: se abre
+    # en el editor de texto, que enseña la memoria, en su línea. Las dos pruebas siguen comprobando lo que importaba
+    # (nunca se abre el archivo del disco, cuyas líneas son otras) y ahora, además, que se ve el documento en memoria.
+
+    def test_a_symbol_of_an_unsaved_copy_opens_the_memory_in_the_editor(self):
         window = self.open_checks()
         page = self.validate()
         self.apply_register(page)
@@ -497,11 +501,14 @@ class InMemoryTests(ReviewCase):
         files = window.page("project")
         before = files.shown_location()
         self.assertIsNone(session.location_path(symbol.rel, symbol.layer))
-        self.assertFalse(window.open_symbol(symbol))
-        self.assertEqual(window.status_label.text(), tr("status.location_in_memory", name="common/countries.txt"))
+        self.assertTrue(window.open_symbol(symbol))
         self.assertEqual(files.shown_location(), before, "no se abrió el countries.txt del juego")
+        editor = files.script_editor
+        self.assertEqual(editor.current_rel().key, VPath.of("common/countries.txt").key)
+        self.assertIn("SIL", editor.editor.toPlainText(), "se ve lo que hay en memoria (el registro de SIL)")
+        self.assertEqual(editor.editor.textCursor().blockNumber() + 1, symbol.line)
 
-    def test_a_problem_of_a_modified_file_asks_to_save_first(self):
+    def test_a_problem_of_a_modified_file_opens_the_memory_in_its_line(self):
         window = self.open_checks(mod_files={**MOD, "common/countries.txt": "AAA = \"countries/Aland.txt\"\r\n"})
         session = window.session
         with session.edit("pending.undo_revert", name="x"):
@@ -509,8 +516,10 @@ class InMemoryTests(ReviewCase):
             session.project.ws.replace_text(handle, b"# nuevo\r\nAAA = \"countries/Aland.txt\"\r\n")
         problem = FakeProblem("loc_key_missing", Severity.WARNING, VPath.of("common/countries.txt"), 2, None,
                               ("tag", "AAA"), (), MappingProxyType({"key": "AAA"}), False, ())
-        self.assertFalse(window.open_problem(problem))
-        self.assertEqual(window.status_label.text(), tr("status.location_unsaved", name="common/countries.txt"))
+        self.assertTrue(window.open_problem(problem))
+        editor = window.page("project").script_editor
+        self.assertTrue(editor.editor.toPlainText().startswith("# nuevo"), "se ve la memoria, no el disco")
+        self.assertEqual(editor.editor.textCursor().blockNumber(), 1, "en la línea del problema")
         session.save()
         self.assertTrue(window.open_problem(problem), "guardado, ya se abre en su línea")
 
