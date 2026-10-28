@@ -279,6 +279,49 @@ class GapTests(CriteriaCase):
         self.assertIn("\tduration = 48", rendered, "el set no escribió el campo")
         project.ws.undo()
 
+    def test_line_comment_survives_set_of_an_existing_field(self):
+        """Como la anterior, pero cambiando un campo que ya está: el valor se reescribe en su sitio y
+        el comentario de la línea vecina queda igual (revisión de la corrección)."""
+        from vic2studio.core.project.codecs import codec_for
+
+        project, entities, loc = self.open_minigame()
+        handle = project.ws.open("common/governments.txt")
+        original = codec_for(handle.kind).snapshot(handle.model)
+        edited = original.replace(b"council = {\r\n\tsocialist = yes\r\n\telection = yes\r\n",
+                                  b"council = {\r\n\tsocialist = yes\r\n"
+                                  b"\telection = yes  # election = no\r\n", 1)
+        self.assertNotEqual(edited, original, "el minijuego ya no tiene ese gobierno")
+        with project.ws.transaction("test.undo_edit", rel="common/governments.txt"):
+            project.ws.replace_text(handle, edited)
+        record = entities.open(RecordRef("government", "council"))
+        with project.ws.transaction("test.undo_edit", key="appoint_ruling_party", ident="council"):
+            record.set("appoint_ruling_party", not record.get("appoint_ruling_party"))
+        rendered = codec_for(handle.kind).snapshot(handle.model).decode("cp1252")
+        self.assertIn("election = yes  # election = no", rendered,
+                      "el comentario de la línea no sobrevive al set de un campo existente")
+
+    def test_new_records_report_their_own_lines(self):
+        """Tras ``duplicate`` y ``create``, las líneas del CST del registro nuevo son las del archivo:
+        los problemas e «ir al código» no señalan otro registro (revisión de la corrección)."""
+        from vic2studio.core.project.codecs import codec_for
+
+        project, entities, loc = self.open_minigame()
+        entities.duplicate(RecordRef("government", "council"), "council2")
+        entities.duplicate(RecordRef("unit", "infantry"), "my_unit")
+        entities.create("government", "junta", {"election": False, "appoint_ruling_party": True,
+                                                 "ideology": {"conservative": True}})
+        for ref in (RecordRef("government", "council2"), RecordRef("unit", "my_unit"),
+                    RecordRef("government", "junta")):
+            record = entities.open(ref)
+            lines = codec_for(record.handle.kind).snapshot(record.handle.model).split(b"\n")
+            for entry in record.block.entries:
+                if entry.key is None:
+                    continue
+                with self.subTest(ref=ref.ident, key=entry.key.text):
+                    self.assertIsNotNone(entry.line)
+                    self.assertTrue(lines[entry.line - 1].lstrip().startswith(entry.key.text.encode()),
+                                    (entry.line, lines[entry.line - 1]))
+
     @unittest.skipUnless(vanilla_root(), "sin corpus")
     def test_vanilla_views_are_11_land_and_10_naval(self):
         project, entities, _, _ = self.open_vanilla()

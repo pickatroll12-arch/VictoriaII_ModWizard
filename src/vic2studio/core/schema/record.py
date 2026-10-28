@@ -612,6 +612,7 @@ class Entities:
 
             for companion in schema.companions:
                 companion.on_create(EditContext(self.ws, self.index, self.loc), record)
+            self._reread(handle)
         return RecordRef(kind, ident, rel)
 
     def _build_block(self, schema: EntitySchema, ident: str, values: dict) -> Block:
@@ -690,7 +691,19 @@ class Entities:
 
             for companion in schema.companions:
                 companion.on_create(EditContext(self.ws, self.index, self.loc), record)
+            self._reread(handle)
         return RecordRef(ref.kind, new_ident, rel)
+
+    def _reread(self, handle) -> None:
+        """Vuelve a leer el documento tras insertar un registro, dentro de la misma transacción.
+
+        Los nodos nuevos no tienen posición y los de ``_clone_source_block`` llevan las del archivo
+        de origen (en ``governments.txt``, las de ``democracy`` para ``democracia2``): sin releer,
+        los problemas y «ir al código» del registro nuevo señalarían líneas de otro registro.
+        """
+        from ..project.codecs import codec_for
+
+        self.ws.replace_text(handle, codec_for(handle.kind).snapshot(handle.model))
 
     def delete(self, ref: RecordRef, *, force: bool = False) -> None:
         """Borra un registro en una transacción (compañeros y claves incluidas).
