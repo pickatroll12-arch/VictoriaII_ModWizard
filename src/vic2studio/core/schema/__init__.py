@@ -1,0 +1,209 @@
+"""Motor de esquemas: API pública (wizard §10).
+
+Declarar una entidad es un ``EntitySchema`` con su ``FileLayout``, sus campos
+(§10.2), sus claves de localización y sus validadores; el motor da la lista,
+la lectura y escritura sin pérdidas, la validación y las claves. El registro
+se descubre solo con ``pkgutil`` sobre ``core/schemas``.
+
+Todo Python puro: este módulo no importa Qt. Las dataclasses son congeladas y
+sin E/S, de modo que el agente de interfaz puede importarlas desde el commit
+de contrato.
+"""
+
+from __future__ import annotations
+
+from .companions import (
+    ActivateUnit,
+    AppendToList,
+    Ask,
+    Companion,
+    EditContext,
+    MappingTable,
+    RegisterTag,
+    UnitNamesSlot,
+)
+from .entity import (
+    EntitySchema,
+    HistorySpec,
+    IdRule,
+    IdSpec,
+    LocSpec,
+    Variant,
+    View,
+)
+from .fields import (
+    MISSING,
+    REMAINING_BLOCKS,
+    Children,
+    Condition,
+    DynamicKeys,
+    Field,
+    FieldLike,
+    Group,
+    Opaque,
+    Script,
+    Scope,
+    Section,
+    SetOps,
+    Values,
+    When,
+    field,
+)
+from .history import Effective, HistoryView
+from .layouts import (
+    BlockPath,
+    Descriptor,
+    FileLayout,
+    GroupedIn,
+    KeyedAcross,
+    NestedIn,
+    OnePerFile,
+    PairedKeys,
+    Registry,
+    RepeatedKey,
+    SingleFile,
+    Table,
+    TypedEntries,
+)
+from .placement import SchemaOrder, insertion_index, registry_index
+from .recipes import (
+    AppendToList as AppendToListStep,
+    AssignProvinces,
+    Conditional,
+    CopyRecord,
+    CreateRecord,
+    EnsureLoc,
+    Recipe,
+    RecipeContext,
+    RegistryLine,
+    Step,
+    WriteImages,
+)
+from .record import (
+    Entities,
+    EntityInUseError,
+    EntitySummary,
+    InvalidIdentError,
+    Record,
+    RecordRef,
+)
+from .registry import SchemaRegistry, registry
+from .types import (
+    Bool,
+    Color,
+    Date,
+    Enum,
+    Float,
+    FromSymbol,
+    Int,
+    ListOf,
+    LocKey,
+    Path,
+    Picture,
+    Ref,
+    SpriteFrame,
+    Text,
+    ValueType,
+    Word,
+    from_spec,
+)
+from .validate import CheckContext, RecordValidator, issue, validator
+
+__all__ = [
+    # contrato y servicio
+    "MISSING",
+    "EntitySchema",
+    "Entities",
+    "EntitySummary",
+    "Record",
+    "RecordRef",
+    "LocSpec",
+    "EntityInUseError",
+    "InvalidIdentError",
+    "registry",
+    "SchemaRegistry",
+    "CheckContext",
+    "RecordValidator",
+    "issue",
+    "validator",
+    # tipos (§10.1)
+    "ValueType",
+    "Int",
+    "Float",
+    "Bool",
+    "Date",
+    "Word",
+    "Text",
+    "Enum",
+    "Ref",
+    "Color",
+    "ListOf",
+    "Path",
+    "LocKey",
+    "SpriteFrame",
+    "Picture",
+    "FromSymbol",
+    "from_spec",
+    # campos (§10.2)
+    "Field",
+    "field",
+    "Group",
+    "DynamicKeys",
+    "Values",
+    "Children",
+    "Script",
+    "Opaque",
+    "Section",
+    "FieldLike",
+    "Condition",
+    "When",
+    "SetOps",
+    "Scope",
+    "REMAINING_BLOCKS",
+    # entidad (§10.3)
+    "IdSpec",
+    "IdRule",
+    "HistorySpec",
+    "Variant",
+    "View",
+    # disposición (§10.4)
+    "FileLayout",
+    "BlockPath",
+    "SingleFile",
+    "OnePerFile",
+    "PairedKeys",
+    "RepeatedKey",
+    "GroupedIn",
+    "Registry",
+    "NestedIn",
+    "TypedEntries",
+    "KeyedAcross",
+    "Table",
+    "Descriptor",
+    # historia y colocación (§10.6, §10.7)
+    "Effective",
+    "HistoryView",
+    "SchemaOrder",
+    "insertion_index",
+    "registry_index",
+    # compañeros y recetas (§10.8)
+    "Companion",
+    "EditContext",
+    "RegisterTag",
+    "AppendToList",
+    "MappingTable",
+    "ActivateUnit",
+    "UnitNamesSlot",
+    "Ask",
+    "Recipe",
+    "RecipeContext",
+    "Step",
+    "CreateRecord",
+    "CopyRecord",
+    "RegistryLine",
+    "AppendToListStep",
+    "EnsureLoc",
+    "WriteImages",
+    "AssignProvinces",
+    "Conditional",
+]

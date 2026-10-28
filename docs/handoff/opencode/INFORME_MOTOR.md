@@ -58,6 +58,49 @@ implementación punta a punta de `government` y `unit` (ENCARGO_MOTOR.md).
   (fixtures sintéticos inventados); los criterios 1, 2 y 4 usan el corpus real sobre copias.
 - El corpus real gana sobre §2/§14 en caso de conflicto; cualquier desviación se anota aquí.
 
+## Fase 1 — Contrato (hecho)
+
+**Entregado.** `core/schema/` con las firmas de §10.1–10.8, dataclasses congeladas, docstrings
+en español y `NotImplementedError` donde no hay lógica todavía:
+
+- `types.py`: `ValueType` (read/write/check/example/describe), `Int`, `Float`, `Bool`, `Date`,
+  `Word`, `Text`, `Enum`, `Ref`, `Color`, `ListOf`, `Path`, `LocKey`, `SpriteFrame`, `Picture`,
+  `FromSymbol` y `from_spec`.
+- `fields.py`: `MISSING`, `Field`, `Group`, `DynamicKeys`, `Values`, `Children`, `Script`,
+  `Opaque`, `Section`, `FieldLike`, `Condition`/`When`, `SetOps`, `Scope`, `REMAINING_BLOCKS`.
+- `entity.py`: `LocSpec`, `HistorySpec`, `Variant`, `View`, `EntitySchema`, `IdSpec`
+  (KEY/FIELD/FILE/COMPOSITE), `IdRule` (WORD/TAG/SNAKE/INT_RANGE).
+- `layouts.py`: `FileLayout` (Protocol, merge=LoadMode de la VFS), `BlockPath`, `SingleFile`,
+  `OnePerFile`, más `PairedKeys`/`RepeatedKey`/`GroupedIn`/`Registry`/`NestedIn`/`TypedEntries`/
+  `KeyedAcross`/`Table`/`Descriptor` como contrato.
+- `record.py`: `RecordRef`, `EntitySummary`, `Record` (API fija + los métodos extra de §10.5),
+  `Entities`, `InvalidIdentError` (con `.code`) y `EntityInUseError` (con `.uses`).
+- `history.py` y `recipes.py`: solo contrato (como pide el encargo). `placement.py`: `SchemaOrder`
+  e `insertion_index`/`registry_index` (reglas de §10.7).
+- `companions.py`: `Companion` (Protocol), `EditContext`, `RegisterTag`, `AppendToList`,
+  `MappingTable` (con `Ask()`), `ActivateUnit`, `UnitNamesSlot`.
+- `validate.py`: `@validator(código, gravedad)` (gravedad ES/EN por Severity de core.clausewitz),
+  `issue(código, rec, field=…)` → `Problem` de `core/validate/model.py`, `CheckContext`.
+- `registry.py`: descubrimiento por `pkgutil` sobre `core/schemas` (módulos con `SCHEMAS` y,
+  opcional, `RECIPES`), `registry.get(kind)` (`KeyError`), `registry.all_schemas()`, dos esquemas
+  con el mismo `kind` → `ValueError`. Paquete `core/schemas/__init__.py` creado.
+- `tests/test_schema_contract.py`: 10 pruebas en verde — la API pública fija importa, el ejemplo
+  de §10.10 se construye (con prefijo `contract_` en los códigos de validador para no chocar con
+  los reales del esquema `government`; se explica en el docstring), `core/schema` no importa Qt
+  (subproceso), dos esquemas con el mismo `kind` fallan y el contrato no implementado lanza
+  `NotImplementedError`.
+
+**Reglas.** Las 4 pruebas de reglas pasan (`test_arch_writes test_i18n test_packaging
+test_no_paradox_data`: `OK (skipped=1)`), así que el paquete nuevo respeta las capas, la sintaxis
+3.10 y los textos.
+
+**Batería completa al cerrar la fase.** 1508 pruebas, `failures=5`: los 4 de la línea base
+(3 pruebas de disposición por fuentes) + 1 que no quedó identificado (el registro solo guarda el
+final del pipeline y la máquina estaba cargada durante la pasada). `tests.test_schema_contract`
+pasa entero en solitario y el contrato no toca nada fuera de `core/schema` y su prueba, así que lo
+más probable es el fallo de latencia conocido de PRUEBAS.md §5; se confirma en la batería de
+cierre de la fase 2.
+
 ## Fases siguientes
 
 (Pendientes: se añaden las entradas al cerrar cada fase.)
