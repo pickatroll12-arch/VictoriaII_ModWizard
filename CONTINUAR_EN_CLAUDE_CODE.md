@@ -71,17 +71,21 @@ arreglarlo, deja una prueba de regresión que falle sin el arreglo y pasa la bat
   - capturas 21 a 26 en `docs/capturas/`.
 
   Los 8 criterios de wizard.md §22 se cumplen, los del corpus con los archivos reales del usuario.
-- **Pruebas** (28-10-2026): 1588 en 105 archivos.
+- **Pruebas** (28-10-2026, con la iteración 4): 1803 en 116 archivos.
   - Con el corpus real del usuario (release `recursos-v1`, descomprimido fuera del repositorio según §4, y copias
     de VSM y de la plantilla: nunca se abren las reales) pasan todas con Python 3.13.17 + PySide6 6.12.0. Solo se
     omite la clase base del arnés de esquemas, y no queda ningún `.vic2studio` en el corpus real.
   - Sin corpus pasan con 40 omitidas (39 de corpus y la clase base) con Python 3.10.20 + PySide6 6.11.3.
   - Las 1494 de la iteración 3 pasaron además con Python 3.10.20 + PySide6 6.5.0, Pillow 10.0 y numpy 1.24 (sin
     `XDG_RUNTIME_DIR`); esa combinación no se ha repetido con las pruebas nuevas.
-- **Iteración 4: completa en `opencode/it4-claude`** (Claude en OpenCode, encargo `ENCARGO_IT4.md`), pendiente
-  de la revisión de Claude Code (comprobaciones ocultas, corpus y mutantes). El informe, con las decisiones 1–4,
-  la tabla de criterios, los mutantes y las baterías, está en `docs/handoff/opencode/INFORME_IT4.md`. Lo
-  siguiente, tras revisarla e integrarla, es la iteración 5 (§5.4).
+- **Iteración 4: hecha e integrada** (rama `opencode/it4-claude`, Claude Opus 5.5 en OpenCode, encargo
+  `ENCARGO_IT4.md`; el PR #12 llevó antes a `main` el editor de texto y el corte del motor). Claude Code la puntuó
+  con comprobaciones ocultas selladas antes de ver el código (41 de 44), 11 de 11 mutantes y el corpus: **93/100 a
+  la primera**, sin fallos de producto. Al integrarla se actualizó una prueba de disposición desfasada (la franja de
+  Guerra ya cabe en una línea en inglés), la hoja de ruta pasó a «iteración 5 en curso» y `doc --kind` dejó de
+  empezar con una línea en blanco. El informe, con las decisiones 1–4, los criterios, los mutantes y la revisión,
+  está en `docs/handoff/opencode/INFORME_IT4.md`.
+- **Lo siguiente: la iteración 5, el editor de mapa** (§5.5).
 - **Segunda tanda de Gemini (G4–G7): hecha por Claude.** La plataforma de Gemini se cayó y el usuario pidió
   asumirlas. Son piezas del núcleo para iteraciones futuras, en archivos nuevos:
   - G4 (`8c33ae6`): `core/tablecsv.py` y `core/map/definition.py`;
@@ -172,7 +176,16 @@ CST vivo solo en el hilo de la interfaz, rango de ids de eventos, etc.
 
 ### Respuestas del usuario (wizard.md §24, 26-10-2026)
 
-Mandan sobre cualquier otra parte del diseño. En resumen:
+Mandan sobre cualquier otra parte del diseño. Dos más, del 28-10-2026, al cerrar la iteración 4:
+
+- **`first_names` y `last_names` son obligatorios en una cultura** cuando el mod parte de vanilla (las 226 de
+  vanilla los llevan); el esquema `culture` los marca así.
+- **`defines.lua` sin códec propio** mientras no compense: un códec solo si es barato. Hoy `end_date` se edita con
+  `core/lua_defines.py` y `Workspace.restore_bytes` (10 líneas, sin pérdidas y con deshacer), y un códec tocaría
+  `DocKind`, el registro de códecs, las reglas de carga y `test_project_codecs`. Se revisa si otra iteración
+  necesita editar más de `defines.lua`.
+
+Las del 26-10-2026, en resumen:
 
 1. Columnas de idioma de los CSV: inglés y español rellenos; opción `copy_en_to` para copiar el inglés al francés y
    al alemán.
@@ -399,12 +412,12 @@ El detalle de diseño está en ARCHITECTURE.md §2.3, §2.6, §2.7 y §8.1.1, y 
 
 ### Pruebas
 
-1588 pruebas en 105 archivos `tests/test_*.py`. Las del motor de esquemas son `test_schema_*` (con el arnés
+1803 pruebas en 116 archivos `tests/test_*.py`. Las del motor de esquemas son `test_schema_*` (con el arnés
 `tests/schema_harness.py`), y las del editor de texto, `test_textsplice` y `test_ui_script_editor`. Las de la iteración 3 son `test_index_*`, `test_validate_*`,
 `test_rules_*`, `test_lua_defines`, `test_locsync`, `test_loc_effective`, `test_ui_loc_edit`, `test_ui_validation`,
 `test_ui_palette`, `test_contract_it3`, `test_e2e_it3` y los tres `test_*_review_it3`; las de G4–G7,
-`test_tablecsv`, `test_map_*` y `test_gfx_*`. Sin corpus se omiten 40 (39 que necesitan vanilla, VSM o la
-plantilla reales, y la clase base del arnés de esquemas). Antes de la iteración 3 eran 1089 pruebas en 70 archivos (las de la iteración 1 más `test_vfs_*`, `test_project_*`,
+`test_tablecsv`, `test_map_*` y `test_gfx_*`. Sin corpus se omiten 54, las que necesitan vanilla, VSM o la
+plantilla reales. Antes de la iteración 3 eran 1089 pruebas en 70 archivos (las de la iteración 1 más `test_vfs_*`, `test_project_*`,
 `test_journal_*`, `test_undo_*`, `test_workspace_*`, `test_recovery_autosave`, `test_lock`, `test_arch_writes`,
 `test_texts`, `test_appdirs`, `test_modfile_write`, `test_ui_shell`, `test_ui_session`, `test_ui_descriptor`,
 `test_ui_new_mod`, `test_ui_roadmap`, `test_ui_real_project`, de Gemini `test_no_paradox_data`,
@@ -593,7 +606,7 @@ integración contra el núcleo real con la prueba de punta a punta de la ventana
 partes con sus correcciones, capturas 21 a 26 e informe. Los 8 criterios se cumplen (ARCHITECTURE.md §6.1). Lo
 que quedó sin código, con su motivo, está en §6.
 
-### 4. Iteración 4 (wizard.md §22): lo siguiente
+### 4. Iteración 4 (wizard.md §22): hecha (28-10-2026)
 
 Motor de esquemas y editor genérico: gobiernos, casus belli, bookmarks, culturas, unidades terrestres y navales
 (capacidades 4, 9, 10, 11, 12 y 13). Mismo ritmo.
@@ -622,6 +635,21 @@ deja preparado:
 - Las reglas nuevas se registran con `@rule` y necesitan `issue.<código>`, `explain.title.<código>` y
   `explain.outcome.<código>` en ES y EN. `test_validate_rules` exige un caso por código y una frase propia en el
   explicador.
+
+### 5. Iteración 5 (wizard.md §22): lo siguiente
+
+Editor de mapa: provincias, POPs, modos de mapa, regiones, continentes, climas y estrechos (capacidades 3 y 14),
+con el reparto de wizard.md §22 (agente A: `core/map/**` y los esquemas del mapa; agente B: `ui/map/**` y la sala
+Mapa). Lo que dejan preparado las iteraciones anteriores:
+
+- `core/map/{bmp,definition}.py` y `core/tablecsv.py` (G4–G5, sin pérdidas) y el índice de provincias, regiones,
+  continentes y climas (iteración 3).
+- El motor de esquemas (iteración 4): los esquemas del mapa (`province_history`, `pops`, `region`…) se escriben
+  como los de la 4, con su prueba de 3 líneas. `history.py` (historia fechada, §10.6) sigue como contrato y es la
+  pieza nueva más delicada de esta iteración: la historia de provincias depende de la fecha de trabajo.
+- `SectionSpec` y el registro de esquemas: las secciones de Mapa salen solas si su esquema declara `hall="map"`.
+- Las lecciones de las rondas con agentes (`docs/handoff/opencode/INFORME_*.md`): probar con el corpus real (el
+  mapa de vanilla es grande), medir el hilo de la interfaz y mantener la vista efectiva tras deshacer y guardar.
 
 ### Método de trabajo (wizard.md §20)
 
