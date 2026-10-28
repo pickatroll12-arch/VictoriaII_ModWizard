@@ -1,6 +1,8 @@
 """``textsplice``: recomponer lo tecleado sin cambiar las líneas que no se tocaron (I3)."""
 
+import random
 import sys
+import time
 import unittest
 from pathlib import Path
 
@@ -91,6 +93,58 @@ class ChangeTests(unittest.TestCase):
         original = "uno\r\ndos\n"
         result = splice(original, "uno\nDOS\n", "\r\n")
         self.assertEqual(result, "uno\r\nDOS\r\n")
+
+
+class CorrectionTests(unittest.TestCase):
+    """B1/B2 de la revisión: prefijo/sufijo, línea tras CR suelto y coste lineal en líneas repetidas."""
+
+    def test_a_lone_cr_before_a_new_empty_line_does_not_lose_the_line(self):
+        result = splice_text("a\rb\nc\n", "a\nb\nc\n", "a\n\nb\nc\n", "\n")
+        self.assertEqual(normalize_newlines(result), "a\n\nb\nc\n")
+
+    def test_random_edits_keep_the_view_and_do_not_touch_an_unchanged_text(self):
+        rng = random.Random(20261028)
+        contents = ("a", "b", "}", "", "x = 1")
+        endings = ("\r\n", "\n", "\r")
+        for _ in range(20_000):
+            count = rng.randrange(10)
+            pieces = []
+            for index in range(count):
+                content = rng.choice(contents)
+                if index == count - 1 and rng.random() < 0.5:
+                    pieces.append(content)
+                else:
+                    pieces.append(content + rng.choice(endings))
+            original = "".join(pieces)
+            old_view = normalize_newlines(original)
+            new_lines = old_view.split("\n")
+            for _ in range(rng.randrange(5)):
+                operation = rng.choice(("insert", "delete", "replace"))
+                if operation == "insert":
+                    new_lines.insert(rng.randrange(len(new_lines) + 1), rng.choice(contents))
+                elif operation == "delete" and len(new_lines) > 1:
+                    new_lines.pop(rng.randrange(len(new_lines)))
+                else:
+                    new_lines[rng.randrange(len(new_lines))] = rng.choice(contents)
+            new_view = "\n".join(new_lines)
+            newline = rng.choice(endings)
+            result = splice_text(original, old_view, new_view, newline)
+            self.assertEqual(normalize_newlines(result), new_view, (original, new_view, newline))
+            if new_view == old_view:
+                self.assertEqual(result, original)
+
+    def test_many_repeated_lines_are_cheap_with_one_change_in_the_middle(self):
+        lines = ["}"] * 150_000
+        original = "".join(line + "\r\n" for line in lines)
+        old_view = "\n".join(lines) + "\n"
+        changed = list(lines)
+        changed[75_000] = "cambio = 1"
+        new_view = "\n".join(changed) + "\n"
+        started = time.perf_counter()
+        result = splice_text(original, old_view, new_view, "\r\n")
+        elapsed = time.perf_counter() - started
+        self.assertEqual(normalize_newlines(result), new_view)
+        self.assertLess(elapsed, 1.0, f"{elapsed:.3f} s con 150 000 líneas")
 
 
 class PreconditionTests(unittest.TestCase):
