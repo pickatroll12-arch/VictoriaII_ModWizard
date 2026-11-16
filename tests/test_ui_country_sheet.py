@@ -171,12 +171,14 @@ class EditTests(SheetCase):
     def test_army_tab_adds_an_army_and_a_regiment(self):
         _page, sheet = self.open_sheet("BBB")
         editor = sheet.oob_editor
+        before = len(editor.armies)                       # el minijuego trae la «Borland Guard»
+        regiments = self.text_of("history/units/BBB_oob.txt").count("regiment = {")
         self.assertTrue(editor.add_army("army", "Ejército del Norte", 3))
-        self.assertEqual(len(editor.armies), 1)
+        self.assertEqual(len(editor.armies), before + 1)
         self.assertIn('oob = "BBB_oob.txt"', self.text_of("history/countries/BBB - Borland.txt"))
-        editor.tree.setCurrentItem(editor.tree.topLevelItem(0))
-        self.assertTrue(editor.add_unit(editor.armies[0].position, "1º de línea", "infantry", None))
-        self.assertIn("regiment = {", self.text_of("history/units/BBB_oob.txt"))
+        editor.tree.setCurrentItem(editor.tree.topLevelItem(before))
+        self.assertTrue(editor.add_unit(editor.armies[before].position, "1º de línea", "infantry", None))
+        self.assertEqual(self.text_of("history/units/BBB_oob.txt").count("regiment = {"), regiments + 1)
 
     def test_texts_follow_the_language(self):
         _page, sheet = self.open_sheet()

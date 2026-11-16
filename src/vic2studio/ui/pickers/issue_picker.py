@@ -10,6 +10,7 @@ from PySide6.QtCore import QSignalBlocker
 from PySide6.QtWidgets import QComboBox, QFormLayout, QLabel, QWidget
 
 from ...i18n import N_, tr
+from ..widgets import mark_data
 from .fields import _Picker
 
 POLITICAL = ("political_reforms", "social_reforms")
@@ -57,13 +58,13 @@ class IssuePicker(_Picker):
         self.combos.clear()
         self.labels.clear()
         for _category, group, options in self._groups():
-            combo = QComboBox()
+            combo = mark_data(QComboBox())           # opciones de reforma: nombres del juego o del mod
             combo.setObjectName(f"issue_{group}")
             combo.addItem("", None)
             for option in options:
                 combo.addItem(self._display("issue_option", option), option)
             combo.activated.connect(lambda _i: self.value_committed.emit(self.value()))
-            label = QLabel(self._display("issue_group", group))
+            label = mark_data(QLabel(self._display("issue_group", group)))
             self.form.addRow(label, combo)
             self.combos[group] = combo
             self.labels[group] = label

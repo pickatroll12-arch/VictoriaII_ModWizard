@@ -39,6 +39,19 @@ def loc_text(session, key: str) -> str | None:
     loc = getattr(session, "locsync", None)
     if loc is None or session.project is None:
         return None
+    # La base efectiva que la sesión guarda hasta que cambian los textos: preguntar a ``LocSync`` por cada clave
+    # comprueba las firmas de todos los CSV y, con los ~270 países de vanilla, congelaba la interfaz 4 s.
+    finder = getattr(session, "_loc_for_search", None)
+    db = finder() if callable(finder) else None
+    if db is not None:
+        for lang in (translator().language(), "en"):
+            try:
+                text = db.lookup(key, lang)
+            except (InvalidFieldError, KeyError, ValueError):
+                continue
+            if text:
+                return text
+        return None
     for lang in (translator().language(), "en"):
         try:
             return loc.text(key, lang)
