@@ -103,6 +103,20 @@ def parties_by_file(index) -> dict[str, dict[str, object]]:
     return found
 
 
+def suggest_party(own: dict, allowed, today: tuple[int, int, int]) -> str | None:
+    """El primer partido del archivo del país (en su orden) activo en ``today`` y con una ideología que admite el
+    gobierno (``allowed``; None: cualquiera). Es lo que propone el arreglo ``set_ruling_party``."""
+    for name, party in own.items():
+        ideology = party.attrs.get("ideology")
+        if allowed is not None and ideology not in allowed:
+            continue
+        start = _date_tuple(party.attrs.get("start")) or (0, 0, 0)
+        end = _date_tuple(party.attrs.get("end")) or (99999, 0, 0)
+        if start <= today < end:
+            return name
+    return None
+
+
 def country_file_of(index, tag: str) -> str | None:
     file = index.attrs(m.KIND_TAG, tag, "file")
     return path_name(file) if isinstance(file, str) else None
@@ -224,7 +238,7 @@ def country_files(ctx):
 
 
 @rule("ruling_party_not_of_country", E)
-@rule("ruling_party_ideology_not_allowed", W)
+@rule("ruling_party_ideology_not_allowed", W, fixes=("set_ruling_party",))
 def ruling_parties(ctx):
     index = ctx.index
     rules = ctx.rules
@@ -252,10 +266,11 @@ def ruling_parties(ctx):
         ideology = party.attrs.get("ideology") if party is not None else None
         if allowed is not None and ideology and ideology not in allowed:
             ref = first_ref(index, history.rel, "ruling_party", party_name)
+            today = (date.year, date.month, date.day)
             problems.append(make_problem(
                 "ruling_party_ideology_not_allowed", history.rel, ref.line if ref else history.line,
                 ref.column if ref else None, entity=entity, field=("ruling_party",), tag=tag, party=party_name,
-                ideology=ideology, government=government))
+                ideology=ideology, government=government, suggestion=suggest_party(own, allowed, today) or ""))
     return problems
 
 
@@ -437,7 +452,7 @@ def _date_tuple(text) -> tuple | None:
     return None if when is None else (when.year, when.month, when.day)
 
 
-@rule("ruling_party_inactive", W)
+@rule("ruling_party_inactive", W, fixes=("set_ruling_party",))
 def ruling_party_inactive(ctx):
     """El partido gobernante a la fecha de inicio (o de trabajo) no está activo ese día: su ``start_date`` es
     posterior o su ``end_date`` no es posterior. Vanilla: 11 países (heredados)."""
@@ -458,10 +473,13 @@ def ruling_party_inactive(ctx):
         if start <= today < end:
             continue
         ref = first_ref(index, history.rel, "ruling_party", name)
+        government = history_at(history, date).get("government")
+        allowed = ctx.rules.government_ideologies.get(government) if government else None
         problems.append(make_problem("ruling_party_inactive", history.rel, ref.line if ref else history.line,
                                      ref.column if ref else None, entity=(m.KIND_TAG, tag), field=("ruling_party",),
                                      tag=tag, party=name, start=party.attrs.get("start") or "",
-                                     end=party.attrs.get("end") or "", date=str(date)))
+                                     end=party.attrs.get("end") or "", date=str(date),
+                                     suggestion=suggest_party(parties.get(file, {}), allowed, today) or ""))
     return problems
 
 

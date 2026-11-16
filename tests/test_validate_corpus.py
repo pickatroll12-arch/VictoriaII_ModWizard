@@ -116,6 +116,10 @@ class VsmValidationTests(unittest.TestCase):
                          ("SOM", "SOM_socialist", "1848.1.1"))
         [ruling] = [p for p in warnings if p.code == "ruling_party_ideology_not_allowed"]
         self.assertEqual((ruling.args["party"], ruling.args["government"]), ("SOM_socialist", "absolute_monarchy"))
+        # Criterio 4 de la iteración 6: el aviso trae su arreglo, con un partido de Somalia activo y admitido.
+        self.assertEqual(ruling.fixes, ("set_ruling_party",))
+        self.assertTrue(ruling.args["suggestion"].startswith("SOM_"), ruling.args)
+        self.assertEqual(inactive.fixes, ("set_ruling_party",))
         self.assertEqual({p.args["policy"] for p in warnings if p.code == "party_unknown_policy"}, {"social_policy"})
         self.assertEqual(by_code["party_unknown_policy"], 35)
         [election] = [p for p in warnings if p.code == "government_election_without_duration"]

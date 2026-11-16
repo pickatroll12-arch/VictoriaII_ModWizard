@@ -7,7 +7,7 @@ en disco hasta que el usuario guarda. ``plan`` calcula el mismo cambio sin
 dejarlo aplicado (por ejemplo en una transacción que se revierte) y devuelve el
 diff. Catálogo de la iteración 3: ``register_tag``, ``convert_to_cp1252``,
 ``add_closing_brace``, ``restore_vanilla_loc_rows`` y ``trash_identical_copies``.
-Del cierre de la iteración 4: ``lower_min_port_level`` y ``move_camera_into_map``.
+Del cierre de la iteración 4: ``lower_min_port_level`` y ``move_camera_into_map``. De la 6: ``set_ruling_party``.
 
 Cómo se hace aquí: cada arreglo calcula, a partir de los bytes efectivos del
 archivo (el documento abierto si lo hay; si no, el ganador de la VFS), los bytes
@@ -474,6 +474,33 @@ def _move_camera(problem: Problem, project: Project) -> list[Edit]:
 
 
 _byte_fix("move_camera_into_map", lambda p: {"bookmark": p.args.get("bookmark", "")}, False, _move_camera)
+
+
+# --- set_ruling_party (iteración 6, criterio 4) ------------------------------------------------------
+# El partido gobernante no vale en la fecha de inicio (ideología que el gobierno no admite o partido inactivo):
+# se cambia por el que propone la regla (``args["suggestion"]``: el primero del país activo y admitido). Solo
+# cambia ese token; si la historia lo pone en un bloque fechado, el de la entrada sin fecha.
+
+
+def _set_ruling_party(problem: Problem, project: Project) -> list[Edit]:
+    party, suggestion = problem.args.get("party"), problem.args.get("suggestion")
+    if problem.rel is None or not party or not suggestion:
+        raise FixError(FIX_NOT_APPLICABLE)
+    state = current(project, problem.rel)
+    result = _parse(_require(state))
+    blocks = [result.document] + [e.value for e in result.document.entries
+                                  if e.key is not None and e.key.text[:1].isdigit() and hasattr(e.value, "entries")]
+    for block in blocks:
+        for entry in block.entries:
+            if entry.key is not None and entry.key.text == "ruling_party" and entry.value.__class__ is Scalar \
+                    and entry.value.text == party:
+                entry.value = Scalar(str(suggestion), entry.value.quoted)
+                return [Edit(state.rel, state, _render(result))]
+    raise FixError(FIX_NOTHING_TO_DO)
+
+
+_byte_fix("set_ruling_party", lambda p: {"tag": p.args.get("tag", ""), "party": p.args.get("party", ""),
+                                         "suggestion": p.args.get("suggestion", "")}, False, _set_ruling_party)
 
 
 # --- trash_identical_copies (decisión del usuario §24.4) ----------------------------------------------
