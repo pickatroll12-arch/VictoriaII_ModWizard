@@ -594,6 +594,24 @@ class CultureRenameTests(Case):
         self.assertEqual(self.loc.text("boreal_folk", "es"), "norteño")
 
 
+class IdThatIsAlsoAKeyTests(Case):
+    """Un id que coincide con el nombre de una clave: en ``culture = culture`` solo el valor es un uso."""
+
+    extra_game = {
+        CULTURES: CULTURES_TEXT.replace("\tcorlander = {", "\tculture = {"),
+        "history/countries/BBB - Borland.txt": _crlf("capital = 3\nprimary_culture = borlander\nculture = culture\n"),
+    }
+
+    def test_only_the_value_changes_when_the_key_is_not_a_use(self):
+        history = "history/countries/BBB - Borland.txt"
+        self.assertEqual([use.role for use in self.entities.index.refs_to("culture", "culture")
+                          if str(use.rel) == history], ["culture"], "una sola referencia: la del valor")
+        self.rename("culture", "culture", "corlander")
+        self.assertEqual(self.data(history), self.game_data(history).replace(b"culture = culture",
+                                                                             b"culture = corlander"))
+        self.assertEqual(self.data(CULTURES), self.game_data(CULTURES).replace(b"\tculture = {", b"\tcorlander = {"))
+
+
 class BookmarkRenameTests(Case):
     def test_the_id_is_the_name_field_and_its_description_follows(self):
         ref = self.rename("bookmark", "MG_START", "MG_BEGIN")
