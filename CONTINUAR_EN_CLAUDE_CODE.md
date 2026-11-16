@@ -85,7 +85,22 @@ arreglarlo, deja una prueba de regresión que falle sin el arreglo y pasa la bat
   Guerra ya cabe en una línea en inglés), la hoja de ruta pasó a «iteración 5 en curso» y `doc --kind` dejó de
   empezar con una línea en blanco. El informe, con las decisiones 1–4, los criterios, los mutantes y la revisión,
   está en `docs/handoff/opencode/INFORME_IT4.md`.
-- **Lo siguiente: la iteración 5, el editor de mapa** (§5.5).
+- **Iteración 5 (editor de mapa): hecha** (16-11-2026, Claude Code en un solo hilo, entregada en local sin subir;
+  `dba14ac`). Sala Mapa con Mundo (13 modos, ficha de provincia, POPs, brocha), Regiones, Continentes y climas y
+  Estrechos; fecha de trabajo global; historia fechada por intervalos de bookmark; `ProvincePicker` y «Elegir en
+  el mapa»; 20 reglas de coherencia del mapa; `tools/bench_map.py` (ráster 1,32 s, caché 0,05 s, modo 40–45 ms).
+  Batería con corpus: 1994 pruebas, 3 umbrales de tiempo de la interfaz sensibles a la carga de la máquina.
+- **Iteración 6 (países y guerras): hecha** (16-11-2026, mismo hilo). Núcleo en `core/domain/{tags,country,nation,
+  oob,war}.py` (TAG con sugerencias, `NewCountrySpec` → plan y creación en una transacción, fachada `Countries`
+  para la ficha, OOB, guerras y diplomacia sin pérdidas); 7 esquemas nuevos con su referencia; 13 reglas nuevas
+  (`ruling_party_inactive`, `capital_not_owned`, `flag_missing`, `flag_format`, `country_colors_missing`,
+  `map_color_duplicate`, `army_location_sea`, `navy_location_inland`, `regiment_type_mismatch`,
+  `wargoal_actor_not_in_war`, `wargoal_state_required`, `war_dates_order`, `war_inactive_at_bookmarks`) calibradas
+  contra vanilla; interfaz: asistente «Nuevo país» de 8 pasos, ficha nacional de 10 pestañas (se abre con doble
+  clic en el mapa), taller de banderas, editor de OOB, Guerras de inicio con línea temporal y «Nueva guerra», y
+  Diplomacia inicial. Pruebas nuevas: `test_country_create`, `test_schema_war`, `test_ui_country_wizard`,
+  `test_ui_country_sheet` y `test_ui_wars`.
+- **Lo siguiente: la iteración 7, Event Studio y decisiones** (wizard.md §22).
 - **Segunda tanda de Gemini (G4–G7): hecha por Claude.** La plataforma de Gemini se cayó y el usuario pidió
   asumirlas. Son piezas del núcleo para iteraciones futuras, en archivos nuevos:
   - G4 (`8c33ae6`): `core/tablecsv.py` y `core/map/definition.py`;

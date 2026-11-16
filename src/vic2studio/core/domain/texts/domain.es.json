@@ -9,5 +9,17 @@
   "undo.map_group_rename": "Renombrar {group} como {new}",
   "undo.map_group_delete": "Borrar {group}",
   "undo.map_adjacency_add": "Añadir el paso entre {start} y {end}",
-  "undo.map_adjacency_remove": "Quitar el paso entre {start} y {end}"
+  "undo.map_adjacency_remove": "Quitar el paso entre {start} y {end}",
+  "undo.new_country": "Crear el país {tag} ({name})",
+  "undo.country_set": "Cambiar {field} de {tag}",
+  "undo.country_tech": "Cambiar las tecnologías de {tag}",
+  "undo.country_reforms": "Cambiar las reformas de {tag}",
+  "undo.country_upper_house": "Cambiar la cámara alta de {tag}",
+  "undo.country_file": "Cambiar {field} del archivo de país de {tag}",
+  "undo.country_flags": "Sustituir las banderas de {tag}",
+  "undo.country_texts": "Cambiar los textos de {tag}",
+  "undo.oob_edit": "Editar el ejército de {tag}",
+  "undo.new_war": "Crear la guerra «{name}»",
+  "undo.diplomacy_add": "Añadir una relación entre {first} y {second}",
+  "undo.diplomacy_remove": "Quitar la relación entre {first} y {second}"
 }

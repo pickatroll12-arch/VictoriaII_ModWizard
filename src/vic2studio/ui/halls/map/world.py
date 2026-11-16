@@ -8,7 +8,7 @@ transacción por gesto: un campo de la ficha, un núcleo o un trazo de brocha so
 
 from __future__ import annotations
 
-from PySide6.QtCore import QSize, Qt, QTimer
+from PySide6.QtCore import QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QIcon, QPixmap
 from PySide6.QtWidgets import (
     QAbstractItemView, QCheckBox, QComboBox, QFormLayout, QHBoxLayout, QHeaderView, QLabel, QLineEdit, QListWidget,
@@ -61,6 +61,8 @@ def _swatch(color: int) -> QIcon:
 
 
 class WorldPage(BasePage):
+    entity_requested = Signal(str, str)     # doble clic en una provincia con dueño: la ficha de ese país
+
     key = "world"
     title_key = N_("section.map.world")
     subtitle_key = N_("map.world.subtitle")
@@ -103,6 +105,7 @@ class WorldPage(BasePage):
         self.canvas.setMinimumSize(320, 240)
         self.canvas.provinceHovered.connect(self._on_hover)
         self.canvas.strokeFinished.connect(self._on_stroke)
+        self.canvas.provinceDoubleClicked.connect(self.open_owner)
         self.empty = EmptyState("map")
         self.load_button = QPushButton()
         self.load_button.setObjectName("mapLoad")
@@ -482,6 +485,24 @@ class WorldPage(BasePage):
             return
         name = self.map.province_name(pid)
         self.hover_label.setText(tr("map.hover", id=pid, name=name or "—"))
+
+    def owner_of(self, pid: int) -> str | None:
+        """El dueño de ``pid`` en la fecha de trabajo (None si no tiene o no hay proyecto)."""
+        if not pid or self.session.project is None:
+            return None
+        try:
+            state = self.map.provinces.state(pid, self.session.working_date)
+        except Exception:  # noqa: BLE001 - un id fuera de definition.csv
+            return None
+        return (state.owner or "").upper() or None
+
+    def open_owner(self, pid: int) -> bool:
+        """Doble clic en el mapa: abre la ficha nacional del dueño (sala Naciones › Países)."""
+        owner = self.owner_of(pid)
+        if owner is None:
+            return False
+        self.entity_requested.emit("country_history", owner)
+        return True
 
     def _on_selection(self, pids) -> None:
         self._province = pids[-1] if pids else 0

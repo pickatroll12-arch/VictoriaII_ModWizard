@@ -23,8 +23,6 @@ from vic2studio.ui.widgets import RoadmapStrip  # noqa: E402
 # navales, y Modificadores, que llega con el esquema event_modifier) ya existen: salen del registro de esquemas.
 PLAN = {
     "map:forge": 9,
-    "nations:countries": 6,
-    "war:wars": 6, "war:diplomacy": 6,
     "events:events": 7, "events:decisions": 7,
     "interface:windows": 8, "interface:sprites": 8, "interface:images": 8,
 }
@@ -34,7 +32,8 @@ READY = {"project:home", "project:descriptor", "project:files", "project:validat
          "localisation:all", "localisation:pending", "localisation:csv",
          "nations:cultures", "nations:governments", "war:bookmarks", "war:cb", "war:land", "war:naval",
          "events:modifiers",
-         "map:world", "map:regions", "map:climates", "map:straits"}   # iteración 5
+         "map:world", "map:regions", "map:climates", "map:straits",   # iteración 5
+         "nations:countries", "war:wars", "war:diplomacy"}            # iteración 6
 
 
 class ColumnsTests(unittest.TestCase):
@@ -54,9 +53,9 @@ class ColumnsTests(unittest.TestCase):
 
 
 class PlanTests(unittest.TestCase):
-    def test_plan_has_ten_milestones_and_iteration_5_is_current(self):
+    def test_plan_has_ten_milestones_and_iteration_6_is_current(self):
         self.assertEqual(len(ROADMAP_KEYS), 10)
-        self.assertEqual(CURRENT_ITERATION, 5)
+        self.assertEqual(CURRENT_ITERATION, 6)
 
     def test_every_section_is_ready_or_planned_with_its_iteration(self):
         found = {}

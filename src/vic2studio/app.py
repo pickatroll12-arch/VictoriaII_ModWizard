@@ -26,6 +26,8 @@ SMOKE_KEYS = (
     "entity.tab.form",                 # i18n/<idioma>/entity.json
     "pickers.goods.add",               # i18n/<idioma>/pickers.json
     "map.hover",                       # i18n/<idioma>/map.json
+    "countries.new",                   # i18n/<idioma>/countries.json
+    "war.new.button",                  # i18n/<idioma>/war.json
     "project.save_outside_mod",        # core/project/texts
     "issue.unclosed_block",            # core/validate/texts
     "issue.definition_bad_row",        # core/map/texts

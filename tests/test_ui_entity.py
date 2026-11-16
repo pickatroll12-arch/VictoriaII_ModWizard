@@ -149,7 +149,8 @@ class SectionWindowTests(EntityWindowCase):
                 rail.refresh_badges()
                 self.assertEqual(rail.rail.buttons[rail.section_index(section)].badge, len(idents))
         self.assertNotIsInstance(window.page("war:cb"), PlannedSectionPage)
-        self.assertIsInstance(window.page("war:wars"), PlannedSectionPage)
+        self.assertNotIsInstance(window.page("war:wars"), PlannedSectionPage)   # iteración 6: página propia
+        self.assertIsInstance(window.page("events:events"), PlannedSectionPage)
 
     def test_without_a_project_the_page_says_so(self):
         window = self.make_window()

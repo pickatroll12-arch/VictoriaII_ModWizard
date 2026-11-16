@@ -154,6 +154,7 @@ class MainWindow(QMainWindow):
             hall.status_requested.connect(self.show_status)
             hall.navigate_requested.connect(self.navigate)
             hall.save_requested.connect(self.save_project)
+            hall.entity_requested.connect(self._on_entity_requested)
             hall.sectionChanged.connect(lambda section, h=index: self._on_section_changed(h, section))
             action = QAction(self)
             action.setObjectName(f"goto_{spec.key}")
@@ -751,6 +752,9 @@ class MainWindow(QMainWindow):
                 return f"{host.hall}:{view.section}", ref
             return f"{host.hall}:{host.section}", ref
         return None
+
+    def _on_entity_requested(self, kind: str, ident: str) -> None:
+        self.open_entity(kind, ident)
 
     def open_entity(self, kind: str, ident: str, field=(), rel=None) -> bool:
         """El editor de la entidad ``kind:ident`` en su sección y, con ``field``, en ese campo. False si no hay

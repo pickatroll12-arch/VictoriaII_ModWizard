@@ -6,10 +6,20 @@
   "pickers.goods.amount": "Cantidad",
   "pickers.goods.good": "Bien",
   "pickers.goods.remove": "Quitar",
+  "pickers.issue.keep": "(sin cambio)",
+  "pickers.list.add": "Añadir",
+  "pickers.list.remove": "Quitar",
+  "pickers.list.up": "Subir",
   "pickers.names.count": "{count} nombres",
   "pickers.names.dedupe": "Quitar repetidos",
   "pickers.names.not_cp1252": "El juego no puede mostrar: {names}",
   "pickers.sprite.of": "de {count}",
   "pickers.sprite.placeholder": "fotograma",
-  "pickers.symbol.placeholder": "Buscar por id o nombre…"
+  "pickers.symbol.placeholder": "Buscar por id o nombre…",
+  "pickers.tech.apply": "Aplicar plantilla",
+  "pickers.tech.count": "{n} marcadas",
+  "pickers.tech.template.civilized": "Civilizado (año de inicio)",
+  "pickers.tech.template.like": "Como otro país",
+  "pickers.tech.template.uncivilized": "No civilizado (ninguna)",
+  "pickers.tech.title": "Tecnologías"
 }

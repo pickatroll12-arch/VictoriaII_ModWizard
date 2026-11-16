@@ -27,6 +27,7 @@ class HallPage(QWidget):
     status_requested = Signal(str, object)
     navigate_requested = Signal(str)   # «sala:sección» o la clave de una página
     save_requested = Signal()
+    entity_requested = Signal(str, str)   # (kind, ident): el editor de esa entidad (iteración 6: ficha de país)
 
     def __init__(self, spec: HallSpec, sections: list[SectionSpec], session, parent: QWidget | None = None):
         super().__init__(parent)
@@ -53,7 +54,7 @@ class HallPage(QWidget):
             self.widgets.append(widget)
             self.stack.addWidget(widget)
             self.rail.add_button(section.icon)
-            for name in ("status_requested", "navigate_requested", "save_requested"):
+            for name in ("status_requested", "navigate_requested", "save_requested", "entity_requested"):
                 signal = getattr(widget, name, None)
                 if signal is not None:
                     signal.connect(getattr(self, name))

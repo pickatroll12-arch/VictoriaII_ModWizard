@@ -107,6 +107,7 @@ class MapCanvas(QGraphicsView):
     provinceHovered = Signal(int)                 # id bajo el cursor (0: ninguno); solo cuando cambia
     provinceClicked = Signal(int, object)         # (id, Qt.KeyboardModifiers) con PICK_NONE
     provincePicked = Signal(int)                  # con PICK_SINGLE y PICK_MULTI
+    provinceDoubleClicked = Signal(int)           # doble clic (id; 0 fuera de toda provincia), con PICK_NONE
     strokeFinished = Signal(object)               # tuple[int, ...] de un trazo de PICK_BRUSH, en orden
     viewChanged = Signal()                        # desplazamiento o zoom
 
@@ -491,6 +492,13 @@ class MapCanvas(QGraphicsView):
                 event.accept()
                 return
         super().mousePressEvent(event)
+
+    def mouseDoubleClickEvent(self, event) -> None:  # noqa: N802
+        if event.button() == Qt.MouseButton.LeftButton and self._pick_mode == PICK_NONE:
+            self.provinceDoubleClicked.emit(self.province_at(event.position().toPoint()))
+            event.accept()
+            return
+        super().mouseDoubleClickEvent(event)
 
     def mouseMoveEvent(self, event) -> None:  # noqa: N802
         pos = event.position().toPoint()

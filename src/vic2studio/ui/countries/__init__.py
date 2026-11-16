@@ -28,3 +28,20 @@ def countries_facade(session):
     if entities is None:
         return None
     return Countries(entities, session.map.rules() if hasattr(session, "map") else None)
+
+
+def loc_text(session, key: str) -> str | None:
+    """El texto de ``key`` en la localización del proyecto, en el idioma de la interfaz si la localización lo
+    tiene y si no en inglés (None si no hay)."""
+    from ...core.csvloc.model import InvalidFieldError
+    from ...i18n import translator
+
+    loc = getattr(session, "locsync", None)
+    if loc is None or session.project is None:
+        return None
+    for lang in (translator().language(), "en"):
+        try:
+            return loc.text(key, lang)
+        except InvalidFieldError:      # idioma de la interfaz sin columna en los CSV (el pseudoidioma de pruebas)
+            continue
+    return None

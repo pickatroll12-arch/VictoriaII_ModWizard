@@ -22,7 +22,7 @@ from __future__ import annotations
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
-    QButtonGroup, QCheckBox, QComboBox, QDialog, QDoubleSpinBox, QFormLayout, QGridLayout, QHBoxLayout, QLabel,
+    QButtonGroup, QCheckBox, QComboBox, QDialog, QDoubleSpinBox, QFormLayout, QGridLayout, QHBoxLayout, QHeaderView, QLabel,
     QLineEdit, QListWidget, QListWidgetItem, QPlainTextEdit, QPushButton, QRadioButton, QSpinBox, QSplitter,
     QStackedWidget, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
 )
@@ -35,7 +35,7 @@ from ...pickers.fields import ColorField, SymbolPicker
 from ...pickers.issue_picker import IssuePicker
 from ...pickers.province_picker import LAND, MapPickDialog, ProvincePicker
 from ...pickers.tag_picker import TagPicker
-from ...pickers.tech_tree import TEMPLATE_CIVILIZED, TEMPLATE_LIKE, TEMPLATE_UNCIVILIZED, TEMPLATES, TechChecklist
+from ...pickers.tech_tree import TEMPLATES, TechChecklist
 from ...widgets import make_icon, mark_data
 from .. import countries_facade, domain_context
 from ..flag_studio import FlagStudio
@@ -344,7 +344,10 @@ class NewCountryWizard(QDialog):
         self.plan_table = mark_data(QTableWidget(0, 3))
         self.plan_table.setObjectName("planTable")
         self.plan_table.verticalHeader().hide()
-        self.plan_table.horizontalHeader().setStretchLastSection(True)
+        header = self.plan_table.horizontalHeader()
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
         self.plan_table.itemSelectionChanged.connect(self._show_diff)
         splitter.addWidget(self.plan_table)
         self.diff_view = mark_data(QPlainTextEdit())
@@ -367,17 +370,17 @@ class NewCountryWizard(QDialog):
         self.next_button.setText(tr(N_("countries.wizard.next")))
         self.create_button.setText(tr(N_("countries.wizard.create")))
         self.save_check.setText(tr(N_("countries.wizard.save_at_end")))
-        for label, key in zip(self.id_labels, (N_("countries.f.name_en"), N_("countries.f.name_es"),
-                                               N_("countries.f.adj_en"), N_("countries.f.adj_es"),
-                                               N_("countries.f.tag"), N_("countries.f.base_on"))):
+        for label, key in zip(self.id_labels, (N_("countries.field.name_en"), N_("countries.field.name_es"),
+                                               N_("countries.field.adj_en"), N_("countries.field.adj_es"),
+                                               N_("countries.field.tag"), N_("countries.field.base_on"))):
             label.setText(tr(key))
         self.base_button.setText(tr(N_("countries.wizard.base_fill")))
-        for label, key in zip(self.flag_labels, (N_("countries.f.color"), N_("countries.f.graphical_culture"),
-                                                 N_("countries.f.uniform"), N_("countries.f.flags"))):
+        for label, key in zip(self.flag_labels, (N_("countries.field.color"), N_("countries.field.graphical_culture"),
+                                                 N_("countries.field.uniform"), N_("countries.field.flags"))):
             label.setText(tr(key))
         self.uniform_check.setText(tr(N_("countries.wizard.uniform")))
-        for label, key in zip(self.people_labels, (N_("countries.f.primary_culture"), N_("countries.f.cultures"),
-                                                   N_("countries.f.religion"))):
+        for label, key in zip(self.people_labels, (N_("countries.field.primary_culture"), N_("countries.field.cultures"),
+                                                   N_("countries.field.religion"))):
             label.setText(tr(key))
         self.party_template.setText(tr(N_("countries.wizard.parties_template")))
         self.party_copy.setText(tr(N_("countries.wizard.parties_copy")))
@@ -385,13 +388,13 @@ class NewCountryWizard(QDialog):
                                                     tr(N_("countries.party.ideology")),
                                                     tr(N_("countries.party.dates")),
                                                     tr(N_("countries.party.policies"))])
-        for label, key in zip(self.gov_labels, (N_("countries.f.government"), N_("countries.f.ruling_party"),
-                                                N_("countries.f.plurality"), N_("countries.f.literacy"),
-                                                N_("countries.f.prestige"), N_("countries.f.nationalvalue"),
-                                                N_("countries.f.school"), N_("countries.f.civilized"))):
+        for label, key in zip(self.gov_labels, (N_("countries.field.government"), N_("countries.field.ruling_party"),
+                                                N_("countries.field.plurality"), N_("countries.field.literacy"),
+                                                N_("countries.field.prestige"), N_("countries.field.nationalvalue"),
+                                                N_("countries.field.school"), N_("countries.field.civilized"))):
             label.setText(tr(key))
-        self.reforms_title.setText(tr(N_("countries.f.reforms")))
-        self.upper_title.setText(tr(N_("countries.f.upper_house")))
+        self.reforms_title.setText(tr(N_("countries.field.reforms")))
+        self.upper_title.setText(tr(N_("countries.field.upper_house")))
         for i in range(self.tech_template.count()):
             self.tech_template.setItemText(i, tr(TEMPLATES[self.tech_template.itemData(i)]))
         self.tech_apply.setText(tr(N_("pickers.tech.apply")))
@@ -399,8 +402,8 @@ class NewCountryWizard(QDialog):
         self.province_add.setText(tr(N_("countries.wizard.add_province")))
         self.province_map.setText(tr(N_("countries.wizard.pick_on_map")))
         self.province_remove.setText(tr(N_("countries.wizard.remove_province")))
-        for label, key in zip(self.terr_labels, (N_("countries.f.cores"), N_("countries.f.capital"),
-                                                 N_("countries.f.army"), N_("countries.f.army_type"))):
+        for label, key in zip(self.terr_labels, (N_("countries.field.cores"), N_("countries.field.capital"),
+                                                 N_("countries.field.army"), N_("countries.field.army_type"))):
             label.setText(tr(key))
         self.review_intro.setText(tr(N_("countries.wizard.review_intro")))
         self.plan_table.setHorizontalHeaderLabels([tr(N_("countries.plan.file")), tr(N_("countries.plan.action")),
@@ -570,13 +573,10 @@ class NewCountryWizard(QDialog):
     # --- paso 6 -----------------------------------------------------------------------------------
 
     def apply_tech_template(self) -> None:
-        from ...pickers.tech_tree import TechTreeDialog
-
-        helper = TechTreeDialog.template.__get__(self)       # misma lógica que el diálogo
-        key = self.tech_template.currentData()
-        self.tech_checklist.set_selected(helper(key, self.tech_like.value()))
+        self.tech_checklist.set_selected(self.template(self.tech_template.currentData(), self.tech_like.value()))
 
     def template(self, key: str, tag: str | None = None) -> set[str]:
+        """Las tecnologías de la plantilla ``key`` (misma lógica que ``TechTreeDialog``)."""
         from ...pickers.tech_tree import TechTreeDialog
 
         return TechTreeDialog.template(self, key, tag)

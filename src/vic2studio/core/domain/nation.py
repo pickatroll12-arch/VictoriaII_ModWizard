@@ -40,7 +40,8 @@ UNCIV_CATEGORIES = ("economic_reforms", "military_reforms")
 
 
 class NationError(ValueError):
-    """``no_history`` (el TAG no tiene historia), ``bad_value`` (un valor que no se puede escribir)."""
+    """``no_history`` (el TAG no tiene historia), ``no_file`` (no tiene archivo de país), ``bad_value`` (un valor
+    que no se puede escribir)."""
 
     def __init__(self, code: str, tag: str, detail: str = "") -> None:
         self.code = code
@@ -201,6 +202,38 @@ class Countries:
 
         return country_file_of(self.index, tag.upper()) if self.index is not None else None
 
+    def cultures(self, tag: str, date) -> list[str]:
+        """Las culturas aceptadas vigentes en ``date`` (``culture = …`` acumulativas)."""
+        view = self.view(tag, date)
+        if view is None:
+            return []
+        return [str(item.value) for item in view.get_set("culture")]
+
+    def country_record(self, tag: str):
+        """El registro ``country`` del archivo de país que nombra ``countries.txt`` (None si no hay)."""
+        from ..index.model import KIND_TAG
+        from ..schema.record import RecordRef
+        from ..vfs.paths import VPath
+
+        file = self.index.attrs(KIND_TAG, tag.upper(), "file") if self.index is not None else None
+        if not isinstance(file, str) or not file.strip('"'):
+            return None
+        rel = VPath.of("common/" + file.strip('"'))
+        try:
+            return self.entities.open(RecordRef("country", rel.name.lower(), rel))
+        except (KeyError, LookupError, FileNotFoundError, ValueError):
+            return None
+
+    def file_value(self, tag: str, key: str) -> object:
+        """Un campo del archivo de país (``color``, ``graphical_culture``); None si no hay."""
+        from ..schema import MISSING
+
+        record = self.country_record(tag)
+        if record is None:
+            return None
+        value = record.get(key)
+        return None if value is MISSING else value
+
     def provinces(self, tag: str, date) -> list[int]:
         """Las provincias cuyo dueño en ``date`` es ``tag`` (de las historias del índice)."""
         from ..index.model import KIND_PROVINCE_HISTORY
@@ -268,6 +301,69 @@ class Countries:
         else:
             _append(view, target, key, Scalar(text))
         return True
+
+    def set_cultures(self, tag: str, wanted: Iterable[str], date) -> list[str]:
+        """Deja aceptadas exactamente ``wanted`` en ``date``; devuelve las que cambiaron."""
+        view = self._writable(tag, date)
+        current = {name.upper(): name for name in self.cultures(tag, date)}
+        wanted = [name for name in wanted if name]
+        changed = []
+        for name in [current[key] for key in current if key not in {w.upper() for w in wanted}]:
+            view.remove("culture", name)
+            changed.append(name)
+        for name in wanted:
+            if name.upper() not in current and view.add("culture", name) is not None:
+                changed.append(name)
+        return changed
+
+    def set_file_value(self, tag: str, key: str, value: object) -> bool:
+        """Escribe un campo del archivo de país; False si ya valía eso. ``NationError("no_file")`` si no hay."""
+        record = self.country_record(tag)
+        if record is None:
+            raise NationError("no_file", tag)
+        if self.file_value(tag, key) == value:
+            return False
+        try:
+            record.set(key, value)
+        except (KeyError, ValueError) as exc:
+            raise NationError("bad_value", tag, f"{key}: {exc}") from None
+        return True
+
+    def add_party(self, tag: str, name: str, ideology: str, start_date: str = "1800.1.1",
+                  end_date: str = "2000.1.1", policies: Mapping[str, str] | None = None) -> None:
+        """Añade un ``party = { … }`` al archivo de país, tras el último (H12: el nombre puede repetirse)."""
+        record = self.country_record(tag)
+        if record is None:
+            raise NationError("no_file", tag)
+        if not name.strip() or not ideology:
+            raise NationError("bad_value", tag, "party")
+        block = Block()
+        block.append("name", Scalar(name.strip(), True))
+        block.append("start_date", Scalar(start_date))
+        block.append("end_date", Scalar(end_date))
+        block.append("ideology", Scalar(ideology))
+        for key, option in (policies or {}).items():
+            if option:
+                block.append(key, Scalar(option))
+        record._touch()
+        parties = record.block.find_all("party")
+        if parties:
+            record.block.insert_after(parties[-1], "party", block)
+        else:
+            record.block.append("party", block)
+
+    def remove_party(self, tag: str, position: int) -> str:
+        """Quita el partido ``position`` (orden del archivo); devuelve su nombre."""
+        record = self.country_record(tag)
+        if record is None:
+            raise NationError("no_file", tag)
+        groups = record.groups("party")
+        if not 0 <= position < len(groups):
+            raise NationError("bad_value", tag, f"party #{position}")
+        name = groups[position].block.get_text("name") or ""
+        record._touch()
+        record.block.remove_entry(record.groups("party")[position]._entry)
+        return name
 
     def set_technologies(self, tag: str, wanted: Iterable[str], date) -> list[str]:
         """Deja conocidas exactamente ``wanted`` (de las tecnologías e invenciones del índice); devuelve las que

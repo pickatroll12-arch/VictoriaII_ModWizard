@@ -62,6 +62,7 @@ class TechChecklist(QWidget):
         self.count_label = QLabel()
         self.count_label.setObjectName("techCount")
         layout.addWidget(self.count_label)
+        translator().languageChanged.connect(self._on_language)
         self.reload()
 
     def reload(self) -> None:
@@ -114,6 +115,9 @@ class TechChecklist(QWidget):
     def _on_item_changed(self, *args) -> None:
         self._count()
         self.changed.emit()
+
+    def _on_language(self, code: str) -> None:
+        self._count()
 
     def _count(self) -> None:
         self.count_label.setText(tr(N_("pickers.tech.count"), n=len(self.selected())))

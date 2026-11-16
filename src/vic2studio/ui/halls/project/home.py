@@ -20,7 +20,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from PySide6.QtCore import QDir, QPointF, QRectF, QSize, Qt, Signal
+from PySide6.QtCore import QDir, QRectF, QSize, Qt, Signal
 from PySide6.QtGui import QLinearGradient, QPainter, QPen
 from PySide6.QtWidgets import (
     QAbstractButton,
@@ -57,8 +57,8 @@ FLOWS = (
     (N_("home.flow.government"), "crown", None, "nations:governments"),
     (N_("home.flow.culture"), "culture", None, "nations:cultures"),
     (N_("home.flow.provinces"), "map", None, "map:world"),
-    (N_("home.flow.country"), "countries", 6, "nations:countries"),
-    (N_("home.flow.war"), "swords", 6, "war:wars"),
+    (N_("home.flow.country"), "countries", None, "nations:countries"),   # iteración 6
+    (N_("home.flow.war"), "swords", None, "war:wars"),
     (N_("home.flow.event"), "events", 7, "events:events"),
     (N_("home.flow.decision"), "quill", 7, "events:decisions"),
     (N_("home.flow.window"), "window", 8, "interface:windows"),

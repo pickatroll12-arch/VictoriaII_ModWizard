@@ -41,6 +41,21 @@ RELATION_FILES = {"alliance": "Alliances.txt", "vassal": "PuppetStates.txt", "su
                   "union": "Unions.txt", "guarantee": "Guarantees.txt"}
 
 
+# Opciones de paz (``po_*`` del CB, atributo ``po`` del índice) que piden un estado o un tercer país en el objetivo.
+STATE_PO = frozenset({"po_demand_state", "po_transfer_provinces"})
+THIRD_PARTY_PO = frozenset({"po_release_puppet", "po_transfer_provinces"})
+
+
+def goal_needs(index, casus_belli: str | None) -> tuple[bool, bool]:
+    """``(estado, tercer país)``: qué datos admite un objetivo con ese CB, según sus ``po_*``."""
+    from ..index.model import KIND_CB
+
+    if index is None or not casus_belli:
+        return (False, False)
+    options = set((index.attrs(KIND_CB, casus_belli, "po") or ()))
+    return (bool(options & STATE_PO) and "po_annex" not in options, bool(options & THIRD_PARTY_PO))
+
+
 class WarError(ValueError):
     """``code``: ``no_name``, ``no_date``, ``no_sides`` (falta atacante o defensor), ``same_side`` (un TAG en los
     dos bandos), ``dates_order`` (el fin no es posterior al inicio), ``file_exists``, ``relation_type``,
@@ -300,6 +315,13 @@ def _quoted_date(text: str | None) -> str | None:
 def add_relation(project: Project, kind: str, first: str, second: str, start_date: str,
                  end_date: str | None = None) -> VPath:
     """Añade una relación al final de su archivo (``RELATION_FILES``) en una transacción ``undo.diplomacy_add``."""
+    with project.ws.transaction(UNDO_RELATION_ADD, kind=kind, first=first, second=second):
+        return put_relation(project, kind, first, second, start_date, end_date)
+
+
+def put_relation(project: Project, kind: str, first: str, second: str, start_date: str,
+                 end_date: str | None = None) -> VPath:
+    """``add_relation`` dentro de la transacción de quien llama (la de la interfaz, con ``Session.edit``)."""
     if kind not in RELATION_TYPES:
         raise WarError("relation_type", kind)
     if first.upper() == second.upper():
@@ -315,31 +337,37 @@ def add_relation(project: Project, kind: str, first: str, second: str, start_dat
     block.append("start_date", Scalar(start_date, True))
     if end_date:
         block.append("end_date", Scalar(end_date, True))
-    with project.ws.transaction(UNDO_RELATION_ADD, kind=kind, first=first, second=second):
-        handle = project.ws.open(rel, create=True)
-        project.ws.touch(handle)
-        handle.model.document.append(kind, block)
+    if end_date and (not is_date(end_date) or not is_date(start_date) or _date_key(end_date) <= _date_key(start_date)):
+        raise WarError("dates_order", end_date)
+    handle = project.ws.open(rel, create=True)
+    project.ws.touch(handle)
+    handle.model.document.append(kind, block)
     return rel
 
 
 def remove_relation(project: Project, relation: Relation) -> None:
     """Quita esa entrada (la de su posición, si sigue siendo la misma relación)."""
-    if relation.rel is None:
-        raise WarError("relation_type", relation.type)
     with project.ws.transaction(UNDO_RELATION_REMOVE, kind=relation.type, first=relation.first,
                                 second=relation.second):
-        handle = project.ws.open(relation.rel)
-        doc = handle.model.document
-        entries = list(doc.entries)
-        target = entries[relation.position] if relation.position < len(entries) else None
-        ok = (target is not None and target.key is not None and target.key.text.lower() == relation.type
-              and isinstance(target.value, Block)
-              and (target.value.get_text("first") or "").upper() == relation.first.upper()
-              and (target.value.get_text("second") or "").upper() == relation.second.upper())
-        if not ok:
-            raise WarError("relation_type", relation.type)
-        project.ws.touch(handle)
-        doc.remove_entry(target)
+        drop_relation(project, relation)
+
+
+def drop_relation(project: Project, relation: Relation) -> None:
+    """``remove_relation`` dentro de la transacción de quien llama."""
+    if relation.rel is None:
+        raise WarError("relation_type", relation.type)
+    handle = project.ws.open(relation.rel)
+    doc = handle.model.document
+    entries = list(doc.entries)
+    target = entries[relation.position] if relation.position < len(entries) else None
+    ok = (target is not None and target.key is not None and target.key.text.lower() == relation.type
+          and isinstance(target.value, Block)
+          and (target.value.get_text("first") or "").upper() == relation.first.upper()
+          and (target.value.get_text("second") or "").upper() == relation.second.upper())
+    if not ok:
+        raise WarError("relation_type", relation.type)
+    project.ws.touch(handle)
+    doc.remove_entry(target)
 
 
 def wars(project: Project) -> list[tuple[VPath, WarModel]]:
@@ -373,5 +401,6 @@ def leaders(spec: WarSpec) -> tuple[str | None, str | None]:
 
 __all__: Sequence[str] = (
     "WarError", "WarGoal", "WarEvent", "WarModel", "WarSpec", "Relation", "read_war", "war_text", "check_war",
-    "build_war", "create_war", "plan_war", "relations", "add_relation", "remove_relation", "wars",
+    "build_war", "create_war", "plan_war", "relations", "add_relation", "remove_relation", "put_relation",
+    "drop_relation", "wars",
 )
