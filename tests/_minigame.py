@@ -307,6 +307,11 @@ RULES_FILES: dict[str, str | bytes] = {
     "history/wars/Old War.txt": _crlf('name = "Old War"\n1830.1.1 = {\n\tadd_attacker = AAA\n\tadd_defender = BBB\n'
                                       "\twar_goal = {\n\t\tcasus_belli = conquer_land\n\t\tactor = AAA\n"
                                       "\t\treceiver = BBB\n\t}\n}\n"),
+    # Colores de uniforme de AAA y BBB (CCC no tiene: country_colors_missing es informativo).
+    "common/country_colors.txt": _crlf("AAA = {\n\tcolor1 = { 10 20 30 }\n\tcolor2 = { 200 200 200 }\n"
+                                       "\tcolor3 = { 0 0 0 }\n}\nBBB = {\n\tcolor1 = { 40 50 60 }\n}\n"),
+    "history/units/AAA_oob.txt": _crlf('army = {\n\tname = "Aland Guard"\n\tlocation = 1\n'
+                                       '\tregiment = { name = "1st Guard" type = infantry home = 1 }\n}\n'),
     "history/diplomacy/Alliances.txt": _crlf('alliance = {\n\tfirst = AAA\n\tsecond = CCC\n\tstart_date = "1830.1.1"\n'
                                              '\tend_date = "1900.1.1"\n}\n'),
     # El evento 1003 lanza el 1999, que no existe (como el 11108 de vanilla: event_ref_missing heredado).

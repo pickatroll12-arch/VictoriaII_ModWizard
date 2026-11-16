@@ -164,9 +164,9 @@ class MainWindowTests(UiTestCase):
         self.assertIs(window.page("project"), window.hall("project").section_widget("files"))
         self.assertIs(window.page("localisation"), window.hall("localisation").section_widget("csv"))
         self.assertIs(window.page("home"), window.page("project:home"))
-        # war:cb ya no es una tarjeta planificada (iteración 4): la comprobación pasa a war:wars.
-        self.assertIsInstance(window.page("war:wars"), PlannedSectionPage)
-        self.assertIs(window.page("war.wars"), window.page("war:wars"))
+        # war:wars ya no es una tarjeta planificada (iteración 6): la comprobación pasa a events:events.
+        self.assertIsInstance(window.page("events:events"), PlannedSectionPage)
+        self.assertIs(window.page("events.events"), window.page("events:events"))
         for bad in ("nope", "war:nope", "nope:cb"):
             with self.assertRaises(KeyError):
                 window.page(bad)
@@ -319,14 +319,15 @@ class MainWindowTests(UiTestCase):
                                  else SectionRail.TALL_STRIP_HEIGHT, (lang, current.spec.key))
                 if slim:
                     self.assertTrue(all("\n" not in b.label_text() for b in current.rail.buttons))
-        # A 1100 px y en español, Proyecto (cinco secciones) cabe en placas bajas y Guerra (seis), no: así se
-        # prueban las dos alturas. El idioma se fija aquí: el bucle de arriba acaba en inglés, donde desde la
-        # iteración 4 Guerra también cabe (cuatro de sus secciones llevan un contador en vez de «It. N»).
+        # Desde la iteración 6 todas las salas caben en placas bajas a 1100 px, también en español (Guerras y
+        # Diplomacia ya no llevan «It. 6»). La altura alta se prueba con la franja de Guerra a la mitad de ancho.
         set_language("es")
-        for key, fits in (("project", True), ("war", False)):
+        for key in ("project", "war"):
             window.set_current_hall(next(i for i, hall in enumerate(window.halls) if hall.spec.key == key))
             _qt.process_events(20)
-            self.assertEqual(window.hall(key).rail.strip_fits_one_line(), fits, key)
+            self.assertTrue(window.hall(key).rail.strip_fits_one_line(), key)
+        war = window.hall("war").rail
+        self.assertFalse(war.strip_fits_one_line(war.width() // 2), "a media franja, seis secciones no caben")
 
     def test_planned_sections_say_their_iteration(self):
         window = self.make_window()

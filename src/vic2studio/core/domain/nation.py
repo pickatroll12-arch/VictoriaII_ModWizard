@@ -220,7 +220,7 @@ class Countries:
             return None
         rel = VPath.of("common/" + file.strip('"'))
         try:
-            return self.entities.open(RecordRef("country", rel.name.lower(), rel))
+            return self.entities.open(RecordRef("country", f"countries/{rel.name.lower()}", rel))
         except (KeyError, LookupError, FileNotFoundError, ValueError):
             return None
 

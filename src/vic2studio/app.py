@@ -51,6 +51,13 @@ SMOKE_KEYS = (
     "schema.default_map.field.sea_starts",   # core/schemas/texts/default_map
     "schema.adjacency.field.through",  # core/schemas/texts/adjacency
     "undo.province_set",               # core/domain/texts
+    "schema.country.title",            # core/schemas/texts/country
+    "schema.country_colors.title",     # core/schemas/texts/country_colors
+    "schema.country_history.title",    # core/schemas/texts/country_history
+    "schema.country_registry.title",   # core/schemas/texts/country_registry
+    "schema.diplomacy.title",          # core/schemas/texts/diplomacy
+    "schema.oob.title",                # core/schemas/texts/oob
+    "schema.war.title",                # core/schemas/texts/war
     "schema.event.title",              # core/schemas/texts/event
     "schema.decision.title",           # core/schemas/texts/decision
     "schema.mtth.unit.months",         # core/schemas/texts/mtth

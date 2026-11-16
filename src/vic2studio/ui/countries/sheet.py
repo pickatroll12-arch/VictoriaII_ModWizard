@@ -105,7 +105,7 @@ class NationalSheet(QWidget):
         self.flag_label = QLabel()
         self.flag_label.setObjectName("sheetFlag")
         self.flag_label.setFixedSize(97, 68)
-        self.title = QLabel()
+        self.title = mark_data(QLabel())         # nombre del país y TAG: datos del mod
         self.title.setObjectName("sheetTitle")
         self.title.setProperty("role", "title")
         self.date_label = QLabel()
@@ -191,7 +191,7 @@ class NationalSheet(QWidget):
                 form.addRow(label, cultures)
             else:
                 form.addRow(label, widget)
-        self.file_info = QLabel()
+        self.file_info = mark_data(QLabel())     # rutas de archivo: datos
         self.file_info.setObjectName("sheetFiles")
         self.file_info.setWordWrap(True)
         self.file_info.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)

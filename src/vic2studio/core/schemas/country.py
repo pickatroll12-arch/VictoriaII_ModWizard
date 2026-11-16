@@ -14,9 +14,10 @@ from ..vfs.paths import VPath
 
 
 def file_key(rel: VPath) -> str | None:
-    """``common/countries/Prussia.txt`` → ``prussia.txt`` (el nombre de símbolo ``country_file`` del índice)."""
+    """``common/countries/Prussia.txt`` → ``countries/prussia.txt``: el nombre del símbolo ``country_file`` del
+    índice (la ruta como la escribe ``countries.txt``, sin mayúsculas)."""
     name = VPath.of(rel).name
-    return name.lower() if name.lower().endswith(".txt") else None
+    return f"countries/{name.lower()}" if name.lower().endswith(".txt") else None
 
 
 COUNTRY = EntitySchema(
