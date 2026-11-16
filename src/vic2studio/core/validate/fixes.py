@@ -7,6 +7,7 @@ en disco hasta que el usuario guarda. ``plan`` calcula el mismo cambio sin
 dejarlo aplicado (por ejemplo en una transacción que se revierte) y devuelve el
 diff. Catálogo de la iteración 3: ``register_tag``, ``convert_to_cp1252``,
 ``add_closing_brace``, ``restore_vanilla_loc_rows`` y ``trash_identical_copies``.
+Del cierre de la iteración 4: ``lower_min_port_level`` y ``move_camera_into_map``.
 
 Cómo se hace aquí: cada arreglo calcula, a partir de los bytes efectivos del
 archivo (el documento abierto si lo hay; si no, el ganador de la VFS), los bytes
@@ -422,6 +423,57 @@ def _restore_rows(problem: Problem, project: Project) -> list[Edit]:
 # repetida), no las claves que se ven rotas (``rows``): en VSM, 3 438 frente a 3 427.
 _byte_fix("restore_vanilla_loc_rows",
           lambda p: {**_file_args(p), "rows": p.args.get("lines", p.args.get("rows", 0))}, True, _restore_rows)
+
+
+# --- lower_min_port_level (§14.12) y move_camera_into_map (§14.10) -------------------------------------
+# Los dos sustituyen un valor (``safe=False``: piden confirmación) y cambian solo ese token. El valor nuevo sale
+# de los ``args`` del problema (el máximo del puerto, el tamaño del mapa): es lo que dice la etiqueta del arreglo.
+
+
+def _lower_port_level(problem: Problem, project: Project) -> list[Edit]:
+    from ..index.parsing import as_int
+    from .rules.units import unit_block
+
+    highest = problem.args.get("max")
+    if problem.rel is None or problem.entity is None or not isinstance(highest, int):
+        raise FixError(FIX_NOT_APPLICABLE)
+    state = current(project, problem.rel)
+    result = _parse(_require(state))
+    block = unit_block(result.document, problem.entity[1])
+    entry = None if block is None else block.find("min_port_level")
+    level = as_int(entry.value.text) if entry is not None and entry.value.__class__ is Scalar else None
+    if level is None or level <= highest:
+        raise FixError(FIX_NOTHING_TO_DO)
+    entry.value = Scalar(str(highest))
+    return [Edit(state.rel, state, _render(result))]
+
+
+_byte_fix("lower_min_port_level", lambda p: {"unit": p.args.get("unit", ""), "max": p.args.get("max", "")}, False,
+          _lower_port_level)
+
+
+def _move_camera(problem: Problem, project: Project) -> list[Edit]:
+    """Cada coordenada que cae fuera pasa al borde más cercano (0 o el tamaño); la que está dentro no se toca."""
+    from .rules.bookmarks import bookmark_entries, camera_outside
+
+    size = (problem.args.get("width"), problem.args.get("height"))
+    if problem.rel is None or problem.entity is None or not all(isinstance(v, int) and v > 0 for v in size):
+        raise FixError(FIX_NOT_APPLICABLE)
+    state = current(project, problem.rel)
+    result = _parse(_require(state))
+    moved = False
+    for name, bookmark in bookmark_entries(result.document):
+        if name != problem.entity[1]:
+            continue
+        for entry, value, limit in camera_outside(bookmark.value, size):
+            entry.value = Scalar(str(0 if value < 0 else limit))
+            moved = True
+    if not moved:
+        raise FixError(FIX_NOTHING_TO_DO)
+    return [Edit(state.rel, state, _render(result))]
+
+
+_byte_fix("move_camera_into_map", lambda p: {"bookmark": p.args.get("bookmark", "")}, False, _move_camera)
 
 
 # --- trash_identical_copies (decisión del usuario §24.4) ----------------------------------------------

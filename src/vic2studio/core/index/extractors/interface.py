@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from ...clausewitz.nodes import Scalar
-from ..model import KIND_GUI_WINDOW, KIND_IMAGE, KIND_SPRITE, extractor
+from ..model import ACTOR_KIND, KIND_GUI_WINDOW, KIND_IMAGE, KIND_SPRITE, extractor
 from ..parsing import as_int, document
 from ._support import Facts, path_name
 
@@ -11,6 +11,9 @@ from ._support import Facts, path_name
 TEXTURE_KEYS = ("texturefile", "texturefile1", "texturefile2")
 # Ventanas de primer nivel de un .gui.
 WINDOW_TYPES = frozenset({"windowtype", "eu3dialogtype"})
+# Tipo de ``objectTypes`` que es un modelo animado: los de las unidades (``<cultura gráfica><sprite>``, §14.4) y los
+# edificios del mapa. Los demás (``billboardType``, ``meshType``, ``mapinfo``…) no los nombra ninguna unidad.
+ACTOR_TYPE = "emfxactortype"
 
 
 @extractor("interface/*.gfx", version=1)
@@ -40,6 +43,24 @@ def sprites(rel, data, layer):
             facts.define(KIND_SPRITE, name, entry.line, {
                 "type": entry.key.text, "texture": textures[0] if textures else None, "textures": textures,
                 "frames": frames if frames is not None else 1})
+    return facts.result()
+
+
+@extractor("interface/*.gfx", version=1)
+def actors(rel, data, layer):
+    """Cada ``EMFXActorType = { name = … }`` de ``objectTypes`` (vanilla: 294 en 19 archivos, 285 nombres). Extractor
+    aparte del de sprites: el mismo archivo se analiza una vez (``parsing.document``) y añadirlo no invalida la
+    caché de los demás."""
+    facts = Facts(rel, layer)
+    for root in document(data).entries:
+        if root.key is None or root.value.__class__ is Scalar or root.key.text.lower() != "objecttypes":
+            continue
+        for entry in root.value.entries:
+            if entry.key is None or entry.value.__class__ is Scalar or entry.key.text.lower() != ACTOR_TYPE:
+                continue
+            name = entry.value.get_text("name", ignore_case=True)
+            if name:
+                facts.define(ACTOR_KIND, name, entry.line, {"type": entry.key.text})
     return facts.result()
 
 
