@@ -52,6 +52,7 @@ class ReviewPanel(QWidget):
         self.plan: list = []
         self.groups: list = []
         self._confirm_boxes: dict[str, QCheckBox] = {}
+        self._confirm_rows: list[QWidget] = []
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         top = QHBoxLayout()
@@ -163,17 +164,29 @@ class ReviewPanel(QWidget):
             item.setToolTip(0, issue.code)
             self.tree.addTopLevelItem(item)
         keep = {k: b.isChecked() for k, b in self._confirm_boxes.items()}
-        for box in self._confirm_boxes.values():
-            self.confirm_box.removeWidget(box)
-            box.deleteLater()
+        for row_widget in self._confirm_rows:
+            self.confirm_box.removeWidget(row_widget)
+            row_widget.deleteLater()
+        self._confirm_rows.clear()
         self._confirm_boxes.clear()
         for issue in self.issues:
             if issue.needs_confirmation and issue.code not in self._confirm_boxes:
-                box = QCheckBox(tr("forge.review.confirm", problem=issue.message(_lang())))
+                # La casilla va sin texto y la frase en una etiqueta que se parte en líneas: una casilla con una
+                # frase larga ensancharía la columna entera.
+                row_widget = QWidget()
+                row_layout = QHBoxLayout(row_widget)
+                row_layout.setContentsMargins(0, 0, 0, 0)
+                box = QCheckBox()
                 box.setObjectName(f"forgeConfirm_{issue.code}")
                 box.setChecked(keep.get(issue.code, False))
                 box.toggled.connect(lambda _on: self._update_buttons())
-                self.confirm_box.addWidget(box)
+                label = QLabel(tr("forge.review.confirm", problem=issue.message(_lang())))
+                label.setObjectName(f"forgeConfirmText_{issue.code}")
+                label.setWordWrap(True)
+                row_layout.addWidget(box, 0, Qt.AlignmentFlag.AlignTop)
+                row_layout.addWidget(label, 1)
+                self.confirm_box.addWidget(row_widget)
+                self._confirm_rows.append(row_widget)
                 self._confirm_boxes[issue.code] = box
         self.tabs.setTabText(0, tr("forge.review.tab.problems", count=len(self.issues)))
         self.why_title.clear()

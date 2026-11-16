@@ -81,6 +81,58 @@ class ExportTests(unittest.TestCase):
         self.assertTrue(saved.result is None or not saved.result.written)
         self.assertFalse((self.game.mod_root / "map" / "provinces.bmp").exists())
 
+    def test_a_failure_halfway_leaves_the_mod_as_it_was(self):
+        """Criterio 7: un fallo a mitad de la exportación revierte la transacción entera (todo antes)."""
+        from unittest import mock
+
+        from vic2studio.core.project import binary
+        from vic2studio.core.vfs.model import LayerKind
+
+        p = self.project
+        world = tiny_world(3)
+        inputs = ex.gather_inputs(p, world)
+        files, _ = ex.render_files(world, inputs)
+        real = binary.put_bytes
+        calls = []
+
+        def flaky(ws, rel, data):
+            calls.append(rel)
+            if len(calls) == len(files) // 2:
+                raise OSError("fallo inyectado")
+            return real(ws, rel, data)
+
+        with mock.patch.object(binary, "put_bytes", flaky), self.assertRaises(OSError):
+            ex.apply_export(p, files, inputs)
+        self.assertEqual(len(calls), len(files) // 2)
+        self.assertFalse(p.ws.can_undo())
+        self.assertEqual(p.ws.dirty(), [])
+        self.assertIs(p.vfs.resolve("map/provinces.bmp").layer.kind, LayerKind.GAME)
+
+    def test_the_mod_keeps_no_foreign_histories_after_exporting(self):
+        """Criterio 7: las historias y POPs que el mod ya tenía bajo las carpetas reemplazadas van a la papelera."""
+        self.game.cleanup()
+        self.project.close()
+        old = {"history/provinces/zz/1 - Vieja.txt": "owner = AAA\r\n",
+               "history/pops/1836.1.1/zz_viejas.txt": "1 = { farmers = { culture = alander religion = catholic "
+                                                       "size = 10 } }\r\n"}
+        self.game = build_map_minigame(clean=True, mod_files=old)
+        self.addCleanup(self.game.cleanup)
+        from vic2studio.core.project.project import Project
+
+        p = Project.open(self.game.game_root, self.game.mod_root)
+        self.addCleanup(p.close)
+        world = tiny_world(3)
+        inputs = ex.gather_inputs(p, world)
+        self.assertTrue(set(old) <= set(inputs.mod_trash))
+        files, _ = ex.render_files(world, inputs)
+        ex.apply_export(p, files, inputs)
+        p.save()
+        for rel in old:
+            self.assertFalse((self.game.mod_root / rel).exists(), rel)
+        mine = {str(e.rel) for e in p.vfs.list("history/provinces", "*", recursive=True)
+                if e.layer.kind.name == "MOD"}
+        self.assertEqual(mine, {rel for rel in files if rel.startswith("history/provinces/")})
+
     def test_audit_finds_old_province_ids_in_events(self):
         p = self.project
         world = tiny_world(3)
