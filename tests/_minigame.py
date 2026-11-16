@@ -452,6 +452,33 @@ SCHEMA_GAME_FILES: dict[str, str] = {
                                         "\tlocal_supply = -0.5\n}\n"),
     # Un tipo de modificador de otro archivo con el mismo «kind» del índice: no es un modificador de evento.
     "common/static_modifiers.txt": _crlf("mg_static = {\n\tprestige = 1\n}\n"),
+    # Un elemento de cada tipo de .gui (inventados): para que cada esquema de la sala Interfaz tenga un registro.
+    "interface/mg_elements.gui": _crlf(
+        "guiTypes = {\n"
+        "\twindowType = {\n\t\tname = \"mg_all\"\n\t\tposition = { x = 0 y = 0 }\n\t\tsize = { x = 300 y = 200 }\n"
+        "\t\tguiButtonType = {\n\t\t\tname = \"mg_all_button\"\n\t\t\tposition = { x = 10 y = 10 }\n"
+        "\t\t\tquadTextureSprite = \"GFX_mg_button\"\n\t\t\tbuttonText = \"OK\"\n\t\t}\n"
+        "\t\tinstantTextBoxType = {\n\t\t\tname = \"mg_all_itext\"\n\t\t\tposition = { x = 10 y = 40 }\n"
+        "\t\t\tfont = \"vic_18\"\n\t\t\ttext = \"MG\"\n\t\t\tmaxWidth = 100\n\t\t}\n"
+        "\t\ttextBoxType = {\n\t\t\tname = \"mg_all_text\"\n\t\t\tposition = { x = 10 y = 60 }\n"
+        "\t\t\tfont = \"vic_18\"\n\t\t\tmaxWidth = 100\n\t\t}\n"
+        "\t\tcheckboxType = {\n\t\t\tname = \"mg_all_check\"\n\t\t\tposition = { x = 10 y = 80 }\n"
+        "\t\t\tquadTextureSprite = \"GFX_mg_button\"\n\t\t}\n"
+        "\t\tlistboxType = {\n\t\t\tname = \"mg_all_list\"\n\t\t\tposition = { x = 10 y = 100 }\n"
+        "\t\t\tsize = { x = 100 y = 50 }\n\t\t\tspacing = 2\n\t\t}\n"
+        "\t\tscrollbarType = {\n\t\t\tname = \"mg_all_scroll\"\n\t\t\tposition = { x = 120 y = 100 }\n"
+        "\t\t\tsize = { x = 100 y = 16 }\n\t\t\thorizontal = 1\n\t\t\tmaxvalue = 10\n\t\t}\n"
+        "\t\tOverlappingElementsBoxType = {\n\t\t\tname = \"mg_all_overlap\"\n\t\t\tposition = { x = 10 y = 160 }\n"
+        "\t\t\tsize = { x = 100 y = 20 }\n\t\t\tspacing = 1\n\t\t}\n"
+        "\t\teditBoxType = {\n\t\t\tname = \"mg_all_edit\"\n\t\t\tposition = { x = 120 y = 130 }\n"
+        "\t\t\tsize = { x = 100 y = 20 }\n\t\t\tfont = \"vic_18\"\n\t\t}\n"
+        "\t\tshieldtype = {\n\t\t\tname = \"mg_all_shield\"\n\t\t\tposition = { x = 250 y = 10 }\n"
+        "\t\t\tspriteType = \"GFX_mg_icon\"\n\t\t}\n"
+        "\t}\n"
+        "\teu3dialogtype = {\n\t\tname = \"mg_all_dialog\"\n\t\tposition = { x = 0 y = 0 }\n"
+        "\t\tsize = { x = 200 y = 100 }\n\t}\n"
+        "\tpositionType = {\n\t\tname = \"mg_all_pos\"\n\t\tposition = { x = 5 y = 5 }\n\t}\n"
+        "}\n"),
 }
 
 # Un país con nombres de barcos (``unit_names``): para el compañero UnitNamesSlot.

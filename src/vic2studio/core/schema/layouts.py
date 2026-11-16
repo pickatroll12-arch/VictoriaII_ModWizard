@@ -574,6 +574,17 @@ class GuiElements:
     keys: tuple[str, ...]
     merge: LoadMode = LoadMode.UNION_BY_PATH
 
+    @property
+    def id_field(self) -> str:
+        """El id (la ruta) sale del ``name`` del elemento: cambiarlo en el formulario rompería la referencia."""
+        return "name"
+
+    @property
+    def renamable(self) -> bool:
+        """Un elemento no se renombra: el ejecutable lo busca por su nombre (§17.4), y el código del juego no se
+        puede reescribir como un uso más."""
+        return False
+
     def _folder_pattern(self) -> tuple[str, str]:
         folder, _, pattern = self.glob.rpartition("/")
         return folder, pattern

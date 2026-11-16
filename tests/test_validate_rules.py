@@ -221,6 +221,23 @@ CASES = {
         {"history/wars/Ancient War.txt": "1700.1.1 = {\r\n\tadd_attacker = AAA\r\n\tadd_defender = BBB\r\n}\r\n"
                                          "1701.1.1 = {\r\n\trem_attacker = AAA\r\n\trem_defender = BBB\r\n}\r\n"},
         {"war": "Ancient War", "start": "1700.1.1", "end": "1701.1.1"}, "history/wars/Ancient War.txt"),
+    # Interfaz (iteración 8): sprites y ventanas inventados sobre el minijuego.
+    "texture_missing": ({"interface/mg_lost.gfx": 'spriteTypes = {\r\n\tspriteType = {\r\n\t\tname = "GFX_mg_lost"\r\n'
+                                                  '\t\ttexturefile = "gfx/interface/mg_lost.dds"\r\n\t}\r\n}\r\n'},
+                        {"sprite": "GFX_mg_lost"}, "interface/mg_lost.gfx"),
+    "sprite_duplicate": ({"interface/zz_twice.gfx": 'spriteTypes = {\r\n\tspriteType = {\r\n\t\tname = "GFX_mg_icon"\r\n'
+                                                    '\t\ttexturefile = "gfx/interface/mg_icon.dds"\r\n\t}\r\n}\r\n'},
+                         {}, None),
+    "gui_sprite_missing": ({"interface/mg_nowhere.gui": 'guiTypes = {\r\n\twindowType = {\r\n\t\tname = "mg_nw"\r\n'
+                                                        '\t\ticonType = {\r\n\t\t\tname = "mg_nw_icon"\r\n'
+                                                        '\t\t\tspriteType = "GFX_mg_nowhere"\r\n\t\t}\r\n\t}\r\n}\r\n'},
+                           {"sprite": "GFX_mg_nowhere"}, "interface/mg_nowhere.gui"),
+    "gui_orientation_unknown": ({"interface/mg_orient.gui": 'guiTypes = {\r\n\twindowType = {\r\n\t\tname = "mg_or"\r\n'
+                                                            '\t\torientation = "UPPERL_LEFT"\r\n\t}\r\n}\r\n'},
+                                {"orientation": "UPPERL_LEFT"}, "interface/mg_orient.gui"),
+    "gui_named_element_removed": ({"interface/minigame.gui": 'guiTypes = {\r\n\twindowType = {\r\n'
+                                                             '\t\tname = "mg_window"\r\n\t}\r\n}\r\n'},
+                                  {"element": "mg_window/mg_icon"}, "interface/minigame.gui"),
 }
 
 
