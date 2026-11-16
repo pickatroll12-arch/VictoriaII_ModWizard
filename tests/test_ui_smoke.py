@@ -164,8 +164,10 @@ class MainWindowTests(UiTestCase):
         self.assertIs(window.page("project"), window.hall("project").section_widget("files"))
         self.assertIs(window.page("localisation"), window.hall("localisation").section_widget("csv"))
         self.assertIs(window.page("home"), window.page("project:home"))
-        # interface:windows ya no es una tarjeta planificada (iteración 8): la comprobación pasa a map:forge.
-        self.assertIsInstance(window.page("map:forge"), PlannedSectionPage)
+        # map:forge (iteración 9a) era la última tarjeta planificada: ahora es el taller de mapas.
+        from vic2studio.ui.halls.map.forge import ForgePage
+
+        self.assertIsInstance(window.page("map:forge"), ForgePage)
         self.assertIs(window.page("map.forge"), window.page("map:forge"))
         for bad in ("nope", "war:nope", "nope:cb"):
             with self.assertRaises(KeyError):

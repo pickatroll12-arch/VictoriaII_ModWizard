@@ -151,7 +151,7 @@ class SectionWindowTests(EntityWindowCase):
         self.assertNotIsInstance(window.page("war:cb"), PlannedSectionPage)
         self.assertNotIsInstance(window.page("war:wars"), PlannedSectionPage)   # iteración 6: página propia
         self.assertNotIsInstance(window.page("interface:windows"), PlannedSectionPage)   # iteración 8: propia
-        self.assertIsInstance(window.page("map:forge"), PlannedSectionPage)
+        self.assertNotIsInstance(window.page("map:forge"), PlannedSectionPage)   # iteración 9a: el taller
 
     def test_without_a_project_the_page_says_so(self):
         window = self.make_window()

@@ -165,3 +165,50 @@ def store_adjacencies(ws: Workspace, table: AdjacencyTable, rel: VPath = ADJACEN
     if codec_for(handle.kind).snapshot(handle.model) == data:
         return
     ws.restore_bytes(handle, data)
+
+
+# --- estrechos sugeridos (taller de mapas, wizard §18.5) ---------------------------------------------------
+
+def suggest_straits(ids, is_sea, pairs=None, *, max_gap: int = 8):
+    """Estrechos sugeridos entre tierras separadas por ≤ ``max_gap`` px de mar: ``(k, 4)`` con
+    ``from, to, through, hueco``, un par por fila (el de menor hueco).
+
+    Las ids de tierra se propagan por el mar con ``max_gap/2`` dilataciones 4-conexas; hay colisión donde dos
+    píxeles de mar contiguos llevan tierras distintas. ``through`` es la provincia de mar del punto de colisión.
+    Se descartan los pares ya vecinos por tierra (``pairs``: vecinos del ráster, a < b)."""
+    import numpy as np
+
+    ids = np.asarray(ids)
+    is_sea = np.asarray(is_sea, bool)
+    D = max(2, int(max_gap))
+    src = np.where(is_sea[ids], 0, ids).astype(np.int64)
+    dsea = np.where(src > 0, 0, 255).astype(np.int64)
+    seam = is_sea[ids]
+    for k in range(1, D // 2 + 1):
+        for sh, ax in ((1, 0), (-1, 0), (1, 1), (-1, 1)):
+            s2 = np.roll(src, sh, axis=ax)
+            d2 = np.roll(dsea, sh, axis=ax)
+            m = seam & (src == 0) & (s2 > 0) & (d2 == k - 1)
+            src[m] = s2[m]
+            dsea[m] = k
+    found = []
+    for sh, ax in ((1, 0), (1, 1)):
+        s2 = np.roll(src, sh, axis=ax)
+        d2 = np.roll(dsea, sh, axis=ax)
+        m = seam & (src > 0) & (s2 > 0) & (src != s2) & (dsea + d2 <= D)
+        found.append(np.column_stack([np.minimum(src[m], s2[m]), np.maximum(src[m], s2[m]), ids[m].astype(np.int64),
+                                      dsea[m] + d2[m]]))
+    P = np.concatenate(found).astype(np.int64) if found else np.zeros((0, 4), np.int64)
+    if pairs is not None and len(pairs) and P.size:
+        pairs = np.asarray(pairs)
+        ll = pairs[(~is_sea[pairs[:, 0]]) & (~is_sea[pairs[:, 1]])]
+        base = int(ids.max()) + 1
+        known = np.isin(P[:, 0] * base + P[:, 1], ll[:, 0].astype(np.int64) * base + ll[:, 1])
+        P = P[~known]
+    if P.size:
+        o = np.lexsort((P[:, 2], P[:, 3], P[:, 1], P[:, 0]))
+        P = P[o]
+        f = np.ones(len(P), bool)
+        f[1:] = (P[1:, 0] != P[:-1, 0]) | (P[1:, 1] != P[:-1, 1])
+        P = P[f]
+    return P

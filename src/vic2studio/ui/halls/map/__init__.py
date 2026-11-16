@@ -28,6 +28,12 @@ def _climates(session):
     return ClimatesPage(session)
 
 
+def _forge(session):
+    from .forge import ForgePage
+
+    return ForgePage(session)
+
+
 def _straits(session):
     from .straits import StraitsPage
 
@@ -52,7 +58,7 @@ SECTIONS = [
     SectionSpec("straits", "map", 4, N_("section.map.straits"), "anchor", factory=_straits, iteration=5, planned_keys=(
         N_("section.map.straits.intro"), N_("section.map.straits.f1"), N_("section.map.straits.f2"),
     ), hosts=("adjacency",)),
-    SectionSpec("forge", "map", 5, N_("section.map.forge"), "anvil", iteration=9, planned_keys=(
+    SectionSpec("forge", "map", 5, N_("section.map.forge"), "anvil", factory=_forge, iteration=9, planned_keys=(
         N_("section.map.forge.intro"), N_("section.map.forge.f1"), N_("section.map.forge.f2"),
         N_("section.map.forge.f3"), N_("section.map.forge.f4"),
     )),
