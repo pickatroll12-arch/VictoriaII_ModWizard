@@ -315,6 +315,8 @@
  "undo.fix_lower_min_port_level": "Lower min_port_level of {unit} to {max}",
  "fix.move_camera_into_map": "Move the camera of {bookmark} inside the map",
  "undo.fix_move_camera_into_map": "Move the camera of {bookmark} inside the map",
+ "fix.set_ruling_party": "Make {suggestion} the ruling party of {tag} (instead of {party})",
+ "undo.fix_set_ruling_party": "Make {suggestion} the ruling party of {tag} (instead of {party})",
  "fix.trash_identical_copies": "Move the copies identical to the game to the trash",
  "undo.fix_trash_identical_copies": "Move {count} identical copies to the trash",
  "fix_error.not_applicable": "This fix does not apply to this problem.",
