@@ -6,10 +6,11 @@ vista sobre el ``Block`` real de un documento abierto: lee y escribe con la API
 del CST (§4.1) sin copiar datos, y toda mutación pasa por ``ws.touch``, que
 exige una transacción abierta por quien llama (igual que editar a mano). Leer
 (``get``, ``dynamic``, ``unknown``, ``issues``, ``loc_keys``) no escribe nada
-(I4). ``Entities`` es el servicio: lista, abre, crea, duplica, borra y restaura
-registros. ``create``/``duplicate``/``delete``/``restore_vanilla`` abren su propia
-transacción (archivo + compañeros + claves de localización): un ``ws.undo()`` lo
-deshace todo (I5).
+(I4). ``Entities`` es el servicio: lista, abre, crea, duplica, renombra, mueve de
+grupo, borra y restaura registros. ``create``/``duplicate``/``rename``/
+``move_to_group``/``delete``/``restore_vanilla`` abren su propia transacción
+(archivo + compañeros + claves de localización): un ``ws.undo()`` lo deshace todo
+(I5). El renombrado seguro (§15) está en ``rename.py``.
 
 La vista efectiva (I7): ``list`` sale del índice con **todos** los documentos
 abiertos del layout encima (los sin guardar y los ya guardados que el índice
@@ -69,15 +70,21 @@ class EntitySummary:
 
 
 class InvalidIdentError(ValueError):
-    """``create``/``duplicate`` con un id inválido (``.code``: ``empty``, ``bad_chars``,
-    ``reserved``, ``out_of_range``…) o que ya existe (``.code``: ``taken``). No se cambia nada:
-    ni documentos, ni deshacer, ni archivos."""
+    """``create``/``duplicate``/``rename`` con un id inválido (``.code``: ``empty``, ``bad_chars``,
+    ``reserved``, ``out_of_range``…), que ya existe (``taken``) o que es el que ya tiene
+    (``unchanged``, al renombrar). No se cambia nada: ni documentos, ni deshacer, ni archivos.
+    ``message(lang)`` da el motivo traducido (``schema.ident.<código>``)."""
 
     def __init__(self, code: str, ident: str = "", **params) -> None:
         self.code = code
         self.ident = ident
         self.params = params
         super().__init__(f"{code}: {ident}" if ident else code)
+
+    def message(self, lang: str = "en") -> str:
+        from ..texts import text
+
+        return text(f"schema.ident.{self.code}", lang, ident=self.ident, **self.params)
 
 
 class EntityInUseError(ValueError):
@@ -655,8 +662,8 @@ class Entities:
     que pueden ser lo recién guardado y aún no releído por el índice) se enumeran con el layout y ganan
     sobre el índice; el resto sale del índice. Así lo creado y no guardado sale, lo borrado no, un
     ``undo`` lo devuelve y tras guardar sigue saliendo aunque el índice vaya por detrás.
-    ``create``, ``duplicate``, ``delete`` y ``restore_vanilla`` abren su propia transacción
-    (``undo.create_<kind>`` y compañía), I5.
+    ``create``, ``duplicate``, ``rename``, ``move_to_group``, ``delete`` y ``restore_vanilla`` abren su
+    propia transacción (``undo.create_<kind>`` y compañía), I5.
     """
 
     def __init__(self, ws: Workspace, index, loc: LocSync) -> None:
@@ -853,7 +860,9 @@ class Entities:
     def origin_of(self, ref: RecordRef) -> str:
         """Cinta de origen de §13.5: ``"game"`` (se copiará al guardar), ``"mod"``, ``"mod_over_game"``
         (el mod sustituye al juego) o ``"new"``."""
-        record = self.open(ref)
+        return self._origin(self.open(ref))
+
+    def _origin(self, record: Record) -> str:
         handle = record.handle
         if record._document is not None:
             return "game"
@@ -1008,6 +1017,182 @@ class Entities:
                 if spec.shared:
                     continue
                 self.loc.delete(spec.template.replace("{id}", ref.ident))
+
+    # --- renombrar (§15) ----------------------------------------------------------------
+
+    def _ident_taken(self, schema: EntitySchema, ident: str) -> bool:
+        """Como ``_ident_exists`` y, además, True si otro archivo define un símbolo del mismo tipo con ese
+        nombre (un modificador de ``static_modifiers.txt``): los usos de los dos se confundirían."""
+        if self._ident_exists(schema, ident):
+            return True
+        if self.index is None:
+            return False
+        try:
+            lookup = getattr(self.index, "effective", None) or self.index.lookup
+            symbols = lookup(self._provides(schema), ident)
+        except Exception:  # noqa: BLE001 - un índice falso puede no saberlo
+            return False
+        return any(not self._layout_touches(schema, symbol.rel) for symbol in symbols or ())
+
+    def _rename_error(self, record: Record, new_ident: str, found) -> Exception | None:
+        """Por qué no se puede renombrar ``record`` a ``new_ident`` (la excepción, sin lanzarla), o None."""
+        from .rename import BLOCKED_GAME_FILE, BLOCKED_READ_ONLY_FILE, BLOCKED_UNRESOLVED_USES, RenameBlockedError
+
+        schema = record.schema
+        if not schema.editable:
+            return ReadOnlySchemaError(f"{schema.kind} es de solo lectura")
+        problem = ident_problem(schema, new_ident)
+        if problem is not None:
+            return InvalidIdentError(problem, new_ident)
+        if new_ident == record.ref.ident:
+            return InvalidIdentError("unchanged", new_ident)
+        layout = schema.layout
+        if isinstance(layout, OnePerFile) and (found.moved is None or layout._ident(found.moved[1]) != new_ident):
+            return InvalidIdentError("bad_chars", new_ident)   # el archivo nuevo no sería de esta entidad
+        if self._ident_taken(schema, new_ident):
+            return InvalidIdentError("taken", new_ident)
+        if isinstance(layout, OnePerFile):
+            # El archivo cambia de nombre con el id. Si el juego base tiene el viejo, el mod no puede ocultarlo
+            # (sin vaciarlo, que es otra edición): la entidad vieja seguiría existiendo. Se bloquea, como el borrado.
+            if self._origin(record) not in ("mod", "new"):
+                return RenameBlockedError(BLOCKED_GAME_FILE, rel=str(record.handle.rel))
+            target = found.moved[1]
+            handle = self.ws.peek(target)
+            below = next((entry for entry in self.ws.vfs.stack(target)
+                          if entry.layer.kind is not LayerKind.MOD
+                          and not self.ws.vfs.hidden_by_replace_path(entry)), None)
+            if below is not None or (handle is not None and not handle.deleted) \
+                    or (handle is None and self.ws.vfs.resolve(target) is not None):
+                return InvalidIdentError("taken", new_ident)
+        if found.read_only:
+            return RenameBlockedError(BLOCKED_READ_ONLY_FILE, rel=str(next(iter(found.read_only.values()))))
+        if found.unresolved:
+            return RenameBlockedError(BLOCKED_UNRESOLVED_USES, uses=tuple(found.unresolved))
+        return None
+
+    def rename_plan(self, ref: RecordRef, new_ident: str):
+        """Lo que haría ``rename(ref, new_ident)``, sin cambiar nada (I4): un ``RenamePlan`` con los usos por
+        archivo, las claves de localización que cambian, los archivos que se copiarán del juego y, en
+        ``error``, el motivo por el que se rechazaría (None si se puede). Sirve también con un id aún
+        inválido (mientras se escribe): los usos no dependen del id nuevo."""
+        from . import rename as engine
+
+        record = self.open(ref)
+        found = engine.scan(self, record, new_ident)
+        return engine.plan_of(found, record.ref, self._rename_error(record, new_ident, found))
+
+    def rename(self, ref: RecordRef, new_ident: str) -> RecordRef:
+        """Renombrado seguro (§15): cambia el id en la definición, en todos sus usos (``index.refs_to`` y
+        lo abierto sin guardar), en lo que mantienen los compañeros (``on_rename``) y en las claves de
+        localización que siguen la plantilla del esquema (las ``shared`` no). Una transacción
+        ``undo.rename_<kind>``: un deshacer lo devuelve todo (I5). Solo cambia el token del id en cada sitio
+        (I3); los archivos del juego que toca se copian al mod al guardar.
+
+        Un id inválido, igual al actual o ya ocupado lanza ``InvalidIdentError``; lo que dejaría el
+        renombrado a medias, ``RenameBlockedError`` (ver ``rename.py``). En los dos casos no cambia nada.
+        Una unidad (``OnePerFile``) cambia además de archivo: ``units/<id>.txt``. Devuelve la referencia
+        nueva."""
+        from . import rename as engine
+        from .companions import EditContext
+
+        record = self.open(ref)
+        schema = record.schema
+        found = engine.scan(self, record, new_ident)
+        error = self._rename_error(record, new_ident, found)
+        if error is not None:
+            raise error
+        old = record.ref.ident
+        rel = record.handle.rel
+        with self.ws.transaction(f"undo.rename_{ref.kind}", kind=ref.kind, ident=old, new=new_ident):
+            engine.apply_sites(self.ws, found)
+            if found.moved is not None:
+                rel = self._move_document(*found.moved)
+            renamed = self.open(RecordRef(ref.kind, new_ident, rel))
+            ctx = EditContext(self.ws, self.index, self.loc)
+            for companion in schema.companions:
+                companion.on_rename(ctx, renamed, old, new_ident)
+            self._rename_loc(found.loc)
+        return RecordRef(ref.kind, new_ident, rel)
+
+    def _move_document(self, old_rel: VPath, new_rel: VPath) -> VPath:
+        """El documento de ``old_rel`` pasa a ``new_rel`` con su texto actual (en la transacción de quien
+        llama): el viejo va a la papelera al guardar y el nuevo se crea con los mismos bytes."""
+        from ..project.codecs import codec_for
+
+        handle = self.ws.open(old_rel)
+        kind = handle.kind
+        model, _ = codec_for(kind).load(codec_for(kind).snapshot(handle.model), new_rel)
+        self.ws.delete(old_rel)
+        return self.ws.create(new_rel, kind, model).rel
+
+    def _rename_loc(self, changes) -> None:
+        """Aplica los ``LocRename`` de un renombrado: mueve las filas del mod o copia las del juego."""
+        from ..csvloc.model import LANGUAGE_CODES
+        from .rename import LOC_COPY, LOC_RENAME
+
+        for change, area in changes:
+            if change.action == LOC_RENAME:
+                self.loc.rename(change.old, change.new)
+            elif change.action == LOC_COPY:
+                # Los 13 idiomas de la fila: copiar una clave del juego no pierde sus otras traducciones.
+                texts = {lang: self.loc.text(change.old, lang) for lang in LANGUAGE_CODES}
+                self.loc.ensure({change.new: {lang: text for lang, text in texts.items() if text}}, area=area)
+
+    # --- grupos (§14.13) ----------------------------------------------------------------
+
+    def group_kind(self, kind: str) -> str | None:
+        """El ``kind`` de los grupos de un esquema ``GroupedIn`` de nivel 1 (``culture`` →
+        ``culture_group``): el esquema de nivel 0 del mismo archivo. None si ``kind`` no va en grupos."""
+        layout = self._schema(kind).layout
+        if not isinstance(layout, GroupedIn) or layout.level == 0:
+            return None
+        for schema in registry.all_schemas():
+            other = schema.layout
+            if isinstance(other, GroupedIn) and other.level == 0 \
+                    and VPath.of(other.path).key == VPath.of(layout.path).key:
+                return schema.kind
+        return None
+
+    def groups(self, kind: str) -> list[str]:
+        """Grupos donde puede ir un registro de ``kind`` (``GroupedIn`` de nivel 1), en orden de archivo y
+        también los vacíos, en la vista efectiva (I7). Lista vacía si ``kind`` no va en grupos."""
+        layout = self._schema(kind).layout
+        if not isinstance(layout, GroupedIn) or layout.level == 0:
+            return []
+        rel = VPath.of(layout.path)
+        handle = self.ws.peek(rel)
+        if handle is not None and handle.deleted:
+            document = self._underlying(rel)
+        else:
+            document = self._read_only_document(rel)
+        return [] if document is None else [name for name, _, _ in layout.groups(document)]
+
+    def move_to_group(self, ref: RecordRef, group: str) -> RecordRef:
+        """Mueve un registro de un ``GroupedIn`` de nivel 1 (una cultura) al final de ``group``, en una
+        transacción ``undo.move_<kind>``. El bloque se quita y se añade con su texto intacto: comentarios,
+        sangría y formato (§14.13, I3); el resto del archivo no cambia.
+
+        ``InvalidIdentError("no_group")`` si el grupo no existe; ``ValueError`` si el esquema no va en
+        grupos. Si ya está en ``group`` no hace nada (ni transacción ni paso de deshacer)."""
+        schema = self._schema(ref.kind)
+        self._require_editable(schema)
+        layout = schema.layout
+        if not isinstance(layout, GroupedIn) or layout.level == 0:
+            raise ValueError(f"{ref.kind} no va en grupos")
+        record = self.open(ref)
+        document = record._document if record._document is not None else record.handle.model.document
+        if not any(name == group for name, _, _ in layout.groups(document)):
+            raise InvalidIdentError("no_group", group)
+        if self._parent(schema, document, ref.ident) == group:
+            return record.ref
+        with self.ws.transaction(f"undo.move_{ref.kind}", kind=ref.kind, ident=ref.ident, group=group):
+            record._touch()   # si se veía el archivo del juego bajo una lápida, lo revive
+            document = record.handle.model.document
+            source = parent_block(document, record._entry)
+            target = next(block for name, block, _ in layout.groups(document) if name == group)
+            source.move(record._entry, to=target)
+            self._reread(record.handle)
+        return RecordRef(ref.kind, ref.ident, record.handle.rel)
 
     def _vanilla_entry(self, record: Record):
         """``(documento del juego, entrada del registro en él)`` si el registro se ve desde el mod o con
