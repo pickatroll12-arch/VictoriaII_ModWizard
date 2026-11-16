@@ -49,7 +49,7 @@ from ...core.schema.fields import (
 from ...i18n import N_, tr, translator
 from ..pickers import GoodsAmountsField
 from ..widgets import ParchmentCard, mark_data
-from .editors import CodeOnlyEditor, FieldEditor, FieldState, editor_for
+from .editors import CodeOnlyEditor, FieldEditor, FieldState, ScriptFieldEditor, editor_for
 
 SIMPLE, ADVANCED = "simple", "advanced"
 UNDO_EDIT = N_("forms.undo_edit")
@@ -331,7 +331,10 @@ class EntityForm(QWidget):
             if item.default is not MISSING:
                 editor.set_default(item.default)
             editor.value_committed.connect(lambda value, key=item.key: self._commit_field(key, value))
-        elif isinstance(item, (Script, Opaque)):
+        elif isinstance(item, Script):
+            editor = ScriptFieldEditor(item, session=self.session, kind=kind, key=item.key)
+            editor.code_requested.connect(self.code_requested)
+        elif isinstance(item, Opaque):
             editor = CodeOnlyEditor(None, session=self.session, kind=kind, key=item.key)
             editor.code_requested.connect(self.code_requested)
         elif isinstance(item, DynamicKeys):
@@ -437,6 +440,8 @@ class EntityForm(QWidget):
             row.editor.set_value(value, FieldState(origin, None, tuple(problems.get(item.key, ()))))
         elif isinstance(item, (Script, Opaque)):
             row.editor.set_value(record.node(item.key))
+            if isinstance(row.editor, ScriptFieldEditor):
+                row.editor.bind_record(record)
         elif isinstance(item, DynamicKeys):
             values = record.dynamic(item.name)
             if isinstance(row.editor, DynamicChecklist):

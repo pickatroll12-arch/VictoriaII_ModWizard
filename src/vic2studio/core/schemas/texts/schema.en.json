@@ -149,5 +149,14 @@
   "undo.create_war": "Create war {ident}",
   "undo.duplicate_war": "Duplicate war {ident}",
   "undo.delete_war": "Delete war {ident}",
-  "undo.rename_war": "Rename war {ident} to {new}"
+  "undo.rename_war": "Rename war {ident} to {new}",
+  "undo.create_event": "Create event {ident}",
+  "undo.duplicate_event": "Duplicate event {ident}",
+  "undo.delete_event": "Delete event {ident}",
+  "undo.rename_event": "Rename event {ident} to {new}",
+  "undo.create_decision": "Create decision {ident}",
+  "undo.duplicate_decision": "Duplicate decision {ident}",
+  "undo.delete_decision": "Delete decision {ident}",
+  "undo.rename_decision": "Rename decision {ident} to {new}",
+  "schema.ident.out_of_range": "The id “{ident}” is outside the project’s id range."
 }

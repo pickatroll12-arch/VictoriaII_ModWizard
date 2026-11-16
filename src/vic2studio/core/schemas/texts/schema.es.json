@@ -149,5 +149,14 @@
   "undo.create_war": "Crear guerra {ident}",
   "undo.duplicate_war": "Duplicar guerra {ident}",
   "undo.delete_war": "Borrar guerra {ident}",
-  "undo.rename_war": "Renombrar guerra {ident} a {new}"
+  "undo.rename_war": "Renombrar guerra {ident} a {new}",
+  "undo.create_event": "Crear evento {ident}",
+  "undo.duplicate_event": "Duplicar evento {ident}",
+  "undo.delete_event": "Borrar evento {ident}",
+  "undo.rename_event": "Renombrar evento {ident} a {new}",
+  "undo.create_decision": "Crear decisión {ident}",
+  "undo.duplicate_decision": "Duplicar decisión {ident}",
+  "undo.delete_decision": "Borrar decisión {ident}",
+  "undo.rename_decision": "Renombrar decisión {ident} a {new}",
+  "schema.ident.out_of_range": "El id «{ident}» está fuera del rango de ids del proyecto."
 }

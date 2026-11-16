@@ -1,5 +1,22 @@
 {
   "schema.decision.title": "Decisiones",
   "schema.decision.name": "Decisión",
-  "schema.decision.doc": "Decisiones de decisions/*.txt: cuándo aparecen, cuándo se pueden tomar y qué efecto tienen."
+  "schema.decision.doc": "Decisiones de decisions/*.txt: cuándo aparecen, cuándo se pueden tomar y qué efecto tienen.",
+  "schema.decision.section.general": "General",
+  "schema.decision.section.requirements": "Requisitos",
+  "schema.decision.section.effect": "Efecto",
+  "schema.decision.section.ai": "Inteligencia artificial",
+  "schema.decision.field.picture": "Imagen",
+  "schema.decision.field.picture.help": "gfx/pictures/decisions/<imagen>.dds, de 95×95. Si falta, el juego usa la del id.",
+  "schema.decision.field.alert": "Avisa cuando se puede tomar",
+  "schema.decision.field.news": "Sale en las noticias",
+  "schema.decision.field.news_desc_long": "Noticia larga",
+  "schema.decision.field.news_desc_medium": "Noticia media",
+  "schema.decision.field.news_desc_short": "Noticia corta",
+  "schema.decision.field.potential": "Cuándo aparece",
+  "schema.decision.field.allow": "Cuándo se puede tomar",
+  "schema.decision.field.effect": "Qué hace",
+  "schema.decision.field.ai_will_do": "Interés de la IA",
+  "schema.decision.field.factor": "Factor",
+  "schema.decision.field.modifier": "Modificador"
 }

@@ -1,5 +1,22 @@
 {
   "schema.decision.title": "Decisions",
   "schema.decision.name": "Decision",
-  "schema.decision.doc": "Decisions from decisions/*.txt: when they appear, when they can be taken and what they do."
+  "schema.decision.doc": "Decisions from decisions/*.txt: when they appear, when they can be taken and what they do.",
+  "schema.decision.section.general": "General",
+  "schema.decision.section.requirements": "Requirements",
+  "schema.decision.section.effect": "Effect",
+  "schema.decision.section.ai": "AI",
+  "schema.decision.field.picture": "Picture",
+  "schema.decision.field.picture.help": "gfx/pictures/decisions/<picture>.dds, 95×95. If missing, the game uses the one named after the id.",
+  "schema.decision.field.alert": "Alerts when it can be taken",
+  "schema.decision.field.news": "Appears in the news",
+  "schema.decision.field.news_desc_long": "Long news text",
+  "schema.decision.field.news_desc_medium": "Medium news text",
+  "schema.decision.field.news_desc_short": "Short news text",
+  "schema.decision.field.potential": "When it shows up",
+  "schema.decision.field.allow": "When it can be taken",
+  "schema.decision.field.effect": "What it does",
+  "schema.decision.field.ai_will_do": "AI interest",
+  "schema.decision.field.factor": "Factor",
+  "schema.decision.field.modifier": "Modifier"
 }

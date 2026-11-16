@@ -27,6 +27,7 @@ IDENT_MESSAGES = {
     "taken": N_("entity.ident.taken"),
     "no_group": N_("entity.ident.no_group"),
     "unchanged": N_("entity.ident.unchanged"),
+    "out_of_range": N_("entity.ident.out_of_range"),
 }
 
 # ``LocRename.action`` → texto de la fila (``core.schema.rename.LOC_*``).

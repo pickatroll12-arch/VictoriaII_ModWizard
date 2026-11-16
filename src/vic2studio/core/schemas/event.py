@@ -22,9 +22,6 @@ Decisiones del esquema:
   ``00_<P>_events.csv``. Un título en prosa (2 eventos de vanilla) se respeta.
 - **Plantilla segura.** Un evento nuevo nace con ``is_triggered_only = yes``: sin condiciones, un evento con
   MTTH se dispararía para todos los países en cuanto se cargue el mod.
-
-El esquema queda declarado pero sin registrar (``SCHEMAS`` vacío) hasta que ``TypedEntries``,
-``Record.script`` y sus textos tengan lógica: registrarlo es lo que hace aparecer la sección.
 """
 
 from __future__ import annotations
@@ -140,5 +137,4 @@ EVENT = EntitySchema(
     hall="events", section="events", order=1, icon="events", preview="event",
 )
 
-# La cadena A lo registra (``SCHEMAS = (EVENT,)``) cuando el esquema ya funciona de punta a punta.
-SCHEMAS = ()
+SCHEMAS = (EVENT,)

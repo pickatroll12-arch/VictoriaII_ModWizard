@@ -17,8 +17,6 @@ Decisiones del esquema:
 - **Archivos rotos.** 2 de los 4 archivos del usuario no cierran ``political_decisions``: se abren en modo
   texto y el arreglo «Añadir } al final» habilita el formulario (``core/script/textonly.py``).
 
-Declarado sin registrar (``SCHEMAS`` vacío) hasta que crear en un ``NestedIn`` y ``Record.script`` tengan
-lógica: registrarlo es lo que hace aparecer la sección.
 """
 
 from __future__ import annotations
@@ -75,5 +73,4 @@ DECISION = EntitySchema(
     hall="events", section="decisions", order=2, icon="quill", preview="decision",
 )
 
-# La cadena A lo registra (``SCHEMAS = (DECISION,)``) cuando el esquema ya funciona de punta a punta.
-SCHEMAS = ()
+SCHEMAS = (DECISION,)

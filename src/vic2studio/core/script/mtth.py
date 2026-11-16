@@ -81,8 +81,44 @@ def effective(base_months: float, factors: Sequence[float], satisfied: Sequence[
 
 def read_weights(record: Record, key: str = MTTH_KEY) -> WeightModel | None:
     """El modelo del bloque ``key`` del registro (o de una vista de grupo: el ``option`` para
-    ``ai_chance``); None si no lo tiene. No escribe nada (I4)."""
-    raise NotImplementedError
+    ``ai_chance``); None si no lo tiene. No escribe nada (I4).
+
+    La base es la primera de ``UNITS`` que el bloque trae en un MTTH y ``factor`` en los pesos; un valor que
+    no es número deja la base en None (el formulario lo marca con ``bad_type``). Cada ``modifier`` da su
+    factor (1.0 si falta o no es número: no cambia el tiempo) y el árbol de sus condiciones."""
+    from ..schema.fields import REST
+
+    try:
+        weights = record.group(key)
+    except KeyError:
+        return None
+    units = UNITS if key == MTTH_KEY else (FACTOR_KEY,)
+    unit, base = units[0], None
+    for candidate in units:
+        entry = weights.block.find(candidate, ignore_case=True)
+        if entry is not None:
+            unit, base = candidate, _number(entry.value)
+            break
+    modifiers = []
+    for view in weights.groups(MODIFIER_KEY):
+        entry = view.block.find(FACTOR_KEY, ignore_case=True)
+        factor = _number(entry.value) if entry is not None else None
+        try:
+            conditions = view.script(REST)
+        except KeyError:
+            conditions = None
+        modifiers.append(WeightModifier(1.0 if factor is None else factor, conditions, view._entry))
+    return WeightModel(key, unit, base, tuple(modifiers))
+
+
+def _number(value) -> float | None:
+    text_value = getattr(value, "text", None)
+    if text_value is None:
+        return None
+    try:
+        return float(text_value)
+    except ValueError:
+        return None
 
 
 def format_duration(months: float, lang: str) -> str:

@@ -35,6 +35,7 @@ from .fields import MISSING, OPEN_CATALOG, REST, Children, DynamicKeys, Field, G
 from .layouts import GroupedIn, OnePerFile, Registry, TypedEntries, entry_path, follow_path, parent_block
 from .placement import SchemaOrder, dynamic_insert_index, first_dated_index, insertion_index
 from .registry import registry
+from .types import Int
 from .validate import CheckContext, issue as make_issue
 
 if TYPE_CHECKING:
@@ -774,6 +775,18 @@ def coerce_value(value) -> Scalar | Block:
     return cst_coerce(value)
 
 
+def _find_field(items, key: str) -> Field | None:
+    """El ``Field`` ``key`` de primer nivel (dentro de secciones), o None."""
+    for item in items:
+        if isinstance(item, Section):
+            found = _find_field(item.items, key)
+            if found is not None:
+                return found
+        elif isinstance(item, Field) and item.key == key:
+            return item
+    return None
+
+
 def build_block(schema: EntitySchema, ident: str, values: dict, index=None) -> Block:
     """Bloque nuevo con los valores en el orden canónico del esquema (regla 6 de §10.7). Con
     ``IdSpec.FIELD`` (bookmarks), el id se escribe en su campo."""
@@ -783,6 +796,9 @@ def build_block(schema: EntitySchema, ident: str, values: dict, index=None) -> B
     merged.update(values)
     if schema.ident.mode == "field":
         merged[schema.ident.value] = ident
+        id_field = _find_field(schema.fields, schema.ident.value)
+        if id_field is not None and isinstance(id_field.type, Int) and isinstance(ident, str) and ident.isdigit():
+            merged[schema.ident.value] = int(ident)          # ``id = 200000000`` de un evento: entero
     block = Block()
 
     def emit(items) -> None:

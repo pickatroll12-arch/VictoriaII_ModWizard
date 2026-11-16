@@ -75,7 +75,7 @@ def text_only_state(ws: Workspace, rel: VPath) -> TextOnlyState | None:
     from ..clausewitz.diagnostics import Severity
     from ..project.model import READ_ONLY_PARSE_ERRORS, READ_ONLY_UNREADABLE
     from ..validate.model import SOURCE_CLAUSEWITZ
-    from ..validate.registry import RULES, make_problem
+    from ..validate.registry import RULES, discover_rules, make_problem
 
     handle = ws.peek(rel) or ws.open(rel)
     reason = handle.read_only_reason
@@ -86,6 +86,8 @@ def text_only_state(ws: Workspace, rel: VPath) -> TextOnlyState | None:
     problem = None
     if diagnostics:
         first = diagnostics[0]
+        if first.code not in RULES:
+            discover_rules()                  # las reglas se registran al importar su módulo
         code = first.code if first.code in RULES else "check_failed"
         problem = make_problem(code, handle.rel, first.line, first.column)
         problem = replace(problem, args=MappingProxyType({**first.args, "source": SOURCE_CLAUSEWITZ}))

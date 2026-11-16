@@ -58,6 +58,15 @@ TAB_UNIT = "unit"
 _REF = Qt.ItemDataRole.UserRole
 
 
+def ident_error_text(exc: InvalidIdentError, ident: str) -> str:
+    """El motivo de un id rechazado y, si el núcleo lo sabe, el siguiente libre (ids de evento, criterio 6)."""
+    text = tr(IDENT_MESSAGES.get(exc.code, "entity.ident.bad_chars"), ident=ident)
+    next_free = getattr(exc, "params", {}).get("next_free")
+    if next_free is not None:
+        text += " " + tr(N_("entity.ident.next_free"), next_free=next_free)
+    return text
+
+
 class LocTextsPanel(QWidget):
     """Las claves de texto del registro en español e inglés, editables (``LocSync.set_text`` en una transacción)."""
 
@@ -303,12 +312,16 @@ class EntityEditorPage(BasePage):
         super().retranslate()
         for panel in (self.texts, self.other):
             panel.retranslate()
-        names = {TAB_FORM: N_("entity.tab.form"), TAB_TEXTS: N_("entity.tab.texts"), TAB_USES: N_("entity.tab.uses"),
-                 TAB_CODE: N_("entity.tab.code"), TAB_OTHER: N_("entity.tab.other"),
-                 TAB_REBELS: N_("entity.tab.rebels"), TAB_UNIT: N_("entity.tab.unit")}
+        names = self._tab_names()
         for index, key in enumerate(self._tab_keys):
             self.tabs.setTabText(index, tr(names[key]))
         self._render_header()
+
+    def _tab_names(self) -> dict[str, str]:
+        """Clave i18n del nombre de cada pestaña (las subclases añaden las suyas)."""
+        return {TAB_FORM: N_("entity.tab.form"), TAB_TEXTS: N_("entity.tab.texts"), TAB_USES: N_("entity.tab.uses"),
+                TAB_CODE: N_("entity.tab.code"), TAB_OTHER: N_("entity.tab.other"),
+                TAB_REBELS: N_("entity.tab.rebels"), TAB_UNIT: N_("entity.tab.unit")}
 
     # --- estado -----------------------------------------------------------------------------------
 
@@ -573,9 +586,7 @@ class EntityEditorPage(BasePage):
                 with self.session.edit(f"undo.create_{self.schema.kind}", kind=self.schema.kind, ident=ident):
                     ref = entities.create(self.schema.kind, ident, values)
         except InvalidIdentError as exc:
-            self.request_status(N_("entity.create_failed"), reason=tr(IDENT_MESSAGES.get(exc.code,
-                                                                                         "entity.ident.bad_chars"),
-                                                                     ident=ident))
+            self.request_status(N_("entity.create_failed"), reason=ident_error_text(exc, ident))
             return False
         except (ReadOnlySchemaError, PermissionError, FileNotFoundError, ValueError) as exc:
             self.request_status(N_("entity.create_failed"), reason=str(exc))
