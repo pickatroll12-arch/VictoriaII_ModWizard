@@ -7,7 +7,7 @@ hasta la iteración 10. No es una versión estable: **prueba primero con una cop
 |---|---|
 | `VictoriaIIModStudio-0.1.0-setup.exe` | **Windows 10/11, 64 bits.** Instalador para tu usuario, sin permisos de administrador |
 | `Victoria_II_Mod_Studio-0.1.0-x86_64.AppImage` | **Linux x86_64** con glibc 2.35 o posterior (Ubuntu 22.04, Debian 12, Fedora 36 o más nuevos) |
-| `SHA256SUMS.txt` | Sumas para comprobar las descargas |
+| `*.sha256` | La suma SHA-256 de cada paquete, para comprobar la descarga |
 
 - **Windows:**
   1. Ejecuta el instalador. No está firmado, así que si SmartScreen avisa, pulsa «Más información» y después
