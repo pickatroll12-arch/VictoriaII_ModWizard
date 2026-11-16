@@ -51,7 +51,7 @@ def package_modules():
     return modules
 
 
-# El icono de Windows se generará en packaging/icons/ (planificado); sin él se usa el de PyInstaller.
+# El emblema de la ventana, dibujado por tools/render_icon.py (sin él se usa el de PyInstaller).
 ICON = ROOT / "packaging" / "icons" / "vic2studio.ico"
 
 a = Analysis(

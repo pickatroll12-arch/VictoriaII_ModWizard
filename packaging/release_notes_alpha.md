@@ -1,42 +1,78 @@
-**Victoria II Mod Studio 0.1.0, alfa.** Versión de prueba con lo hecho hasta la iteración 3. No es una versión
-estable: haz una copia de tu mod antes de usarla.
+**Victoria II Mod Studio 0.1.0, alfa (iteración 10).** Editor visual de mods de Victoria II con todo lo hecho
+hasta la iteración 10. No es una versión estable: **prueba primero con una copia de tu mod.**
 
-## Qué funciona
+## Descargas
 
-- **Proyecto**: Inicio (juego base y mods de `<juego>/mod`), Descriptor `.mod`, Archivos (explorador y vista
-  previa de scripts, imágenes y CSV), **Validación** (F7, con línea base, arreglos de un clic y «¿Por qué?») y
-  Cambios pendientes.
-- **Textos**: todos los textos del juego y del mod, editables y sincronizados (si gana el juego, se escribe en
-  `00_<prefijo>_overrides.csv`; `text.csv` no se copia nunca), pendientes de traducir y los CSV del mod.
-- **Ctrl+K**: busca países, provincias, partidos, culturas, eventos, decisiones y textos por id o por nombre.
-- Guardar todo o nada con diario, deshacer y rehacer, autoguardado y recuperación tras un corte.
-- Español e inglés, con cambio de idioma en vivo.
+| Archivo | Para |
+|---|---|
+| `VictoriaIIModStudio-0.1.0-setup.exe` | **Windows 10/11, 64 bits.** Instalador para tu usuario, sin permisos de administrador |
+| `Victoria_II_Mod_Studio-0.1.0-x86_64.AppImage` | **Linux x86_64** con glibc 2.35 o posterior (Ubuntu 22.04, Debian 12, Fedora 36 o más nuevos) |
+| `SHA256SUMS.txt` | Sumas para comprobar las descargas |
 
-Las salas Mapa, Naciones, Guerra, Eventos e Interfaz enseñan qué harán y en qué iteración llegan (4 a 9).
+- **Windows:**
+  1. Ejecuta el instalador. No está firmado, así que si SmartScreen avisa, pulsa «Más información» y después
+     «Ejecutar de todas formas».
+  2. Se instala en `%LOCALAPPDATA%\Programs\Victoria II Mod Studio`, con un acceso en el menú Inicio.
+  3. Se desinstala desde «Aplicaciones instaladas». Desinstalar no toca ni tus mods ni tus preferencias.
+- **Linux:**
+  1. `chmod +x Victoria_II_Mod_Studio-0.1.0-x86_64.AppImage`, y después ábrelo.
+  2. Si no arranca por falta de FUSE, instala `libfuse2` o ejecútalo con `--appimage-extract-and-run`.
+  3. Si no abre la ventana, instala las bibliotecas X11 de Qt: `sudo apt install libxcb-cursor0
+     libxkbcommon-x11-0` en Debian y Ubuntu.
+
+Cada paquete se prueba al construirse: se abre la ventana, se comprueba que tiene todos sus textos en los dos
+idiomas y que el trabajador del taller de mapas responde, y se cierra. En Windows también se instala, se abre y se
+desinstala.
+
+## Qué trae
+
+- **Proyecto:**
+  - Inicio, con «¿Qué quieres hacer?»;
+  - descriptor `.mod` y explorador de archivos;
+  - **Validación** (F7), con línea base, arreglos de un clic y «¿Por qué?»;
+  - cambios pendientes;
+  - **Exportar a zip** (Ctrl+E): un zip limpio, sin la carpeta del Studio, sin `.bak` y sin temporales.
+- **Textos:** los del juego y los del mod, editables y sincronizados, con los pendientes de traducir.
+- **Mapa:**
+  - modos de mapa y brocha de provincias;
+  - regiones, continentes, climas y estrechos;
+  - el **taller de mapas**: «Solo mapa» y «Mundo» (países, culturas y banderas nuevas), generado o importado de
+    bitmaps, de un mapa de alturas o de un JSON de Azgaar's Fantasy Map Generator.
+- **Naciones:** «Nuevo país…», la ficha del país con sus banderas, y el editor de gobiernos, culturas, unidades y
+  más.
+- **Guerra:** «Nueva guerra…», diplomacia inicial y casus belli.
+- **Eventos:** el Event Studio, con eventos y decisiones y un constructor de condiciones y efectos.
+- **Interfaz:** ventanas `.gui` y sprites `.gfx`.
+- **En todas las salas:**
+  - Ctrl+K para buscarlo todo;
+  - guardado todo o nada con diario;
+  - deshacer y rehacer;
+  - recuperación tras un corte;
+  - español e inglés.
+
+La guía de uso está en `docs/usuario/README.md`, dentro del código fuente. La lista de lo que hay que comprobar
+dentro del juego está en `docs/usuario/comprobacion_en_juego.md`.
 
 ## Seguridad de tus archivos
 
-El Studio solo escribe en la carpeta del mod y en su `.mod`, nunca en el juego base. Antes de sobrescribir un
-archivo guarda su `.bak` y, la primera vez, el original en `<mod>/.vic2studio/originals/`. Lo que manda a la papelera
-va a `<mod>/.vic2studio/trash/`.
+El Studio solo escribe en la carpeta del mod y en su `.mod`, nunca en el juego base. Antes de sobrescribir un archivo
+guarda su `.bak` y, la primera vez, el original en `<mod>/.vic2studio/originals/`.
 
-## Instalación
+## Limitaciones conocidas
 
-- **Windows 10/11 (64 bits)**: descomprime `vic2studio-0.1.0-windows-amd64.zip` y abre
-  `Victoria II Mod Studio.exe`. El ejecutable no está firmado: si Windows SmartScreen avisa, pulsa «Más
-  información» y «Ejecutar de todas formas».
-- **Linux (x86_64, glibc 2.35 o posterior: Ubuntu 22.04, Debian 12, Fedora 36 o más nuevos)**: descomprime
-  `vic2studio-0.1.0-linux-x86_64.tar.gz` y ejecuta `Victoria II Mod Studio/Victoria II Mod Studio`. Si no abre la
-  ventana, instala las bibliotecas de X11 de Qt: `sudo apt install libxcb-cursor0 libxkbcommon-x11-0` (Debian y
-  Ubuntu). El lanzador `vic2studio.desktop` va dentro de la carpeta.
-
-Cada paquete se prueba al construirse: arranca la ventana y comprueba que tiene todos sus textos en los dos idiomas.
+- **El arranque** tarda unos 4 s con el índice en caché. El objetivo es 3 s.
+- **«Sobre vanilla»**, que añadiría tierra a un mapa existente, todavía no está.
+- **Sin probar todavía en una partida real:** que el juego cargue lo que genera el Studio. Lo valida la lista de
+  comprobación.
 
 ---
 
-**English.** Alpha build of Victoria II Mod Studio 0.1.0 with everything up to iteration 3: project hall
-(home, `.mod` descriptor, files, validation with a baseline, one-click fixes and a conflict explainer, pending
-changes), editable and synchronised localisation, Ctrl+K search, all-or-nothing journaled saving, undo and crash
-recovery, in Spanish and English. It only ever writes to the mod folder and its `.mod`, keeping `.bak` copies and
-the originals. Windows: unzip and run the `.exe` (unsigned: SmartScreen may ask). Linux: untar and run the binary;
-if no window appears, install `libxcb-cursor0` and `libxkbcommon-x11-0`. Back up your mod before using an alpha.
+**English.** Alpha build of Victoria II Mod Studio 0.1.0, with everything up to iteration 10. It covers the
+project, text, map (including the map forge, with FMG import), nations, war, events and interface halls, adds
+export-to-zip, and comes with journaled saving, undo, crash recovery, and Spanish and English.
+
+- **Windows:** run the setup `.exe`. It is a per-user install and needs no admin rights. It is unsigned, so
+  SmartScreen may ask before it runs.
+- **Linux:** `chmod +x` the AppImage and run it. If FUSE is missing, use `--appimage-extract-and-run`.
+
+The Studio only ever writes to the mod folder and its `.mod`. Back up your mod before using an alpha.

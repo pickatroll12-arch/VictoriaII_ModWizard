@@ -625,16 +625,35 @@ conexión); `--system` usa el Python actual. PyInstaller no compila en cruzado:
 cada ejecutable se genera en su sistema.
 
 Por eso los construye GitHub Actions (`.github/workflows/build.yml`), en una
-máquina Linux (Ubuntu 22.04) y otra Windows, con Python 3.12. Cada ejecutable
-congelado pasa una prueba de humo: con `VIC2STUDIO_SMOKE_TEST=1` abre la
-ventana, comprueba que tiene todos sus textos en los dos idiomas
-(`app.SMOKE_KEYS`) y sale con 0 (o con 3 si falta alguno). Un empuje a la rama
-de trabajo deja los paquetes como artefactos de la ejecución. Una etiqueta
-`v*` además los publica en una versión previa de GitHub, con las notas de
-`packaging/release_notes_alpha.md`. `tests/test_packaging.py` comprueba que el
-`.spec` copia los mismos datos que declara `pyproject.toml`.
+máquina Windows y otra Linux (Ubuntu 22.04), con Python 3.12. Salen dos
+paquetes:
 
-La primera versión alfa es la `v0.1.0-alpha.1`: lo hecho hasta la iteración 3.
+- **Windows:** el instalador `VictoriaIIModStudio-<versión>-setup.exe`, hecho
+  con Inno Setup (`packaging/windows/vic2studio.iss`). Instala para el usuario,
+  sin permisos de administrador.
+- **Linux:** el AppImage `Victoria_II_Mod_Studio-<versión>-x86_64.AppImage`,
+  hecho con `packaging/linux/build_appimage.sh` sobre la carpeta de
+  PyInstaller.
+
+El icono de los dos sale de `packaging/icons/`. Son el mismo emblema de la
+ventana, dibujado con `tools/render_icon.py`.
+
+Cada paquete pasa una prueba de humo: con `VIC2STUDIO_SMOKE_TEST=1` abre la
+ventana, comprueba que tiene todos sus textos en los dos idiomas
+(`app.SMOKE_KEYS`) y que el trabajador del taller de mapas responde, y sale con
+0 (o con 3 si falta algo). El instalador además se instala, se abre y se
+desinstala.
+
+Cuándo se ejecuta:
+
+- **Un empuje a la rama de trabajo** deja los paquetes como artefactos.
+- **Lanzado a mano** (`workflow_dispatch`, con la etiqueta y, si se quiere, una
+  release que borrar antes) o **con una etiqueta `v*`**, además los publica en
+  una versión previa de GitHub. Las notas salen de
+  `packaging/release_notes_alpha.md`.
+
+`tests/test_packaging.py` comprueba que el `.spec` copia los mismos datos que
+declara `pyproject.toml`.
 
 ## Estructura
 
