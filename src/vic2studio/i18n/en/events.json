@@ -39,7 +39,7 @@
   "events.tab.studio": "Studio",
   "events.text_only.code": "Open the text",
   "events.text_only.failed": "Could not fix it: {error}",
-  "events.text_only.fix": "Add } at the end",
+  "events.text_only.fix": "Add {brace} at the end",
   "events.text_only.fixed": "The missing brace was added to {file}.",
   "events.text_only.title": "{file} has syntax errors: it can only be edited as text.",
   "events.undo.picture": "Picture of {ident}"

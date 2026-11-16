@@ -220,11 +220,10 @@ class MinigameEndToEndTests(RealCoreWindowCase):
         self.assertEqual(palette.results()[row].symbol.line, 2)
         palette.list.setCurrentRow(row)
         QTest.keyClick(palette.edit, Qt.Key.Key_Return)
-        viewer = window.page("project").clausewitz_viewer
-        target = self.game.mod("decisions/tst_decisions.txt")
-        self.assertTrue(_qt.wait_until(lambda: viewer.current_load() is not None
-                                       and viewer.current_load().path == target, 5000))
-        self.assertTrue(_qt.wait_until(lambda: viewer.code.current_line() == 2, 3000), "en su línea")
+        # Desde la iteración 7 una decisión tiene su editor (Eventos › Decisiones): Intro la abre ahí.
+        page = window.page("events:decisions")
+        self.assertTrue(_qt.wait_until(lambda: page.current_ref() is not None
+                                       and page.current_ref().ident == "tst_reform", 5000))
 
     def test_ctrl_k_shows_a_party_by_its_name_not_by_its_index_id(self):
         """Un partido es «archivo:partido» en el índice: la paleta enseña y busca por el partido."""

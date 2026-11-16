@@ -117,15 +117,19 @@ class PublicApiTests(unittest.TestCase):
 
     def test_unimplemented_contract_raises(self):
         """Las piezas que la iteración 4 no necesita siguen lanzando NotImplementedError, no falsos
-        resultados (historia fechada y guion, iteraciones 5–7).
+        resultados (historia fechada y guion, iteraciones 5–7; ya implementadas, se comprueba que rechazan lo que
+        no está declarado).
 
         Iteración 4 (cierre): los hijos, los tipos ricos y ``from_spec`` ya tienen lógica, así que esta
         prueba deja de exigirles NotImplementedError y comprueba en cambio que rechazan lo que no encaja
         con ``ValueError`` (sin falsos resultados)."""
         record = Record.__new__(Record)
         record.schema = EntitySchema(kind="x", layout=SingleFile("y.txt"), fields=())
+        record.ref = RecordRef("x", "y")
         record.block = Block()
-        with self.assertRaises(NotImplementedError):      # ``at`` ya existe desde la iteración 5
+        # ``at`` existe desde la iteración 5 y ``script`` desde la 7: un guion que el esquema no declara es un
+        # ``KeyError``, nunca un árbol vacío inventado.
+        with self.assertRaises(KeyError):
             record.script("trigger")
         self.assertEqual(record.children(), [], "sin Children, ningún hijo")
         for value_type in (Color(), ListOf(Int())):

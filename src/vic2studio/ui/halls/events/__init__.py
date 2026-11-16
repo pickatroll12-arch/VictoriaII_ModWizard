@@ -1,7 +1,7 @@
 """Sala Eventos (Ctrl+5): Event Studio, decisiones y modificadores en la iteración 7 (wizard §12, §14.5, §14.7).
 
 Eventos y Decisiones son páginas propias (``studio.py``) que alojan sus esquemas; Modificadores es la sección que
-genera el esquema ``event_modifier`` (sustituye a la tarjeta planificada).
+genera el esquema de los modificadores de evento (sustituye a la tarjeta planificada).
 """
 
 from ....i18n import N_
