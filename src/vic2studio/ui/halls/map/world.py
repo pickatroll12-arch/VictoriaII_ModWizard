@@ -11,7 +11,7 @@ from __future__ import annotations
 from PySide6.QtCore import QSize, Qt, QTimer
 from PySide6.QtGui import QColor, QIcon, QPixmap
 from PySide6.QtWidgets import (
-    QAbstractItemView, QCheckBox, QComboBox, QFormLayout, QHBoxLayout, QLabel, QLineEdit, QListWidget,
+    QAbstractItemView, QCheckBox, QComboBox, QFormLayout, QHBoxLayout, QHeaderView, QLabel, QLineEdit, QListWidget,
     QListWidgetItem, QProgressBar, QPushButton, QSpinBox, QSplitter, QStackedWidget, QTableWidget,
     QTableWidgetItem, QTabWidget, QToolButton, QVBoxLayout, QWidget,
 )
@@ -40,10 +40,12 @@ MODE_LABELS = (
     N_("map.mode.political"), N_("map.mode.rgo"), N_("map.mode.infrastructure"), N_("map.mode.life_rating"),
     N_("map.mode.terrain"), N_("map.mode.regions"), N_("map.mode.continents"), N_("map.mode.climates"),
     N_("map.mode.culture"), N_("map.mode.religion"), N_("map.mode.cores"), N_("map.mode.population"),
+    N_("map.mode.ids"),
 )
 LEGEND_KEYS = (
     N_("map.legend.none"), N_("map.legend.zero"), N_("map.legend.pick_tag"), N_("map.legend.core"),
     N_("map.legend.owned_no_core"), N_("map.legend.range"), N_("map.legend.more_than"), N_("map.legend.no_pops"),
+    N_("map.legend.ids"),
 )
 RASTER_ERRORS = (N_("map.error.no_provinces"), N_("map.error.no_definition"), N_("map.error.bad_bmp"),
                  N_("map.error.other"))
@@ -245,7 +247,7 @@ class WorldPage(BasePage):
         self.pops_table.setEditTriggers(QAbstractItemView.EditTrigger.DoubleClicked
                                         | QAbstractItemView.EditTrigger.EditKeyPressed)
         self.pops_table.verticalHeader().hide()
-        self.pops_table.horizontalHeader().setStretchLastSection(True)
+        self.pops_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         self.pops_table.itemChanged.connect(self._on_pop_edited)
         layout.addWidget(self.pops_table, 1)
         row = QHBoxLayout()

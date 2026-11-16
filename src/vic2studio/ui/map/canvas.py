@@ -133,6 +133,7 @@ class MapCanvas(QGraphicsView):
         self._zoom = 1.0
         self._lines: list[tuple[int, int, int, bool]] = []   # (id, id, color ARGB, discontinua)
         self._label_cache: dict[int, tuple[float, float]] = {}
+        self._labels_for: ProvinceRaster | None = None
         self._item = _MapItem()
         self.setObjectName("mapCanvas")
         self.setScene(QGraphicsScene(self))
@@ -179,7 +180,9 @@ class MapCanvas(QGraphicsView):
         self.scene().setSceneRect(QRectF(0, 0, raster.width, raster.height))
         if self._mode_key is None:
             self._mode_key = DEFAULT_MODE if DEFAULT_MODE in MODES else next(iter(MODES), None)
-        self._labels()
+        self._item.labels = []
+        self._labels_for = None
+        self._sync_labels()
         self.refresh()
         if first:
             self._fit()
@@ -195,7 +198,7 @@ class MapCanvas(QGraphicsView):
             raise KeyError(key)
         self._mode_key = key
         self._mode_param = param
-        self._item.show_labels = MODES[key].overlay == "ids"
+        self._sync_labels()
         self.refresh()
 
     def mode(self) -> str | None:
@@ -283,6 +286,15 @@ class MapCanvas(QGraphicsView):
         c0, c1 = max(0, view.x0 - 1), min(raster.width, view.x1 + 2)
         buffer[r0:r1, c0:c1] = self._compose(slice(r0, r1), slice(c0, c1))
         self._item.update(QRectF(c0, r0, c1 - c0, r1 - r0))
+
+    def _sync_labels(self) -> None:
+        """Las etiquetas del modo IDs se calculan la primera vez que se piden para este ráster (en vanilla, una
+        por cada una de sus 3 200 provincias)."""
+        wanted = self._mode_key in MODES and MODES[self._mode_key].overlay == "ids"
+        self._item.show_labels = wanted
+        if wanted and self._raster is not None and self._labels_for is not self._raster:
+            self._labels()
+            self._labels_for = self._raster
 
     def _labels(self) -> None:
         raster = self._raster

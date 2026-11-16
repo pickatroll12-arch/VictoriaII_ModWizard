@@ -252,6 +252,8 @@ class MapPickDialog(QDialog):
         bottom.addWidget(self.hover)
         layout.addLayout(bottom)
         self.buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        self.buttons.button(QDialogButtonBox.StandardButton.Ok).setText(tr("pickers.map.accept"))
+        self.buttons.button(QDialogButtonBox.StandardButton.Cancel).setText(tr("entity.cancel"))
         self.buttons.accepted.connect(self.accept)
         self.buttons.rejected.connect(self.reject)
         layout.addWidget(self.buttons)

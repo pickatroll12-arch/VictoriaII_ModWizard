@@ -54,9 +54,9 @@ class GroupsPage(BasePage):
         super().__init__(parent)
         self.map.rasterStateChanged.connect(self._update_state)
         self.map.factsChanged.connect(self._on_facts_changed)
-        session.projectOpened.connect(lambda _project: self._reload())
+        session.projectOpened.connect(self._reload)
         session.projectClosed.connect(self._reload)
-        session.documentsChanged.connect(lambda _rels: self._reload())
+        session.documentsChanged.connect(self._reload)
         self._reload()
 
     # --- construcción -----------------------------------------------------------------------------------
@@ -216,13 +216,20 @@ class GroupsPage(BasePage):
         except (KeyError, FileNotFoundError, OSError):
             return None
 
+    def _group_of(self, pid: int) -> str | None:
+        groups = self._groups()
+        try:
+            return None if groups is None else groups.group_of(pid)
+        except (FileNotFoundError, OSError):
+            return None
+
     def _members(self) -> list[int]:
         groups = self._groups()
         if groups is None or not self._group:
             return []
         try:
             return groups.members(self._group)
-        except GroupError:
+        except (GroupError, FileNotFoundError, OSError):
             return []
 
     def _display(self, gid: str) -> str:
@@ -240,7 +247,10 @@ class GroupsPage(BasePage):
         self.group_list.blockSignals(True)
         try:
             self.group_list.clear()
-            names = [] if groups is None else groups.groups()
+            try:
+                names = [] if groups is None else groups.groups()
+            except (FileNotFoundError, OSError):      # el archivo no existe en el mod ni en el juego
+                names = []
             for gid in names:
                 try:
                     count = len(groups.members(gid))
@@ -304,10 +314,7 @@ class GroupsPage(BasePage):
     def _on_clicked(self, pid: int, modifiers) -> None:
         if not pid:
             return
-        groups = self._groups()
-        if groups is None:
-            return
-        gid = groups.group_of(pid)
+        gid = self._group_of(pid)
         if gid:
             self.select_group(gid)
             self._select_member(pid)
@@ -331,8 +338,7 @@ class GroupsPage(BasePage):
         if not pid:
             self.hover_label.setText("")
             return
-        groups = self._groups()
-        gid = groups.group_of(pid) if groups is not None else None
+        gid = self._group_of(pid)
         text = tr("map.hover", id=pid, name=self.map.province_name(pid) or "—")
         self.hover_label.setText(f"{text} · {gid}" if gid else text)
 

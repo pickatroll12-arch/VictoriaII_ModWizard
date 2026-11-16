@@ -214,6 +214,28 @@ class StraitsPageTests(MapCase):
         self.assertFalse(page.draw_button.isChecked())
 
 
+class BookmarkCameraTests(MapCase):
+    def test_use_the_current_map_view(self):
+        from vic2studio.core.schema import RecordRef
+
+        world = self.open_map()
+        world.canvas.set_zoom(8)
+        world.canvas.center_on(30, 20)
+        _qt.process_events(20)
+        center = self.window.session.map.view_center
+        self.assertIsNotNone(center)
+        page = self.window.show_page("war:bookmarks")
+        page.navigator.select(RecordRef("bookmark", "MG_START"))
+        self.settle()
+        form = page.form
+        self.assertTrue(form.map_view_button.text())
+        self.assertTrue(form.use_map_view())
+        self.settle()
+        record = self.window.session.entities.open(RecordRef("bookmark", "MG_START"))
+        self.assertEqual((record.get("cameraX"), record.get("cameraY")), center)
+        self.assertEqual(len(self.window.session.history()), 1)
+
+
 class PickerTests(MapCase):
     def test_province_picker_parses_and_validates(self):
         self.open_map()

@@ -190,3 +190,23 @@ register_mode(_coded_mode("religion", "religion", 100, KIND_RELIGION,
                           lambda index: _symbol_color(index, KIND_RELIGION)))
 register_mode(_cores_mode())
 register_mode(_population_mode())
+
+
+def _ids_mode() -> MapMode:
+    """Modo IDs (§16.2): el color propio de cada provincia, apagado, con su número encima (capa ``ids`` de la
+    interfaz)."""
+    def lut(facts: ProvinceFacts, index, *, param=None) -> np.ndarray:
+        colors = np.array([hash_color(f"id{pid}") for pid in range(facts.size)], dtype=np.uint32)
+        channels = ((colors >> 16) & 255, (colors >> 8) & 255, colors & 255)
+        soft = [(c.astype(np.uint32) + 2 * 230) // 3 for c in channels]
+        colors = np.uint32(0xFF000000) | (soft[0] << 16) | (soft[1] << 8) | soft[2]
+        return finish_lut(facts, colors.astype(np.uint32))
+
+    def legend(facts: ProvinceFacts, index, *, param=None) -> list[LegendItem]:
+        land = int(np.count_nonzero(~np.asarray(facts.is_sea)[1:]))
+        return [LegendItem(argb(230, 230, 230), text_key="map.legend.ids", count=land)]
+
+    return MapMode("ids", "map.mode.ids", lut, legend, order=130, overlay="ids")
+
+
+register_mode(_ids_mode())

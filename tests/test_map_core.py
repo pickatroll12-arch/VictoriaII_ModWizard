@@ -193,7 +193,7 @@ class FactsAndModesTests(unittest.TestCase):
                     self.assertEqual(terrains[5], "hills")              # la historia anula el mapa
                     self.assertEqual(terrains[8], "mountain")
                     modes = discover_modes()
-                    self.assertEqual(len(modes), 12)
+                    self.assertEqual(len(modes), 13)
                     for mode in modes:
                         param = "AAA" if mode.param else None
                         lut = mode.lut(facts, index, param=param)
@@ -262,6 +262,22 @@ class GroupsTests(ProjectCase):
         text = _bytes(self.ws, rel).decode("cp1252")
         self.assertIn("AAA_1 = { 1 2 }", text)
         self.assertIn("BBB_4 = { 4 5 6 3 }", text)
+
+    def test_property_every_land_province_stays_in_exactly_one_state(self):
+        """Criterio 7: 200 movimientos al azar (semilla fija), y tras cada uno cada provincia de tierra está en
+        exactamente un estado."""
+        import random
+
+        rng = random.Random(5)
+        rel, layout = GROUP_FILES["region"]
+        groups = ProvinceGroups(self.ws, rel, layout=layout)
+        names = groups.groups()
+        with self.ws.transaction("t"):
+            for _ in range(200):
+                groups.move(rng.choice(mg.LAND), rng.choice(names))
+                for pid in mg.LAND:
+                    self.assertEqual(len(groups.groups_of(pid)), 1, pid)
+                    self.assertEqual(sum(groups.members(g).count(pid) for g in names), 1, pid)
 
     def test_paired_climates_keep_their_two_entries(self):
         rel, layout = GROUP_FILES["climate"]
@@ -369,6 +385,58 @@ class VanillaCriteriaTests(unittest.TestCase):
         self.assertLess(built, 8.0)          # 4 s en una máquina libre; margen para la batería en paralelo
         self.assertLess(loaded, 0.5)
         self.assertAlmostEqual(float(raster.centroid[549][1]), 1675.6, delta=0.5)
+
+    def _project(self):
+        mod = Path(tempfile.mkdtemp()) / "mod"
+        mod.mkdir()
+        project = Project.open(self.game, mod)
+        self.addCleanup(project.close, discard=True)
+        index = build_index(project.vfs.snapshot(), None)
+        entities = Entities(project.ws, index, LocSync(project.ws, project.vfs, prefix=project.settings.prefix))
+        from vic2studio.core.domain.province import Provinces
+
+        return project, Provinces(entities, GameRules.from_snapshot(project.vfs.snapshot()))
+
+    def test_criteria_4_5_and_6_on_berlin(self):
+        project, provinces = self._project()
+        rel = "history/provinces/germany/549 - Berlin.txt"
+        before = _bytes(project.ws, rel)
+        with project.ws.transaction("t"):
+            self.assertTrue(provinces.set(549, "owner", "NGF", D1836))
+        after = _bytes(project.ws, rel)
+        self.assertEqual(_diff_lines(before, after), 2)                  # una línea cambiada: − y +
+        with project.ws.transaction("t2"):
+            provinces.set(549, "fort", 2, D("1861.7.1"))
+        text = _bytes(project.ws, rel).decode("cp1252")
+        self.assertEqual(text.count("1861.1.1 ="), 2, "vanilla ya trae dos bloques 1861.1.1; no se crea otro")
+        self.assertNotIn("1861.7.1", text)
+        changed = [line for line in text.splitlines() if "fort = 2" in line]
+        self.assertEqual(len(changed), 1, "un solo sitio con el fuerte nuevo")
+        self.assertLessEqual(_diff_lines(after, text.encode("cp1252")), 2)
+        self.assertEqual(provinces.state(549, D("1861.7.1")).fort, 2)
+        self.assertEqual(provinces.state(549, D1836).fort, 1)
+        pops = provinces.pops()
+        blocks = pops.pops_index.blocks(549, D1836)
+        self.assertEqual({str(ref.rel) for ref in blocks}, {"history/pops/1836.1.1/Germany.txt"})
+        late = pops.pops_index.blocks(2482, D("1861.4.14"))
+        self.assertEqual(len(late), 2)
+        self.assertEqual({str(ref.rel) for ref in late}, {"history/pops/1861.4.14/Australia.txt"})
+
+    def test_criterion_8_check_map_baseline(self):
+        from collections import Counter
+
+        from vic2studio.core.map.coherence import check_map
+        from vic2studio.core.validate import build_context
+
+        project, _provinces = self._project()
+        snapshot = project.vfs.snapshot()
+        problems = check_map(build_context(snapshot, build_index(snapshot, None)))
+        counts = Counter(p.code for p in problems)
+        self.assertEqual(counts["bmp_color_unmapped"], 27)
+        self.assertEqual([dict(p.args)["text"] for p in problems if p.code == "definition_bad_number"], ["223."])
+        self.assertEqual([dict(p.args)["province"] for p in problems if p.code == "sea_start_duplicate"], ["2800"])
+        duplicates = {str(p.rel) for p in problems if p.code == "province_history_duplicate"}
+        self.assertTrue(any("1396" in rel or "1397" in rel for rel in duplicates), duplicates)
 
 
 if __name__ == "__main__":

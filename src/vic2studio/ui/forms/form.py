@@ -292,8 +292,35 @@ class EntityForm(QWidget):
         if added:
             self.cards.append(card)
             self.column.addWidget(card)
+            if self.schema.kind == "bookmark" and title_key.endswith(".section.camera"):
+                self._add_map_view_button(card)
         else:
             card.deleteLater()
+
+    def _add_map_view_button(self, card: SectionCard) -> None:
+        """«Usar la vista actual del mapa» (wizard §16.3): ``cameraX``/``cameraY`` del bookmark = el centro del
+        lienzo de la sala Mapa, en un solo paso de deshacer."""
+        self.map_view_button = QPushButton()
+        self.map_view_button.setObjectName("useMapView")
+        self.map_view_button.clicked.connect(self.use_map_view)
+        card.form.addRow(QLabel(), self.map_view_button)
+
+    def use_map_view(self) -> bool:
+        map_session = getattr(self.session, "map", None)
+        center = None if map_session is None else map_session.view_center
+        if center is None or self.ref is None:
+            self.status_requested.emit(N_("forms.map_view.none"), {})
+            return False
+        x, y = center
+
+        def apply(record) -> None:
+            record.set("cameraX", int(x))
+            record.set("cameraY", int(y))
+
+        done = self._edit("cameraX", apply)
+        if done:
+            self.status_requested.emit(N_("forms.map_view.done"), {"x": int(x), "y": int(y)})
+        return done
 
     def _build_row(self, item, card: SectionCard, variant) -> _Row | None:
         kind = self.schema.kind
@@ -350,6 +377,10 @@ class EntityForm(QWidget):
         self.retranslate()
 
     def retranslate(self) -> None:
+        button = getattr(self, "map_view_button", None)
+        if button is not None:
+            button.setText(tr("forms.map_view"))
+            button.setToolTip(tr("forms.map_view.tooltip"))
         for card in self.cards:
             card.retranslate()
         for row in self.rows:

@@ -49,7 +49,7 @@ class StraitsPage(BasePage):
         self._draw_step = -1
         super().__init__(parent)
         self.map.rasterStateChanged.connect(self._update_state)
-        session.projectOpened.connect(lambda _project: self.reload())
+        session.projectOpened.connect(self.reload)
         session.projectClosed.connect(self.reload)
         session.documentsChanged.connect(self._on_documents_changed)
         session.indexStateChanged.connect(self._on_index_state)
