@@ -117,9 +117,30 @@ def smoke_problems() -> list[str]:
     return missing
 
 
+def smoke_worker(timeout: float = 60.0) -> str | None:
+    """Arranca el trabajador del taller de mapas («spawn») y le hace un ``ping``; None si contesta, o el motivo.
+
+    En el ejecutable congelado es lo que comprueba que ``freeze_support`` desvía el proceso hijo al trabajador.
+    """
+    from .core.mapforge.worker import ForgeCommand, ForgeWorker
+
+    worker = ForgeWorker()
+    try:
+        worker.submit(ForgeCommand("ping")).result(timeout=timeout)
+        return None
+    except Exception as exc:   # noqa: BLE001 — la comprobación de humo lo cuenta, no lo relanza
+        return f"{type(exc).__name__}: {exc}"
+    finally:
+        worker.close()
+
+
 def _smoke_test(app: QApplication, window) -> None:
-    """Dice por la salida estándar si la ventana se construyó con todos sus textos y cierra la aplicación."""
+    """Dice por la salida estándar si la ventana se construyó con todos sus textos y si el trabajador del taller
+    arranca, y cierra la aplicación."""
     missing = smoke_problems()
+    worker = smoke_worker()
+    if worker is not None:
+        missing.append(f"mapforge-worker ({worker})")
     print(f"{APP_NAME} {__version__}: " + ("textos completos" if not missing else "faltan " + ", ".join(missing)),
           flush=True)
     window.close()

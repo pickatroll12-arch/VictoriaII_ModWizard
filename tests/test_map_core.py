@@ -238,6 +238,11 @@ class GroupsTests(ProjectCase):
         for kind, groups in expected.items():
             rel, layout = GROUP_FILES[kind]
             self.assertEqual({g: ProvinceGroups(self.ws, rel, layout=layout).members(g) for g in groups}, groups)
+            self.assertEqual(ProvinceGroups(self.ws, rel, layout=layout).all_members(), groups, "una sola pasada")
+        for kind in ("continent", "climate"):
+            rel, layout = GROUP_FILES[kind]
+            view = ProvinceGroups(self.ws, rel, layout=layout)
+            self.assertEqual(view.all_members(), {g: view.members(g) for g in view.groups()})
         rel, layout = GROUP_FILES["continent"]
         self.assertIn(1, ProvinceGroups(self.ws, rel, layout=layout).members("west_land"))
         rel, layout = GROUP_FILES["climate"]

@@ -152,8 +152,21 @@ arreglarlo, deja una prueba de regresión que falle sin el arreglo y pasa la bat
   `test_mapforge_world`, `test_mapforge_fmg_json` y `test_map_borders`. Reducciones de alcance: sin «Sobre
   vanilla» (el nivel sigue desactivado), sin «Quitar los TAG existentes», sin las bases de nombres de FMG, sin los
   ríos de FMG, sin edición a mano de países ni FR/DE (detalle en el informe de la entrega).
-- **Lo siguiente: la iteración 10** (exportar a zip, empaquetado, guía de usuario y comprobación en juego).
-  «Sobre vanilla» queda pendiente para una iteración propia.
+- **Iteración 10 (exportar, rendimiento, empaquetado y guía): hecha** (16-11-2026, mismo hilo).
+  - `core/export.py` (`plan_zip`, `check_destination`, `write_zip_export`) y `fileio.write_zip` (atómico,
+    cancelable); `ui/dialogs/export.py` (`ExportZipDialog`), con Ctrl+E y «Exportar a zip…» en Proyecto ›
+    Validación. Bloquean: cambios sin guardar, validación vieja o ausente y errores propios del mod.
+  - Rendimiento con vanilla (`tools/bench_app.py`): `VirtualFS.list` guarda sus listados (abrir un mod tardaba
+    ~15 s por los nombres de provincia), `ProvinceGroups.all_members` y los lienzos del mapa solo tienen imagen
+    mientras se ven (704 → 566 MB). Arranque con el índice en caché ~4 s frente a 3 s: falta construir las
+    secciones a demanda (la ventana tarda ~2,2 s, repartidos entre ~90 secciones).
+  - Empaquetado: `__main__.py` llama a `multiprocessing.freeze_support()` (sin él, el ejecutable congelado lanzaba
+    procesos en cascada al arrancar el trabajador del taller); la comprobación de humo hace un `ping` al
+    trabajador. Ejecutable de Linux probado con PyInstaller 6.22 (la 6.10 no sabe empaquetar numpy 2.5).
+  - `docs/usuario/`: los 5 flujos, exportar y `comprobacion_en_juego.md` (todas las reglas [verificar en juego],
+    con las 28 del taller).
+- **Lo siguiente:** las respuestas del usuario a `docs/usuario/comprobacion_en_juego.md`, que fijan los valores por
+  defecto; secciones a demanda para el arranque de 3 s; probar el ejecutable en Windows 10; «Sobre vanilla».
 - **Segunda tanda de Gemini (G4–G7): hecha por Claude.** La plataforma de Gemini se cayó y el usuario pidió
   asumirlas. Son piezas del núcleo para iteraciones futuras, en archivos nuevos:
   - G4 (`8c33ae6`): `core/tablecsv.py` y `core/map/definition.py`;

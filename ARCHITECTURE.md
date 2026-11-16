@@ -1877,7 +1877,8 @@ VictoriaII_ModWizard/
 │   │   ├── appdirs.py                   data_dir(), cache_dir(), locks_dir(), detached_project_dir(), mod_key(); VIC2STUDIO_DATA_DIR / VIC2STUDIO_CACHE_DIR
 │   │   ├── cancel.py                    CancelCheck, Cancelled, raise_if_cancelled
 │   │   ├── encoding.py                  detección sin pérdidas (cp1252, UTF-8, UTF-16), BOM, saltos de línea
-│   │   ├── fileio.py                    lectura con huella, escritura atómica, primitivas del diario, .bak, FileChangedError; única escritura cruda
+│   │   ├── export.py                    exportar a zip: plan_zip (qué entra y por qué se queda fuera), check_destination, write_zip_export
+│   │   ├── fileio.py                    lectura con huella, escritura atómica, primitivas del diario, .bak, FileChangedError, write_zip; única escritura cruda
 │   │   ├── modfile.py                   descriptor .mod: leer, buscar, DescriptorSpec, render_descriptor, descriptor_problems, sanitize_folder, create_mod_skeleton, write_descriptor
 │   │   ├── modcheck.py                  validación sintáctica de un mod completo (y textos de los códigos de descriptor_problems)
 │   │   ├── texts.py                     textos del núcleo: load_texts(lang), text(key, lang, **fmt)
@@ -2031,7 +2032,8 @@ VictoriaII_ModWizard/
 │       │   ├── recovery.py              RecoveryDialog: guardados recuperados y autoguardados huérfanos
 │       │   ├── new_mod.py               NewModDialog: «Nuevo mod»
 │       │   ├── fix_plan.py              FixPlanDialog: el plan de un arreglo, con confirmación explícita si borra o sustituye
-│       │   └── add_key.py               AddKeyDialog: «Añadir clave» de Textos
+│       │   ├── add_key.py               AddKeyDialog: «Añadir clave» de Textos
+│       │   └── export.py                ExportZipDialog: «Exportar a zip» (Ctrl+E)
 │       ├── pages/
 │       │   ├── __init__.py              PAGE_CLASSES y PAGE_KEYS: compatibilidad con la navegación de la iteración 1
 │       │   ├── base.py                  BasePage: key, título, subtítulo, icono, retranslate(), shutdown()
@@ -3034,6 +3036,16 @@ Ninguno toca el proyecto: devuelven lo elegido y la ventana lo aplica con
   momento y los errores impiden crear. «Crear» llama a `Session.create_mod`, en
   segundo plano, y espera: si el mod se creó, el diálogo se cierra y la ventana
   selecciona el mod nuevo y abre su Descriptor .mod; si no, muestra el motivo.
+- **`ExportZipDialog`** (`export.py`, iteración 10): el mod guardado en un zip
+  limpio. Enseña el plan de `core.export.plan_zip` (cuántos archivos entran y
+  cuántos se quedan fuera por cada motivo: `.vic2studio/`, `.bak`, temporales,
+  archivos del sistema, control de versiones, enlaces y, con «Dejar fuera las
+  copias idénticas al juego», las copias idénticas salvo en `replace_path`). No
+  deja exportar con cambios sin guardar, sin un informe de validación al día
+  (ofrece «Validar») ni con errores propios del mod. El destino no puede estar
+  dentro del mod ni del juego. Plan y escritura van en segundo plano; cancelar
+  deja el zip anterior intacto (`fileio.write_zip` escribe en un temporal y lo
+  renombra al terminar). Se abre con Ctrl+E y desde Proyecto › Validación.
 
 ### 8.2 Visores (`ui/viewers`)
 

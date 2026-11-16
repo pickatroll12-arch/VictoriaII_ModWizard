@@ -19,6 +19,7 @@ import os
 import secrets
 import shutil
 import time
+import zipfile
 from dataclasses import dataclass, replace
 from pathlib import Path
 
@@ -181,6 +182,37 @@ def commit_staged(temp: str | os.PathLike, target: str | os.PathLike, *, retries
             if attempt >= retries:
                 raise
             time.sleep(delay)
+
+
+def write_zip(target: str | os.PathLike, members, *, cancelled=None) -> int:
+    """Escribe un zip en ``target`` de forma atómica: temporal junto a él, fsync y ``os.replace``.
+
+    ``members``: pares ``(nombre en el zip, origen)``; el origen es una ruta (se copia en trozos, con su fecha) o
+    ``bytes``. Comprime con deflate. ``cancelled()`` se consulta entre archivos: si devuelve True, se borra el
+    temporal, ``target`` queda como estaba y se lanza ``InterruptedError``. Devuelve el tamaño del zip.
+    """
+    target = Path(target)
+    make_dirs(target.parent)
+    fd, name = _create_temp(target)
+    try:
+        with os.fdopen(fd, "wb") as handle:
+            with zipfile.ZipFile(handle, "w", zipfile.ZIP_DEFLATED, compresslevel=6, strict_timestamps=False) as zf:
+                for arcname, source in members:
+                    if cancelled is not None and cancelled():
+                        raise InterruptedError(str(target))
+                    if isinstance(source, (bytes, bytearray)):
+                        zf.writestr(arcname, bytes(source))
+                    else:
+                        zf.write(source, arcname)
+            handle.flush()
+            os.fsync(handle.fileno())
+        size = os.path.getsize(name)
+        commit_staged(name, target)
+    except BaseException:
+        remove_file(name)
+        raise
+    fsync_dir(target.parent)
+    return size
 
 
 def discard_staged(temp: str | os.PathLike) -> None:

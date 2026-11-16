@@ -141,6 +141,29 @@ class WorldPageTests(MapCase):
         self.assertEqual(page.mode_combo.itemText(0), "Political")
 
 
+class CanvasMemoryTests(MapCase):
+    def test_only_the_visible_canvas_keeps_its_image(self):
+        """La sala Mapa tiene cuatro lienzos; cada imagen del mapa de vanilla ocupa 48 MB (iteración 10)."""
+        world = self.open_map()
+        self.window.show()
+        _qt.process_events(50)
+        regions = self.window.page("regions")
+        self.assertIsNotNone(world.canvas._item.buffer)
+        self.assertIsNone(regions.canvas._item.buffer, "un lienzo que no se ha visto no reserva su imagen")
+        self.window.show_page("regions")
+        self.settle()
+        self.assertIsNotNone(regions.canvas._item.buffer)
+        self.assertTrue((regions.canvas._item.buffer != 0).any(), "al mostrarse se pinta entero")
+        self.assertIsNone(world.canvas._item.buffer, "al ocultarse suelta la suya")
+        before = self.window.session.map.facts.owner[4]
+        world.canvas.refresh([4])            # oculto: no pinta, queda pendiente
+        self.assertIsNone(world.canvas._item.buffer)
+        self.window.show_page("world")
+        self.settle()
+        self.assertIsNotNone(world.canvas._item.buffer)
+        self.assertEqual(self.window.session.map.facts.owner[4], before)
+
+
 class GroupPagesTests(MapCase):
     def test_regions_members_and_group_edits(self):
         page = self.open_map("regions")

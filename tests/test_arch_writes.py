@@ -55,7 +55,7 @@ OPEN_FUNCTIONS = {("builtins", "open"), ("io", "open"), ("codecs", "open"), ("gz
                   ("lzma", "open"), ("tarfile", "open"), ("zipfile", "ZipFile")}
 # API de escritura de fileio (fsync_dir no modifica nada) y sus envoltorios.
 FILEIO_WRITERS = {"atomic_write_bytes", "write_text", "stage_bytes", "commit_staged", "discard_staged", "copy_file",
-                  "move_file", "remove_file", "make_dirs", "remove_empty_dirs", "create_exclusive"}
+                  "move_file", "remove_file", "make_dirs", "remove_empty_dirs", "create_exclusive", "write_zip"}
 WRAPPERS = {
     "vic2studio.core.clausewitz.serializer": {"write_file"},
     "vic2studio.core.clausewitz": {"write_file"},
@@ -73,6 +73,8 @@ WRITERS_ALLOWED = {
                                  "escribe si cae dentro del juego o del mod",
     "core/map/cache.py": "la caché del ráster de provincias, fuera del mod (core.appdirs.cache_dir()/raster); no "
                          "escribe si esa carpeta cae dentro del juego o del mod",
+    "core/export.py": "el zip de la exportación, donde indica el usuario y nunca dentro del mod ni del juego "
+                      "(check_destination)",
     "core/clausewitz/serializer.py": "es el envoltorio write_file",
     "core/csvloc/serialization.py": "es el envoltorio write_csv_file",
 }

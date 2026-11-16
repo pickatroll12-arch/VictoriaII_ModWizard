@@ -25,6 +25,8 @@
   "checks.explain_no_report": "valida el mod primero",
   "checks.explain_none": "Elige un problema y pulsa «¿Por qué?».",
   "checks.explaining": "Explicando…",
+  "checks.export": "Exportar a zip…",
+  "checks.export_tooltip": "Empaqueta el mod guardado en un zip limpio para compartirlo (Ctrl+E). Los errores del mod lo bloquean.",
   "checks.failed_text": "La validación se interrumpió: {error}",
   "checks.failed_title": "No se pudo validar el mod",
   "checks.filter.all": "Todas las gravedades",

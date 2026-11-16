@@ -120,6 +120,7 @@ class MapCanvas(QGraphicsView):
         self.map_session = map_session
         self.follow = follow
         self._raster: ProvinceRaster | None = None
+        self._stale = False                  # oculto con cambios sin pintar: se pinta al mostrarse
         self._mode_key: str | None = None
         self._mode_param: object = None
         self._pick_mode = PICK_NONE
@@ -177,7 +178,8 @@ class MapCanvas(QGraphicsView):
             self._item.set_buffer(None)
             self.scene().setSceneRect(QRectF())
             return
-        self._item.set_buffer(np.zeros((raster.height, raster.width), dtype=np.uint32))
+        # El búfer (48 MB con vanilla) solo existe mientras el lienzo se ve: la sala Mapa tiene cuatro lienzos.
+        self._item.set_buffer(np.zeros((raster.height, raster.width), dtype=np.uint32) if self.isVisible() else None)
         self.scene().setSceneRect(QRectF(0, 0, raster.width, raster.height))
         if self._mode_key is None:
             self._mode_key = DEFAULT_MODE if DEFAULT_MODE in MODES else next(iter(MODES), None)
@@ -268,9 +270,18 @@ class MapCanvas(QGraphicsView):
     def refresh(self, pids: Iterable[int] | None = None) -> None:
         """Repinta con los hechos actuales: todo (None) o solo las provincias ``pids``. Sin ráster, nada."""
         raster = self._raster
-        buffer = self._item.buffer
-        if raster is None or buffer is None:
+        if raster is None:
             return
+        if not self.isVisible():
+            # Oculto: sin búfer ni composición; al mostrarse se pinta entero (showEvent).
+            self._lut = self._compute_lut()
+            self._stale = True
+            return
+        buffer = self._item.buffer
+        if buffer is None:
+            self._item.set_buffer(np.zeros((raster.height, raster.width), dtype=np.uint32))
+            buffer = self._item.buffer
+            pids = None
         if pids is None or self._lut is None:
             self._lut = self._compute_lut()
             buffer[:, :] = self._compose(slice(0, raster.height), slice(0, raster.width))
@@ -593,5 +604,15 @@ class MapCanvas(QGraphicsView):
 
     def showEvent(self, event) -> None:  # noqa: N802
         super().showEvent(event)
+        if self._raster is not None and (self._stale or self._item.buffer is None):
+            self._stale = False
+            self.refresh()
         if self._raster is not None and self._zoom == 1.0:
             self._fit()
+
+    def hideEvent(self, event) -> None:  # noqa: N802
+        """Al dejar de verse (otra sección, otra sala) suelta el búfer; no al minimizar la ventana."""
+        super().hideEvent(event)
+        if not event.spontaneous() and self._item.buffer is not None:
+            self._item.set_buffer(None)
+            self._stale = True

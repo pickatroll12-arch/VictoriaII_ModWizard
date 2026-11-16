@@ -248,20 +248,17 @@ class GroupsPage(BasePage):
         try:
             self.group_list.clear()
             try:
-                names = [] if groups is None else groups.groups()
+                members = {} if groups is None else groups.all_members()
             except (FileNotFoundError, OSError):      # el archivo no existe en el mod ni en el juego
-                names = []
-            for gid in names:
-                try:
-                    count = len(groups.members(gid))
-                except GroupError:
-                    count = 0
+                members = {}
+            for gid, ids in members.items():
+                count = len(ids)
                 item = QListWidgetItem(tr("map.groups.item", name=self._display(gid), count=count))
                 item.setData(ROLE_GROUP, gid)
                 self.group_list.addItem(item)
                 if gid == self._group:
                     self.group_list.setCurrentItem(item)
-            if self._group not in names:
+            if self._group not in members:
                 self._group = None
         finally:
             self.group_list.blockSignals(False)

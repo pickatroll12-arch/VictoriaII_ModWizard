@@ -129,6 +129,11 @@ class ProvinceGroups:
         """Nombres en orden de archivo (en ``paired``, el de la primera aparición), sin repetir."""
         return list(self._lists())
 
+    def all_members(self) -> dict[str, list[int]]:
+        """``{grupo: ids}`` de todos los grupos en una sola pasada por el documento (``members`` la hace por grupo:
+        con los 555 estados de vanilla, la lista de Regiones tardaba un segundo en rellenarse)."""
+        return {name: ([] if block is None else _ints(block)) for name, block in self._lists().items()}
+
     def members(self, gid: str) -> list[int]:
         """Ids del grupo en su orden, con los repetidos tal cual. ``GroupError("unknown_group")`` si no existe."""
         lists = self._lists()
