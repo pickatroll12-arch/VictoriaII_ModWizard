@@ -126,7 +126,22 @@ arreglarlo, deja una prueba de regresión que falle sin el arreglo y pasa la bat
   1264 sprites, 432 texturas con la otra extensión, 26 que faltan y 13 duplicados (el diseño decía 434 y 27; las
   pruebas usan lo medido). Pruebas nuevas: `test_gui_core`, `test_gui_corpus`, `test_gfx_dds` y
   `test_ui_interface`.
-- **Lo siguiente: la iteración 9a, taller de mapas** (wizard.md §18 y §22).
+- **Iteración 9a (taller de mapas, «Solo mapa»): hecha** (16-11-2026, mismo hilo). Núcleo sin Qt en
+  `core/mapforge/**`: parámetros inmutables, etapa de celdas (relieve con las 14 plantillas de FMG, clima, ríos,
+  biomas, provincias, estados, continentes, climas, dueños, población, RGO y nombres) y etapa de ráster común a lo
+  generado y a lo importado (`finish_raster`: fragmentos, ids con la tierra primero, reconciliación, posiciones,
+  estrechos y texturas). Un generador por paso (`rng_for`), ediciones como datos (`EditOp`), proyecto con
+  `cells.pack` (sin `numpy.save`), trabajador `spawn` con cola y Cancelar (`VIC2STUDIO_FORGE_INLINE=1` lo ejecuta
+  en proceso), importación de bitmaps y de alturas, exportación en **una** transacción (papelera de lo que el mod
+  tenía en las carpetas reemplazadas, `replace_path`, y un archivo con solo un comentario en las carpetas
+  reemplazadas que quedarían vacías) y auditoría por expresiones regulares. Interfaz: `ui/mapforge/**` (asistente
+  de 14 pantallas, vista previa con 16 modos, revisión con problemas, auditoría y plan) y Mapa › Taller de mapas.
+  Port de Azgaar's Fantasy Map Generator (MIT) con su aviso en `THIRD_PARTY_NOTICES.md`. Banco:
+  `tools/bench_mapforge.py` (13 de 13 con vanilla; importar los 3 bitmaps, 9,5 s frente a ≤ 10 s). Pruebas nuevas:
+  `test_mapforge_core`, `test_mapforge_io`, `test_ui_mapforge` y `test_third_party_notices`. Reducciones de
+  alcance en `RESUMEN.md` e informe de la entrega (sin interfaz de bloqueo ni de pintar dueños, 2 SimpleFix de 24,
+  deshacer del taller propio, solo destino «este mod»).
+- **Lo siguiente: la iteración 9b** (nivel «Mundo», importación de FMG JSON, banderas y «Sobre vanilla»).
 - **Segunda tanda de Gemini (G4–G7): hecha por Claude.** La plataforma de Gemini se cayó y el usuario pidió
   asumirlas. Son piezas del núcleo para iteraciones futuras, en archivos nuevos:
   - G4 (`8c33ae6`): `core/tablecsv.py` y `core/map/definition.py`;

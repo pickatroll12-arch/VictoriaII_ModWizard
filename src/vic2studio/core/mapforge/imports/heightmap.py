@@ -77,14 +77,16 @@ def pseudo_relief(categories: np.ndarray, water: np.ndarray, *, passes: int = 3)
     con una caja 3×3. ``categories`` son los índices de ``world.CATS`` por píxel."""
     from ..world import CAT_INDEX
 
-    h = np.full(categories.shape, 30.0)
+    h = np.full(categories.shape, 30.0, np.float32)
     h[categories == CAT_INDEX["mountain"]] = 75.0
     h[categories == CAT_INDEX["hills"]] = 50.0
     h[water] = 10.0
     for _ in range(passes):
-        p = np.pad(h, 1, mode="edge")
-        h = (p[:-2, :-2] + p[:-2, 1:-1] + p[:-2, 2:] + p[1:-1, :-2] + p[1:-1, 1:-1] + p[1:-1, 2:]
-             + p[2:, :-2] + p[2:, 1:-1] + p[2:, 2:]) / 9.0
+        # Caja 3×3 separable (filas y luego columnas), con los bordes repetidos.
+        p = np.pad(h, ((0, 0), (1, 1)), mode="edge")
+        r = p[:, :-2] + p[:, 1:-1] + p[:, 2:]
+        p = np.pad(r, ((1, 1), (0, 0)), mode="edge")
+        h = (p[:-2] + p[1:-1] + p[2:]) / np.float32(9.0)
     # La costa la decide la importación, no el suavizado.
     h = np.where(water, np.minimum(h, SEA_LEVEL - 1), np.maximum(h, SEA_LEVEL + 1))
     return h

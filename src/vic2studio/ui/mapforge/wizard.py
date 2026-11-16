@@ -163,6 +163,7 @@ class ForgeWizard(QWidget):
         self._debounce.timeout.connect(self._regenerate_pending)
         self._build()
         self.retranslate()
+        self._on_advanced(self.advanced_box.isChecked())
         self.go("start")
 
     # --- construcción -------------------------------------------------------------------------------------

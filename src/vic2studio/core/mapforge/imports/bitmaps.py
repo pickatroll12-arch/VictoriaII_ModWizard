@@ -582,8 +582,17 @@ def build_world(files: ImportSet, rep: ImportReport, params, install: InstallPro
     names = [None] + names_p
     from ..rasterize import nearest_cells
 
-    cell_r = nearest_cells(world.lattice, W, H, cell_class=world.cells.land, pix_class=~pix_sea, warp=None,
-                           cancelled=cancelled)
+    if pcat_px is not None:
+        # Con terrain.bmp la celda de cada píxel solo sirve para pintar las capas por celda de la vista previa:
+        # basta a 1/4 y ampliada (2,5 s menos a 5616×2160).
+        q = 4
+        hq, wq = -(-H // q), -(-W // q)
+        small = nearest_cells(world.lattice.scaled(q), wq, hq, cell_class=world.cells.land,
+                              pix_class=~pix_sea[::q, ::q], warp=None, cancelled=cancelled)
+        cell_r = np.ascontiguousarray(np.repeat(np.repeat(small, q, 0), q, 1)[:H, :W])
+    else:
+        cell_r = nearest_cells(world.lattice, W, H, cell_class=world.cells.land, pix_class=~pix_sea, warp=None,
+                               cancelled=cancelled)
     positions = None
     if rep.positions is not None:
         positions = _kept_positions(rep.positions, final, rep.def_ids)

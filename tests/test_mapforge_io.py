@@ -81,6 +81,34 @@ class ExportTests(unittest.TestCase):
         self.assertTrue(saved.result is None or not saved.result.written)
         self.assertFalse((self.game.mod_root / "map" / "provinces.bmp").exists())
 
+    def test_saved_export_adds_no_validation_error(self):
+        """Después de guardar y reabrir, la validación global no tiene errores nuevos (salvo los tipos de POP, que
+        el minijuego no define). En particular, ninguna carpeta de ``replace_path`` queda vacía."""
+        from vic2studio.core.index import build_index
+        from vic2studio.core.project.project import Project
+        from vic2studio.core.validate import Validator, build_context
+
+        def errors(project):
+            snap = project.vfs.snapshot()
+            report = Validator(build_context(snap, build_index(snap, None))).validate()
+            return {(x.code, str(x.rel), str(x.args)) for x in report.problems if x.severity.name == "ERROR"}
+
+        p = self.project
+        before = errors(p)
+        prof = install.learn_install(install.source_from_vfs(p.vfs))
+        world = pipeline.run_all(tiny_params(existing_tags=2), prof)
+        inputs = ex.gather_inputs(p, world)
+        files, _ = ex.render_files(world, inputs)
+        for folder in ex.REPLACED_FOLDERS:
+            self.assertTrue(any(rel.startswith(folder + "/") for rel in files), folder)
+        ex.apply_export(p, files, inputs)
+        p.save()
+        p.close()
+        self.project = Project.open(self.game.game_root, self.game.mod_root)
+        self.addCleanup(self.project.close)
+        new = {x for x in errors(self.project) - before if x[0] != "pop_type_unknown"}
+        self.assertEqual(new, set())
+
     def test_a_failure_halfway_leaves_the_mod_as_it_was(self):
         """Criterio 7: un fallo a mitad de la exportación revierte la transacción entera (todo antes)."""
         from unittest import mock

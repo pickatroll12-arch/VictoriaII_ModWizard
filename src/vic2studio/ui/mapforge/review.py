@@ -114,6 +114,7 @@ class ReviewPanel(QWidget):
         planl.addWidget(self.plan_table, 1)
         self.plan_summary = QLabel()
         self.plan_summary.setObjectName("forgePlanSummary")
+        self.plan_summary.setWordWrap(True)
         planl.addWidget(self.plan_summary)
         self.tabs.addTab(plan, "")
         layout.addWidget(self.tabs, 1)

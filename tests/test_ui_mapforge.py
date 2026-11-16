@@ -107,6 +107,11 @@ class WizardFlowTests(ForgeCase):
         self.assertIsNotNone(self.wiz.final)
         self.assertEqual(self.wiz.final.raster.scale, 1)
         self.assertGreater(len(self.wiz.review.plan), 100)
+        # La revisión cabe a lo ancho en su columna (el resumen del plan se parte en líneas).
+        self.window.resize(1560, 980)
+        _qt.process_events(20)
+        area = self.wiz.panels.currentWidget()
+        self.assertLessEqual(area.widget().minimumSizeHint().width(), area.viewport().width())
         self.assertTrue(self.wiz.review.export_button.isEnabled(), [i.code for i in self.wiz.review.blocking()])
         touched = self.wiz.export()
         self.assertIn("map/provinces.bmp", touched)

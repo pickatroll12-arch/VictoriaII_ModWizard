@@ -375,6 +375,11 @@ def render_files(world: ForgeWorld, inputs: ExportInputs) -> tuple[dict[str, byt
     if bm is not None:
         files["common/bookmarks.txt"] = bm
     files[f"localisation/00_{inputs.prefix}_map.csv"] = localisation(world, inputs.prefix)
+    # Una carpeta que el descriptor reemplaza no puede quedar vacía (``replace_path_empty``): las guerras y la
+    # diplomacia del juego citan provincias y TAG del mapa viejo, así que se sustituyen por un archivo sin nada.
+    for folder in REPLACED_FOLDERS:
+        if not any(rel.startswith(folder + "/") for rel in files):
+            files[f"{folder}/00_{inputs.prefix}_mapforge.txt"] = _lines([GENERATED])
     owned = int((r.owner[1:r.land_count + 1] >= 0).sum()) if r.owner is not None else 0
     report = {"pops": pop_stats, "owned_provinces": owned, "files": len(files),
               "bytes": sum(len(b) for b in files.values())}
