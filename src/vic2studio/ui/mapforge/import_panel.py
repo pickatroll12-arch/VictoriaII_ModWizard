@@ -115,6 +115,7 @@ class ImportPanel(QWidget):
         self.issues = QTreeWidget()
         self.issues.setObjectName("forgeImportIssues")
         self.issues.setHeaderHidden(True)
+        self.issues.setHeaderLabels([""])   # oculta, pero sin el «1» que Qt pone por defecto
         self.issues.setRootIsDecorated(False)
         layout.addWidget(self.issues, 1)
         self._refresh()
@@ -125,7 +126,8 @@ class ImportPanel(QWidget):
         for slot, b in self._buttons.items():
             b.setText(tr("forge.import.pick"))
         self.flip_label.setText(tr("forge.import.flip"))
-        for i, key in enumerate((N_("forge.import.flip.auto"), N_("forge.import.flip.no"), N_("forge.import.flip.yes"))):
+        flips = (N_("forge.import.flip.auto"), N_("forge.import.flip.no"), N_("forge.import.flip.yes"))
+        for i, key in enumerate(flips):
             self.flip_combo.setItemText(i, tr(key))
         self.source_label.setText(tr("forge.import.source"))
         self.source_combo.setItemText(0, tr("forge.import.source.auto"))

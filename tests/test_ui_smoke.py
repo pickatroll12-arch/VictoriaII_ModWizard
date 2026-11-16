@@ -168,7 +168,7 @@ class MainWindowTests(UiTestCase):
         from vic2studio.ui.halls.map.forge import ForgePage
 
         self.assertIsInstance(window.page("map:forge"), ForgePage)
-        self.assertIs(window.page("map.forge"), window.page("map:forge"))
+        self.assertIs(window.page("forge"), window.page("map:forge"))
         for bad in ("nope", "war:nope", "nope:cb"):
             with self.assertRaises(KeyError):
                 window.page(bad)

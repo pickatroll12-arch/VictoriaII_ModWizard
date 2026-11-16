@@ -66,6 +66,8 @@ SMOKE_KEYS = (
     "undo.new_sprite",                 # core/gui/texts
     "schema.sprite.title",             # core/schemas/texts/gfx
     "schema.gui_window.title",         # core/schemas/texts/gui_elements
+    "forge.advanced",                  # i18n/<idioma>/mapforge.json
+    "issue.replace_path_mod_files_remain",   # core/mapforge/texts
 )
 
 

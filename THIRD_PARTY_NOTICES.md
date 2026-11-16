@@ -5,7 +5,7 @@ Victoria II Mod Studio no contiene datos de Paradox Interactive: lee los archivo
 ## Azgaar's Fantasy Map Generator
 
 - **Proyecto:** https://github.com/Azgaar/Fantasy-Map-Generator
-- **Qué se usa:** algoritmos portados a Python y numpy (rejilla, plantillas de relieve, clima, hidrología, biomas, partición y nombres con cadenas de Markov). Hoy solo aparecen en los prototipos de diseño de `docs/diseno/prototipos/mapforge/`. En la iteración 9 pasarán a `src/vic2studio/core/mapforge/`; cada módulo portado llevará la cabecera `# Port of Azgaar's Fantasy Map Generator <ruta>.ts (MIT, © Max Haniyeu)`. Las plantillas de relieve y las bases de nombres de FMG que se incluyan también están cubiertas por esta licencia.
+- **Qué se usa:** algoritmos portados a Python y numpy en el taller de mapas (`src/vic2studio/core/mapforge/`, iteración 9): rejilla y grafo (`graph.py`), plantillas y generador de relieve (`data/templates.py`, `relief.py`), temperatura y precipitación (`climate.py`), drenaje y ríos (`hydro.py`), biomas e idoneidad (`biomes.py`), expansión de estados y culturas (`society.py`) y nombres con cadenas de Markov (`names.py`). Cada uno lleva en la primera línea la cabecera `# Port of Azgaar's Fantasy Map Generator <ruta> (MIT, © Max Haniyeu)`; `tests/test_third_party_notices.py` lo comprueba. El taller también lee el formato de plantillas y el PNG de alturas de FMG (`imports/fmg_template.py`, `imports/heightmap.py`): eso es compatibilidad de formato, no código portado. Los prototipos de diseño de `docs/diseno/prototipos/mapforge/` están cubiertos igual.
 - **Licencia:** MIT, con la cláusula de obras derivadas del autor. Texto íntegro:
 
 ```text

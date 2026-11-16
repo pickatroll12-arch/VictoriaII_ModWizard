@@ -73,6 +73,7 @@ class ReviewPanel(QWidget):
         self.tree = QTreeWidget()
         self.tree.setObjectName("forgeIssues")
         self.tree.setHeaderHidden(True)
+        self.tree.setHeaderLabels([""])   # oculta, pero sin el «1» que Qt pone por defecto
         self.tree.setRootIsDecorated(False)
         self.tree.itemSelectionChanged.connect(self._on_selected)
         pl.addWidget(self.tree, 2)

@@ -62,7 +62,25 @@ STATUS_LABELS = {"pending": N_("forge.status.pending"), "computed": N_("forge.st
                  "edited": N_("forge.status.edited"), "imported": N_("forge.status.imported"),
                  "locked": N_("forge.status.locked")}
 SIZES = ((5616, 2160), (2808, 1080), (1404, 540))
-TEMPLATE_ERRORS = {"unknown_op": N_("forge.template.error.unknown_op"), "bad_number": N_("forge.template.error.bad_number"),
+# Nombre visible de cada plantilla de relieve (las de FMG, con su nombre en inglés como clave).
+TEMPLATE_LABELS = {
+    "volcano": N_("forge.template.name.volcano"),
+    "highIsland": N_("forge.template.name.high_island"),
+    "lowIsland": N_("forge.template.name.low_island"),
+    "continents": N_("forge.template.name.continents"),
+    "archipelago": N_("forge.template.name.archipelago"),
+    "atoll": N_("forge.template.name.atoll"),
+    "mediterranean": N_("forge.template.name.mediterranean"),
+    "peninsula": N_("forge.template.name.peninsula"),
+    "pangea": N_("forge.template.name.pangea"),
+    "isthmus": N_("forge.template.name.isthmus"),
+    "shattered": N_("forge.template.name.shattered"),
+    "taklamakan": N_("forge.template.name.taklamakan"),
+    "oldWorld": N_("forge.template.name.old_world"),
+    "fractious": N_("forge.template.name.fractious"),
+}
+TEMPLATE_ERRORS = {"unknown_op": N_("forge.template.error.unknown_op"),
+                   "bad_number": N_("forge.template.error.bad_number"),
                    "bad_range": N_("forge.template.error.bad_range"), "bad_axis": N_("forge.template.error.bad_axis"),
                    "missing": N_("forge.template.error.missing")}
 TOOLS = (("none", N_("forge.tool.none")), ("raise", N_("forge.tool.raise")), ("lower", N_("forge.tool.lower")),
@@ -340,7 +358,7 @@ class ForgeWizard(QWidget):
         self.size_combo = QComboBox()
         self.size_combo.setObjectName("forgeSize")
         for W, H in SIZES:
-            self.size_combo.addItem(f"{W} × {H}", (W, H))
+            self.size_combo.addItem("", (W, H))
         self.size_combo.currentIndexChanged.connect(lambda _i: self._on_size())
         form.addRow(self.size_label, self.size_combo)
         layout.addLayout(form)
@@ -367,7 +385,7 @@ class ForgeWizard(QWidget):
         self.template_combo = QComboBox()
         self.template_combo.setObjectName("forgeTemplate")
         for name in FMG_TEMPLATES:
-            self.template_combo.addItem(name, name)
+            self.template_combo.addItem("", name)
         self.template_combo.addItem("", "__custom__")
         self.template_combo.currentIndexChanged.connect(lambda _i: self._on_template())
         form.addRow(self.template_label, self.template_combo)
@@ -634,6 +652,13 @@ class ForgeWizard(QWidget):
         self.same_as_vanilla.setText(tr("forge.param.auto_targets"))
         self.canvas_note.setText(tr("forge.canvas.note"))
         self.template_label.setText(tr("forge.param.template"))
+        self._show_install()
+        for i in range(self.size_combo.count()):
+            w_, h_ = self.size_combo.itemData(i)
+            self.size_combo.setItemText(i, tr("forge.size.item", width=w_, height=h_))
+        for i in range(self.template_combo.count() - 1):
+            name = self.template_combo.itemData(i)
+            self.template_combo.setItemText(i, tr(TEMPLATE_LABELS[name]) if name in TEMPLATE_LABELS else name)
         self.template_combo.setItemText(self.template_combo.count() - 1, tr("forge.template.custom"))
         self.tools_label.setText(tr("forge.tools"))
         for key, label_key in TOOLS:
@@ -802,7 +827,8 @@ class ForgeWizard(QWidget):
                 w.setValue(v)
             idx = next((i for i, s in enumerate(SIZES) if s == tuple(self.params.size)), -1)
             if idx < 0:
-                self.size_combo.addItem(f"{self.params.width} × {self.params.height}", tuple(self.params.size))
+                self.size_combo.addItem(tr("forge.size.item", width=self.params.width, height=self.params.height),
+                                        tuple(self.params.size))
                 idx = self.size_combo.count() - 1
             self.size_combo.setCurrentIndex(idx)
             t = self.template_combo.findData(self.params.template if not self.params.template_text else "__custom__")
@@ -903,7 +929,8 @@ class ForgeWizard(QWidget):
     def _on_stroke(self, x: float, y: float, first: bool) -> None:
         if first:
             self._stroke = []
-        if not self._stroke or abs(self._stroke[-1][0] - x) + abs(self._stroke[-1][1] - y) > self.radius_spin.value() / 3:
+        last = self._stroke[-1] if self._stroke else None
+        if last is None or abs(last[0] - x) + abs(last[1] - y) > self.radius_spin.value() / 3:
             self._stroke.append([round(x, 4), round(y, 4)])
 
     def _on_stroke_finished(self) -> None:
@@ -1067,8 +1094,20 @@ class ForgeWizard(QWidget):
         self._learning = True
         from ...core.mapforge.install import source_from_vfs
 
-        self.install_label.setText(tr("forge.install.learning"))
+        self._show_install()
         self.client.run("install", ForgeCommand("learn_install", {"source": source_from_vfs(project.vfs)}))
+
+    def _show_install(self) -> None:
+        """Lo que se sabe de la instalación, en el idioma actual (también al cambiarlo)."""
+        prof = self.install
+        if prof is None:
+            text = tr("forge.install.learning") if getattr(self, "_learning", False) else ""
+        elif prof.synthetic:
+            text = tr("forge.install.synthetic")
+        else:
+            text = tr("forge.install.ready", tags=len(prof.tags), dates=len(prof.pop_dates),
+                      continents=len(prof.continents), climates=len(prof.climates))
+        self.install_label.setText(text)
 
     def _on_progress(self, name: str, i: int, n: int) -> None:
         self.progress.setRange(0, max(1, n))
@@ -1111,10 +1150,7 @@ class ForgeWizard(QWidget):
             deferred, self._deferred = self._deferred, []
             for action in deferred:
                 action()
-            prof = self.install
-            self.install_label.setText(tr("forge.install.ready", tags=len(prof.tags), dates=len(prof.pop_dates),
-                                          continents=len(prof.continents), climates=len(prof.climates))
-                                       if not prof.synthetic else tr("forge.install.synthetic"))
+            self._show_install()
             return
         if tag in ("generate", "preview"):
             self.world = reply.world

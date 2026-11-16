@@ -1,3 +1,4 @@
+# Port of Azgaar's Fantasy Map Generator src/modules/biomes.ts y rankCells (MIT, © Max Haniyeu)
 """Categorías de terreno e idoneidad por celda (wizard §18.3, paso 7).
 
 Matriz temperatura × humedad de ``data.biome_table``; h ≥ 67 → mountain, 44 ≤ h < 67 → hills; pantano en la tierra

@@ -62,7 +62,7 @@ FLOWS = (
     (N_("home.flow.event"), "events", None, "events:events"),        # iteración 7
     (N_("home.flow.decision"), "quill", None, "events:decisions"),
     (N_("home.flow.window"), "window", None, "interface:windows"),
-    (N_("home.flow.map"), "anvil", 9, "map:forge"),
+    (N_("home.flow.map"), "anvil", None, "map:forge"),
 )
 
 
