@@ -396,7 +396,8 @@ class CatalogueTests(unittest.TestCase):
         declared = {key for spec in discover_rules().values() for key in spec.fixes}
         self.assertEqual(declared, set(FIXES))
         self.assertEqual(set(FIXES), {"register_tag", "convert_to_cp1252", "add_closing_brace",
-                                      "restore_vanilla_loc_rows", "trash_identical_copies"})
+                                      "restore_vanilla_loc_rows", "trash_identical_copies",
+                                      "lower_min_port_level", "move_camera_into_map"})
         for lang in ("es", "en"):
             catalogue = texts.load_texts(lang)
             for key in FIXES:
