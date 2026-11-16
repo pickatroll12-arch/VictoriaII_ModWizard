@@ -93,5 +93,11 @@
   "fix.mapforge.overwrite_export": "Overwrite anyway",
   "fix.mapforge.remove_shadowed_keys": "Remove those keys from the other file",
   "undo.mapforge_export": "Export the workshop map",
-  "undo.mapforge_save": "Save the workshop project"
+  "undo.mapforge_save": "Save the workshop project",
+  "explain.outcome.fmg_aspect": "The workshop scales the map equally on both axes and fills the rest with ocean, so the coasts are not stretched.",
+  "explain.outcome.fmg_version_unknown": "It is imported anyway, but if FMG changed the shape of the JSON some states, provinces or names may be missing. Check the preview before exporting.",
+  "explain.title.fmg_aspect": "Why: the FMG map does not have the canvas's shape",
+  "explain.title.fmg_version_unknown": "Why: an FMG version the workshop does not know",
+  "issue.fmg_aspect": "The FMG map is {width}×{height} and the canvas {target_width}×{target_height}: it is fitted without distortion and the rest is ocean.",
+  "issue.fmg_version_unknown": "The JSON comes from FMG {version}, newer than the last version checked ({known})."
 }

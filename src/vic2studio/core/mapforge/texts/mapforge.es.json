@@ -93,5 +93,11 @@
   "fix.mapforge.overwrite_export": "Sobrescribir igualmente",
   "fix.mapforge.remove_shadowed_keys": "Quitar esas claves del otro archivo",
   "undo.mapforge_export": "Exportar el mapa del taller",
-  "undo.mapforge_save": "Guardar el proyecto del taller"
+  "undo.mapforge_save": "Guardar el proyecto del taller",
+  "explain.outcome.fmg_aspect": "El taller escala el mapa por igual en los dos ejes y rellena con océano lo que sobra, para no estirar las costas.",
+  "explain.outcome.fmg_version_unknown": "Se importa igual, pero si FMG cambió la forma del JSON pueden faltar estados, provincias o nombres. Revisa la vista previa antes de exportar.",
+  "explain.title.fmg_aspect": "Por qué: el mapa de FMG no tiene la forma del lienzo",
+  "explain.title.fmg_version_unknown": "Por qué: una versión de FMG que el taller no conoce",
+  "issue.fmg_aspect": "El mapa de FMG mide {width}×{height} y el lienzo {target_width}×{target_height}: se encaja sin deformarlo y el resto es océano.",
+  "issue.fmg_version_unknown": "El JSON es de FMG {version}, posterior a la última versión comprobada ({known})."
 }

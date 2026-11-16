@@ -141,7 +141,19 @@ arreglarlo, deja una prueba de regresión que falle sin el arreglo y pasa la bat
   `test_mapforge_core`, `test_mapforge_io`, `test_ui_mapforge` y `test_third_party_notices`. Reducciones de
   alcance en `RESUMEN.md` e informe de la entrega (sin interfaz de bloqueo ni de pintar dueños, 2 SimpleFix de 24,
   deshacer del taller propio, solo destino «este mod»).
-- **Lo siguiente: la iteración 9b** (nivel «Mundo», importación de FMG JSON, banderas y «Sobre vanilla»).
+- **Iteración 9b (nivel «Mundo» e importación de FMG JSON): hecha** (16-11-2026, mismo hilo). `owners_for_world`
+  reparte toda la tierra en la etapa de celdas; `core/mapforge/nations.py` pone nombre, TAG, color, cultura, grupo
+  y bandera a cada país, cambia los TAG ocupados al exportar (`retag`) y crea los países con
+  `domain.country.build_new_country` dentro de la transacción de la exportación, con los grupos culturales al final
+  de `common/cultures.txt`. Banderas procedurales (`core/gfx/flags.procedural_flag`, 8 patrones, 5 variantes).
+  `core/mapforge/imports/fmg_json.py` lee el JSON «Full»/«PackCells», rasteriza las celdas, agrupa sin cruzar
+  provincias de FMG ni la costura, y en «Mundo» convierte sus estados en países (`build_world(adjust=…)`).
+  Arreglado `core/map/borders.border_mask` con una LUT más corta que los ids (venía de la 9a). Pruebas nuevas:
+  `test_mapforge_world`, `test_mapforge_fmg_json` y `test_map_borders`. Reducciones de alcance: sin «Sobre
+  vanilla» (el nivel sigue desactivado), sin «Quitar los TAG existentes», sin las bases de nombres de FMG, sin los
+  ríos de FMG, sin edición a mano de países ni FR/DE (detalle en el informe de la entrega).
+- **Lo siguiente: la iteración 10** (exportar a zip, empaquetado, guía de usuario y comprobación en juego).
+  «Sobre vanilla» queda pendiente para una iteración propia.
 - **Segunda tanda de Gemini (G4–G7): hecha por Claude.** La plataforma de Gemini se cayó y el usuario pidió
   asumirlas. Son piezas del núcleo para iteraciones futuras, en archivos nuevos:
   - G4 (`8c33ae6`): `core/tablecsv.py` y `core/map/definition.py`;

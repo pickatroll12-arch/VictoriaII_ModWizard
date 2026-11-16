@@ -467,9 +467,10 @@ def final_order(rep: ImportReport) -> np.ndarray:
 
 
 def build_world(files: ImportSet, rep: ImportReport, params, install: InstallProfile | None = None, *,
-                progress=None, cancelled: CancelCheck = None, with_textures: bool = True):
+                progress=None, cancelled: CancelCheck = None, with_textures: bool = True, adjust=None):
     """El ``ForgeWorld`` de una importación con provincias: rejilla y etapa de celdas sobre la altura importada (o el
-    pseudorrelieve), provincias del bitmap y ráster sin reconciliar."""
+    pseudorrelieve), provincias del bitmap y ráster sin reconciliar. ``adjust(world)`` cambia la tabla provisional
+    y las entidades antes del ráster (lo usa la importación de FMG para sus estados y países)."""
     from .. import pipeline, reconcile
     from ..world import ProvisionalTable
 
@@ -557,6 +558,8 @@ def build_world(files: ImportSet, rep: ImportReport, params, install: InstallPro
     ent = dict(world.entities)
     ent["province_names"] = names_p
     world = world.evolve(entities=ent, imported={**world.imported, "bitmaps": rep.matrix})
+    if adjust is not None:
+        world = adjust(world)
     # Ráster: los ids ya son los finales; la madre de cada id es su propia fila.
     t = world.provisional
     report: dict = {"import": {"flip": rep.flip, "land_source": rep.land_source, "seconds": rep.seconds}}

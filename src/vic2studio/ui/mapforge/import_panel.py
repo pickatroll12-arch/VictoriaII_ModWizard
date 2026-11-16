@@ -24,10 +24,11 @@ SLOT_LABELS = {
     "default_map": N_("forge.import.slot.default_map"), "terrain": N_("forge.import.slot.terrain"),
     "rivers": N_("forge.import.slot.rivers"), "heightmap": N_("forge.import.slot.heightmap"),
     "mask": N_("forge.import.slot.mask"), "positions": N_("forge.import.slot.positions"),
+    "fmg_json": N_("forge.import.slot.fmg_json"),
 }
 SOURCE_LABELS = {"sea_starts": N_("forge.import.source.sea_starts"), "terrain": N_("forge.import.source.terrain"),
                  "rivers": N_("forge.import.source.rivers"), "heightmap": N_("forge.import.source.heightmap"),
-                 "mask": N_("forge.import.source.mask")}
+                 "mask": N_("forge.import.source.mask"), "fmg": N_("forge.import.source.fmg")}
 MATRIX_STEPS = {"provinces": N_("forge.import.step.provinces"), "land_sea": N_("forge.import.step.land_sea"),
                 "relief": N_("forge.import.step.relief"), "terrain": N_("forge.import.step.terrain"),
                 "rivers": N_("forge.import.step.rivers"), "positions": N_("forge.import.step.positions"),
@@ -39,7 +40,7 @@ ORIGIN_LABELS = {"file": N_("forge.import.from.file"), "rule": N_("forge.import.
                  "generated": N_("forge.import.from.generated"), "missing": N_("forge.import.from.missing")}
 FILTERS = {"provinces": "*.bmp *.png", "terrain": "*.bmp *.png", "rivers": "*.bmp *.png",
            "heightmap": "*.png *.bmp", "mask": "*.png *.bmp", "definition": "*.csv", "default_map": "*.map",
-           "positions": "*.txt"}
+           "positions": "*.txt", "fmg_json": "*.json"}
 
 
 class ImportPanel(QWidget):
@@ -200,7 +201,7 @@ class ImportPanel(QWidget):
             item = QTableWidgetItem(text)
             item.setData(Qt.ItemDataRole.UserRole, origin)
             self.matrix.setItem(r, 1, item)
-        has_prov = "provinces" in self.files
+        has_prov = "provinces" in self.files or "fmg_json" in self.files
         self.inspect_button.setEnabled(has_prov or "heightmap" in self.files)
         self.build_button.setEnabled((self.report is not None and self.report.ok) or
                                      ("heightmap" in self.files and not has_prov))
@@ -208,6 +209,8 @@ class ImportPanel(QWidget):
 
 def guess_slot(name: str) -> str | None:
     n = name.lower()
+    if n.endswith(".json"):
+        return "fmg_json"
     for key, slot in (("provinces", "provinces"), ("definition", "definition"), ("default", "default_map"),
                       ("terrain", "terrain"), ("rivers", "rivers"), ("height", "heightmap"), ("mask", "mask"),
                       ("positions", "positions")):

@@ -19,6 +19,7 @@ import numpy as np
 
 from ..map.bmp import new_bmp
 from ..map.positions import generated_text
+from . import nations
 from .economy import presence
 from .names import ascii_name, key_name
 from .params import Level
@@ -46,6 +47,7 @@ class ExportInputs:
     mod_trash: list = field(default_factory=list)             # archivos del propio mod bajo carpetas reemplazadas
     replace_paths: list = field(default_factory=list)
     has_descriptor: bool = False
+    taken_tags: list = field(default_factory=list)            # TAG registrados en el proyecto («Mundo» no los pisa)
 
 
 @dataclass(frozen=True)
@@ -347,6 +349,8 @@ def render_files(world: ForgeWorld, inputs: ExportInputs) -> tuple[dict[str, byt
     r = world.raster
     if r is None or r.scale != 1:
         raise ValueError("render_files necesita el ráster final (escala 1)")
+    check_level(world)
+    world, retagged = nations.retag(world, set(inputs.taken_tags))
     files: dict[str, bytes] = {}
     lut = _rgb_lut(r.colors)
     files["map/provinces.bmp"] = new_bmp(lut[r.ids])
@@ -382,14 +386,16 @@ def render_files(world: ForgeWorld, inputs: ExportInputs) -> tuple[dict[str, byt
             files[f"{folder}/00_{inputs.prefix}_mapforge.txt"] = _lines([GENERATED])
     owned = int((r.owner[1:r.land_count + 1] >= 0).sum()) if r.owner is not None else 0
     report = {"pops": pop_stats, "owned_provinces": owned, "files": len(files),
-              "bytes": sum(len(b) for b in files.values())}
+              "bytes": sum(len(b) for b in files.values()), "retagged": retagged,
+              "new_countries": len(((world.entities or {}).get("world") or {}).get("countries") or [])}
     return files, report
 
 
 # --- entradas, plan y aplicación --------------------------------------------------------------------------
 
-def gather_inputs(project, world: ForgeWorld) -> ExportInputs:
-    """Lee del proyecto lo que la exportación necesita (lecturas de la VFS; no escribe nada)."""
+def gather_inputs(project, world: ForgeWorld, index=None) -> ExportInputs:
+    """Lee del proyecto lo que la exportación necesita (lecturas de la VFS; no escribe nada). ``index`` (el de la
+    sesión) da los TAG registrados para «Mundo»; sin él se usa ``project.index`` si lo hay."""
     from ..vfs.model import LayerKind
 
     vfs = project.vfs
@@ -417,6 +423,11 @@ def gather_inputs(project, world: ForgeWorld) -> ExportInputs:
     desc = getattr(project, "descriptor", None)
     inputs.has_descriptor = desc is not None
     inputs.replace_paths = list(desc.replace_paths) if desc is not None else []
+    if world.params.level is Level.WORLD:
+        from ..domain.tags import taken_tags
+
+        index = index if index is not None else getattr(project, "index", None)
+        inputs.taken_tags = sorted(taken_tags(index)) if index is not None else []
     return inputs
 
 
@@ -435,8 +446,11 @@ def class_of(rel: str) -> str:
     return "C"
 
 
-def export_plan(files: dict[str, bytes], inputs: ExportInputs, exists) -> list[PlannedFile]:
-    """Archivo · acción · clase · tamaño. ``exists(rel)`` dice si la ruta ya existe en la vista efectiva."""
+def export_plan(files: dict[str, bytes], inputs: ExportInputs, exists, world: ForgeWorld | None = None) \
+        -> list[PlannedFile]:
+    """Archivo · acción · clase · tamaño. ``exists(rel)`` dice si la ruta ya existe en la vista efectiva. Con un
+    ``world`` de «Mundo», también los archivos de los países y las culturas nuevas (tamaño 0: se escriben al
+    aplicar)."""
     plan = [PlannedFile(rel, ACTION_TRASH, "A", 0) for rel in inputs.mod_trash if rel not in files]
     for rel in sorted(files):
         data = files[rel]
@@ -452,13 +466,21 @@ def export_plan(files: dict[str, bytes], inputs: ExportInputs, exists) -> list[P
                                                              inputs.replace_paths}]
         if missing:
             plan.append(PlannedFile("@descriptor.mod", ACTION_MODIFY, "A", 0))
+    if world is not None and world.params.level is Level.WORLD:
+        retagged, _ = nations.retag(world, set(inputs.taken_tags))
+        for rel, action in nations.world_plan_rows(retagged):
+            if rel not in files:
+                plan.append(PlannedFile(rel, ACTION_MODIFY if action == "M" else ACTION_GENERATE, "C", 0))
     return plan
 
 
 def apply_export(project, files: dict[str, bytes], inputs: ExportInputs, *, extra: dict[str, bytes] | None = None,
-                 label: str = UNDO_EXPORT, transaction=None) -> list[str]:
-    """Aplica la exportación en **una** transacción: papelera, archivos, ``replace_path`` y los del proyecto del
-    taller (``extra``). Devuelve las rutas tocadas. Si algo falla, la transacción se revierte entera.
+                 label: str = UNDO_EXPORT, transaction=None, world: ForgeWorld | None = None,
+                 domain=None) -> list[str]:
+    """Aplica la exportación en **una** transacción: papelera, archivos, ``replace_path``, los del proyecto del
+    taller (``extra``) y, con un ``world`` de «Mundo», los países y las culturas nuevas (``nations.apply_world``).
+    ``domain`` es el ``DomainContext`` de quien llama (índice, textos, entidades); sin él se usa ``project``.
+    Devuelve las rutas tocadas. Si algo falla, la transacción se revierte entera.
     ``transaction(label, **fmt)`` es la de quien llama (la sesión de la interfaz); por defecto, la del ``Workspace``."""
     from ..project.binary import put_bytes
 
@@ -474,6 +496,9 @@ def apply_export(project, files: dict[str, bytes], inputs: ExportInputs, *, extr
             put_bytes(ws, rel, data)
         if inputs.has_descriptor:
             _add_replace_paths(project)
+        if world is not None and world.params.level is Level.WORLD:
+            retagged, _ = nations.retag(world, set(inputs.taken_tags))
+            nations.apply_world(domain if domain is not None else project, retagged)
         touched = [str(r) for r in txn.touched()]
     return touched
 
@@ -498,5 +523,6 @@ def _add_replace_paths(project) -> None:
 
 
 def check_level(world: ForgeWorld) -> None:
-    if world.params.level is not Level.MAP:
-        raise NotImplementedError("la iteración 9a exporta el nivel «Solo mapa»")
+    """«Solo mapa» y «Mundo» se exportan; «Sobre vanilla» no está hecho (ver el informe de la iteración 9b)."""
+    if world.params.level is Level.OVERLAY:
+        raise NotImplementedError("el nivel «Sobre vanilla» no se exporta todavía")

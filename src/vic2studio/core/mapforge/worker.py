@@ -84,6 +84,18 @@ def _execute(cmd: ForgeCommand, progress, cancelled) -> ForgeReply:
     if cmd.kind == "export_bytes":
         files, report = export.render_files(a["world"], a["inputs"])
         return ForgeReply("files", files=files, report=report, seconds=time.perf_counter() - t0)
+    if cmd.kind == "import_bitmaps" and a["files"].files.get("fmg_json") is not None:
+        from .imports import fmg_json
+
+        fmg = fmg_json.read_fmg_json(a["files"].data("fmg_json"))
+        params = a.get("params")
+        if not a.get("build") or params is None:
+            from .params import ForgeParams
+
+            rep, _ = fmg_json.to_import(fmg, params or ForgeParams(), cancelled=cancelled)
+            return ForgeReply("import", world=None, report=rep, seconds=time.perf_counter() - t0)
+        w, rep = fmg_json.fmg_to_world(fmg, params, a.get("install"), progress=progress, cancelled=cancelled)
+        return ForgeReply("import", world=w, report=rep, seconds=time.perf_counter() - t0)
     if cmd.kind == "import_bitmaps":
         from .imports import bitmaps
 

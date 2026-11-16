@@ -25,8 +25,17 @@ def border_mask(ids: np.ndarray, group_lut: np.ndarray | None = None, *, wrap_x:
     """Máscara ``(alto, ancho)`` ``bool``: True donde el píxel es frontera de su grupo.
 
     ``group_lut`` es ``(N+1,)`` con el grupo de cada id (None = el propio id). Con ``wrap_x`` la última columna se
-    compara con la primera. Los píxeles sin provincia (id 0) forman su propio grupo."""
-    groups = ids if group_lut is None else np.asarray(group_lut)[ids]
+    compara con la primera. Los píxeles sin provincia (id 0) forman su propio grupo. Si la LUT es más corta que los
+    ids (los hechos son de un mapa anterior y se están recalculando, como tras exportar el taller de mapas), cada id
+    que no cubre es un grupo de una sola provincia."""
+    if group_lut is None:
+        groups = ids
+    else:
+        lut = np.asarray(group_lut)
+        top = int(ids.max()) if ids.size else 0
+        if lut.size <= top:
+            lut = np.concatenate([lut.astype(np.int64), -1 - np.arange(lut.size, top + 1, dtype=np.int64)])
+        groups = lut[ids]
     mask = np.zeros(ids.shape, dtype=bool)
     if ids.size == 0:
         return mask

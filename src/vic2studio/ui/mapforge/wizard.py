@@ -17,7 +17,8 @@ from __future__ import annotations
 import random
 
 import numpy as np
-from PySide6.QtCore import Qt, QTimer, Signal
+from PySide6.QtCore import QSize, Qt, QTimer, Signal
+from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import (
     QButtonGroup, QCheckBox, QComboBox, QDoubleSpinBox, QFormLayout, QFrame, QGridLayout, QHBoxLayout, QInputDialog,
     QLabel, QLineEdit, QListWidget, QListWidgetItem, QPlainTextEdit, QProgressBar, QPushButton, QRadioButton,
@@ -27,7 +28,7 @@ from PySide6.QtWidgets import (
 from ...core.mapforge import edits as edit_ops
 from ...core.mapforge.data.templates import FMG_TEMPLATES
 from ...core.mapforge.imports import fmg_template
-from ...core.mapforge.params import ForgeParams, LatticeSpec, Origin, Owners
+from ...core.mapforge.params import ForgeParams, LatticeSpec, Level, Origin, Owners
 from ...core.mapforge.pipeline import step_ids
 from ...core.mapforge.validate import fix_params, world_issues
 from ...core.mapforge.worker import ForgeCommand
@@ -90,7 +91,8 @@ LEVELS = (("map", N_("forge.level.map"), N_("forge.level.map.text")),
           ("world", N_("forge.level.world"), N_("forge.level.world.text")),
           ("overlay", N_("forge.level.overlay"), N_("forge.level.overlay.text")))
 ORIGINS = (("generate", N_("forge.origin.generate")), ("bitmaps", N_("forge.origin.bitmaps")),
-           ("heightmap", N_("forge.origin.heightmap")))
+           ("heightmap", N_("forge.origin.heightmap")), ("fmg_json", N_("forge.origin.fmg_json")))
+IMPORTED = ("bitmaps", "fmg_json")             # orígenes cuyas provincias vienen del archivo
 # (pantalla, campo, tipo, (mín, máx, paso, decimales), avanzado, etiqueta)
 FIELDS = (
     ("canvas", "land_provinces", "int", (0, 60000, 50, 0), False, N_("forge.param.land_provinces")),
@@ -111,10 +113,25 @@ FIELDS = (
     ("states", "provinces_per_state", "float", (1, 20, 0.1, 2), False, N_("forge.param.provinces_per_state")),
     ("owners", "existing_tags", "int", (1, 500, 1, 0), False, N_("forge.param.existing_tags")),
     ("owners", "colonized_fraction", "float", (0, 1, 0.05, 2), True, N_("forge.param.colonized_fraction")),
+    ("owners", "countries", "int", (1, 400, 1, 0), False, N_("forge.param.countries")),
+    ("owners", "culture_groups", "int", (1, 64, 1, 0), False, N_("forge.param.culture_groups")),
+    ("owners", "civilized_fraction", "float", (0, 1, 0.05, 2), True, N_("forge.param.civilized_fraction")),
     ("economy", "total_population", "int", (1_000_000, 2_000_000_000, 1_000_000, 0), False,
      N_("forge.param.total_population")),
     ("details", "strait_max_gap_px", "int", (1, 64, 1, 0), False, N_("forge.param.strait_max_gap_px")),
 )
+
+
+# Campos del panel de dueños que solo tienen sentido en un nivel (los demás valen en todos).
+LEVEL_FIELDS = {"existing_tags": "map", "colonized_fraction": "map", "countries": "world", "culture_groups": "world",
+                "civilized_fraction": "world"}
+
+
+def panel_slots() -> tuple[str, ...]:
+    """Las ranuras de la importación: las de los bitmaps y la del JSON de FMG."""
+    from ...core.mapforge.imports.bitmaps import SLOTS
+
+    return tuple(SLOTS) + ("fmg_json",)
 
 
 def preview_scale(width: int) -> int:
@@ -157,13 +174,14 @@ class ForgeWizard(QWidget):
         self._deferred: list = []
         self._widgets: dict[tuple[str, str], QWidget] = {}
         self._advanced: list[QWidget] = []
+        self._labels: dict[tuple[str, str], QLabel] = {}
         self._debounce = QTimer(self)
         self._debounce.setSingleShot(True)
         self._debounce.setInterval(450)
         self._debounce.timeout.connect(self._regenerate_pending)
         self._build()
         self.retranslate()
-        self._on_advanced(self.advanced_box.isChecked())
+        self._apply_level_visibility()
         self.go("start")
 
     # --- construcción -------------------------------------------------------------------------------------
@@ -266,6 +284,7 @@ class ForgeWizard(QWidget):
             label.setProperty("i18n", label_key)
             form.addRow(label, w)
             self._widgets[(screen, field)] = w
+            self._labels[(screen, field)] = label
             if adv:
                 self._advanced += [label, w]
         layout.addLayout(form)
@@ -288,7 +307,8 @@ class ForgeWizard(QWidget):
         for key, _, _ in LEVELS:
             b = QRadioButton()
             b.setObjectName(f"forgeLevel_{key}")
-            b.setEnabled(key == "map")
+            b.setEnabled(key in ("map", "world"))
+            b.toggled.connect(lambda on, k=key: on and self._set_level(k))
             group.addButton(b)
             text = QLabel()
             text.setWordWrap(True)
@@ -457,7 +477,7 @@ class ForgeWizard(QWidget):
 
     def _panel_import(self) -> QWidget:
         w, layout = self._panel("import")
-        self.import_panel = ImportPanel()
+        self.import_panel = ImportPanel(slots=panel_slots())
         self.import_panel.inspectRequested.connect(self.inspect_import)
         self.import_panel.buildRequested.connect(self.build_import)
         layout.addWidget(self.import_panel, 1)
@@ -510,6 +530,19 @@ class ForgeWizard(QWidget):
         self.owners_stats.setObjectName("forgeOwnerStats")
         self.owners_stats.setWordWrap(True)
         layout.addWidget(self.owners_stats)
+        # Galería de banderas de «Mundo» (las que escribirá la exportación).
+        self.flags_label = QLabel()
+        self.flags_label.setProperty("i18n", N_("forge.flags.title"))
+        self.flags_label.setWordWrap(True)
+        layout.addWidget(self.flags_label)
+        self.flag_gallery = QListWidget()
+        self.flag_gallery.setObjectName("forgeFlagGallery")
+        self.flag_gallery.setViewMode(QListWidget.ViewMode.IconMode)
+        self.flag_gallery.setIconSize(QSize(62, 43))
+        self.flag_gallery.setResizeMode(QListWidget.ResizeMode.Adjust)
+        self.flag_gallery.setMovement(QListWidget.Movement.Static)
+        self.flag_gallery.setMinimumHeight(170)
+        layout.addWidget(self.flag_gallery, 1)
         layout.addStretch(1)
         return w
 
@@ -757,16 +790,62 @@ class ForgeWizard(QWidget):
         self.params = self.params.with_(lattice=LatticeSpec(spec.cells, spec.seed, spec.kind, spec.jitter,
                                                             spec.wrap_x))
 
+    def _set_level(self, key: str) -> None:
+        """«Solo mapa» o «Mundo»: el nivel cambia los dueños (TAG existentes o países nuevos) y lo que se exporta."""
+        self.level = key
+        level = Level(key)
+        if self.params.level is not level:
+            self.params = self.params.with_(level=level)
+            if self.world is not None:
+                self._schedule("owners")
+        self._apply_level_visibility()
+        self._refresh_steps()
+
+    def _apply_level_visibility(self) -> None:
+        advanced = self.advanced_box.isChecked() if hasattr(self, "advanced_box") else False
+        world = self.params.level is Level.WORLD
+        for b in getattr(self, "owners_buttons", {}).values():
+            b.setVisible(not world)
+        for w in (getattr(self, "flags_label", None), getattr(self, "flag_gallery", None)):
+            if w is not None:
+                w.setVisible(world)
+        for (screen, field), w in self._widgets.items():
+            want = LEVEL_FIELDS.get(field)
+            on = want is None or (want == "world") == world
+            if w in self._advanced:
+                on = on and advanced
+            w.setVisible(on)
+            self._labels[(screen, field)].setVisible(on)
+
+    def _fill_flags(self, world_data) -> None:
+        """Una bandera por país de «Mundo», con su TAG y su nombre (vacía en «Solo mapa»)."""
+        key = tuple((c["tag"], c["flag_seed"], tuple(c["color"])) for c in world_data["countries"]) \
+            if world_data else ()
+        if getattr(self, "_flags_key", None) == key:
+            return
+        self._flags_key = key
+        self.flag_gallery.clear()
+        from ...core.mapforge.nations import flag_preview
+        from ..countries.flag_studio import to_pixmap
+
+        for c in (world_data or {}).get("countries", []):
+            item = QListWidgetItem(QIcon(to_pixmap(flag_preview(c))), c["tag"])
+            item.setToolTip(f"{c['tag']} · {c['name']}")
+            self.flag_gallery.addItem(item)
+
     def _set_origin(self, key: str) -> None:
         self.origin = key
-        mapping = {"generate": Origin.GENERATE, "bitmaps": Origin.BITMAPS, "heightmap": Origin.HEIGHTMAP}
+        mapping = {"generate": Origin.GENERATE, "bitmaps": Origin.BITMAPS, "heightmap": Origin.HEIGHTMAP,
+                   "fmg_json": Origin.FMG_JSON}
         self.params = self.params.with_(origin=mapping[key])
         if hasattr(self, "import_panel"):
             self._configure_import()
         self._refresh_steps()
 
     def _configure_import(self) -> None:
-        slots = ("heightmap",) if self.origin == "heightmap" else None
+        slots = {"heightmap": ("heightmap",), "fmg_json": ("fmg_json",)}.get(self.origin)
+        if slots is None:
+            slots = tuple(s for s in panel_slots() if s != "fmg_json")
         panel = self.import_panel
         for r, slot in enumerate(panel.slots):
             panel.slot_table.setRowHidden(r, slots is not None and slot not in slots)
@@ -838,8 +917,12 @@ class ForgeWizard(QWidget):
             self.seed_spin.setValue(int(self.params.seed))
             self.owners_buttons[self.params.owners.value].setChecked(True)
             self.continents_edit.setText(", ".join(self.params.continents))
+            if self.params.level.value in self.level_buttons:
+                self.level_buttons[self.params.level.value].setChecked(True)
+                self.level = self.params.level.value
         finally:
             self._loading = False
+        self._apply_level_visibility()
 
     def _on_size(self) -> None:
         if getattr(self, "_loading", False):
@@ -918,6 +1001,7 @@ class ForgeWizard(QWidget):
     def _on_advanced(self, on: bool) -> None:
         for w in self._advanced:
             w.setVisible(on)
+        self._apply_level_visibility()
 
     # --- pinceles y ediciones -----------------------------------------------------------------------------
 
@@ -1026,7 +1110,7 @@ class ForgeWizard(QWidget):
 
     def generate(self) -> None:
         """Rejilla, etapa de celdas y vista previa con los parámetros actuales."""
-        if self.origin == "bitmaps":
+        if self.origin in IMPORTED:
             return
         if self._wait_install(self.generate):
             return
@@ -1063,7 +1147,7 @@ class ForgeWizard(QWidget):
         if self.world is None:
             return
         self.review.set_state(tr("forge.review.rendering"))
-        if self.world.raster is not None and self.world.raster.scale == 1 and self.origin == "bitmaps":
+        if self.world.raster is not None and self.world.raster.scale == 1 and self.origin in IMPORTED:
             self._on_finished("final", type("R", (), {"world": self.world})())
             return
         self.client.run("final", ForgeCommand("run_raster", {"world": self.world.evolve(params=self.params),
@@ -1076,7 +1160,8 @@ class ForgeWizard(QWidget):
         if self._wait_install(self.inspect_import):
             return
         self.client.run("inspect", ForgeCommand("import_bitmaps", {"files": self.import_panel.import_set(),
-                                                                   "install": self.install, "build": False}))
+                                                                   "install": self.install, "build": False,
+                                                                   "params": self.params}))
 
     def build_import(self) -> None:
         if self.origin == "heightmap":
@@ -1182,7 +1267,8 @@ class ForgeWizard(QWidget):
             project = self.session.project
             from ...core.mapforge import export as ex
 
-            self.inputs = ex.gather_inputs(project, self.final) if project is not None else ex.ExportInputs()
+            self.inputs = ex.gather_inputs(project, self.final, index=getattr(self.session, "index", None)) \
+                if project is not None else ex.ExportInputs()
             self.review.set_state(tr("forge.review.preparing"))
             self.client.run("files", ForgeCommand("export_bytes", {"world": self.final, "inputs": self.inputs}))
             return
@@ -1203,7 +1289,7 @@ class ForgeWizard(QWidget):
         issues = world_issues(world, self.inputs, conflicts=conflicts) if world is not None else []
         if project is not None and self.files is not None:
             exists = lambda rel: project.vfs.resolve(rel) is not None  # noqa: E731
-            plan = ex.export_plan(self.files, self.inputs, exists)
+            plan = ex.export_plan(self.files, self.inputs, exists, world=self.final)
             groups = DependencyAudit(project.vfs, world, self.inputs).run()
         else:
             plan, groups = [], []
@@ -1243,8 +1329,15 @@ class ForgeWizard(QWidget):
 
         proj = MapForgeProject(self.project_name, self.params, edits=list(self.final.edits),
                                exported={rel: sha256(data) for rel, data in self.files.items()})
+        domain = None
+        if self.final.params.level is Level.WORLD:
+            from ..countries import domain_context
+
+            domain = domain_context(self.session)
         touched = ex.apply_export(project, self.files, self.inputs, extra=proj.files(self.world),
-                                  transaction=self.session.edit)
+                                  transaction=self.session.edit, world=self.final, domain=domain)
+        if domain is not None and domain.loc is not None:
+            domain.loc.invalidate()
         self.exported = touched
         self.done_text.setText(tr("forge.done.text", files=len(self.files), name=self.project_name,
                                   provinces=self.final.raster.count))
@@ -1336,9 +1429,9 @@ class ForgeWizard(QWidget):
             return "imported" if self.import_report is not None and self.world is not None else "pending"
         if self.world is None:
             return "pending"
-        if self.origin == "bitmaps":
+        if self.origin in IMPORTED:
             matrix = self.import_report.matrix if self.import_report is not None else {}
-            if key in ("provinces", "details") and matrix.get("provinces") == "file":
+            if key in ("provinces", "details") and str(matrix.get("provinces", "")).startswith("file"):
                 return "imported"
         if key in ("canvas", "details"):
             return "computed"
@@ -1354,7 +1447,7 @@ class ForgeWizard(QWidget):
             if status:
                 text += f"  ·  {tr(STATUS_LABELS[status])}"
             item.setText(text)
-            hidden = (key in GENERATED_ONLY and self.origin == "bitmaps") or \
+            hidden = (key in GENERATED_ONLY and self.origin in IMPORTED) or \
                      (key == "import" and self.origin == "generate")
             item.setHidden(hidden)
 
@@ -1420,8 +1513,17 @@ class ForgeWizard(QWidget):
                                      names=", ".join(w.entities.get("continent_names") or [])))
         owners = w.entities.get("owners") or []
         owned = int((r.owner[1:r.land_count + 1] >= 0).sum()) if r.owner is not None else 0
-        self.owners_stats.setText(tr("forge.stats.owners", tags=len(owners), owned=owned, land=r.land_count,
-                                     list=", ".join(owners[:12])))
+        world_data = w.entities.get("world")
+        self._fill_flags(world_data)
+        if world_data:
+            countries = world_data["countries"]
+            self.owners_stats.setText(tr("forge.stats.world", countries=len(countries),
+                                         civilized=sum(1 for c in countries if c["civilized"]),
+                                         groups=len(world_data["groups"]), owned=owned, land=r.land_count,
+                                         list=", ".join(f"{c['tag']} {c['name']}" for c in countries[:12])))
+        else:
+            self.owners_stats.setText(tr("forge.stats.owners", tags=len(owners), owned=owned, land=r.land_count,
+                                         list=", ".join(owners[:12])))
         pop = int(np.asarray(r.population).sum()) if r.population is not None else 0
         dates = list(w.install.pop_dates) if w.install is not None and w.install.pop_dates else ["1836.1.1"]
         self.economy_stats.setText(tr("forge.stats.economy", population=f"{pop:,}".replace(",", " "),

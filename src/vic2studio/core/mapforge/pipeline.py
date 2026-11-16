@@ -21,8 +21,8 @@ from dataclasses import dataclass, replace
 import numpy as np
 
 from ..cancel import CancelCheck, raise_if_cancelled
-from . import biomes, climate, economy, edits as edit_ops, graph, hydro, partition, rasterize, reconcile, relief, \
-    society, textures
+from . import biomes, climate, economy, edits as edit_ops, graph, hydro, nations, partition, rasterize, reconcile, \
+    relief, society, textures
 from .data.templates import TEMPLATES
 from .names import MarkovNames
 from .params import ForgeParams, Level, Owners
@@ -165,6 +165,8 @@ def _states(world: ForgeWorld, ctx: StepContext) -> ForgeWorld:
 def _owners(world: ForgeWorld, ctx: StepContext) -> ForgeWorld:
     p, t, c = world.params, world.provisional, world.cells
     adj = society.adjacency(t, world.entities.get("pairs"), c.province0, c.nbr, c.land)
+    if p.level is Level.WORLD:
+        return _owners_world(world, ctx, adj)
     res = society.owners_for_map(t, adj, list(world.install.tags), mode=p.owners, k=p.existing_tags,
                                  colonized=p.colonized_fraction, W=world.lattice.W, rng=ctx.rng,
                                  top_culture=world.install.top_culture, top_religion=world.install.top_religion)
@@ -174,6 +176,33 @@ def _owners(world: ForgeWorld, ctx: StepContext) -> ForgeWorld:
                religions=res["religions"])
     return world.evolve(provisional=t.evolve(owner=owner, culture=res["culture"], religion=res["religion"],
                                              capitals=res["capitals"]), entities=ent)
+
+
+def _owners_world(world: ForgeWorld, ctx: StepContext, adj) -> ForgeWorld:
+    """«Mundo»: países nuevos que se reparten toda la tierra (``society.owners_for_world``). Las religiones son las
+    de la instalación, de la más extendida a la menos; los marcadores ``__i`` los cambia el paso de nombres."""
+    p, t = world.params, world.provisional
+    religions = _install_religions(world.install)
+    res = society.owners_for_world(t, adj, k=p.countries, groups=p.culture_groups,
+                                   civilized_fraction=p.civilized_fraction, W=world.lattice.W, rng=ctx.rng,
+                                   religions=religions)
+    owner = edit_ops.apply_owner_edits(world, res["owner"], res["owners"])
+    ent = dict(world.entities)
+    ent.update(owners=res["owners"], civilized=res["civilized"], cultures=res["cultures"],
+               religions=res["religions"], culture_group=res["culture_group"], groups=res["groups"])
+    return world.evolve(provisional=t.evolve(owner=owner, culture=res["culture"], religion=res["religion"],
+                                             capitals=res["capitals"]), entities=ent)
+
+
+def _install_religions(install: InstallProfile | None) -> list[str]:
+    seen: list[str] = []
+    for info in sorted(install.tags if install else [], key=lambda i: -i.provinces):
+        if info.religion and info.religion not in seen:
+            seen.append(info.religion)
+    top = install.top_religion if install else None
+    if top and top not in seen:
+        seen.insert(0, top)
+    return seen[:4] or ["forge_religion"]
 
 
 def _economy(world: ForgeWorld, ctx: StepContext) -> ForgeWorld:
@@ -197,6 +226,8 @@ def _names(world: ForgeWorld, ctx: StepContext) -> ForgeWorld:
     ent["climate_names"] = _climate_names(world.install)
     ent["names_seed"] = int(ctx.rng.integers(2 ** 31))
     world = world.evolve(entities=ent)
+    if p.level is Level.WORLD:
+        world = nations.name_world(world, ent["names_seed"])
     return edit_ops.apply_name_edits(world)
 
 

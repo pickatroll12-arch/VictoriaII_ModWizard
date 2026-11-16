@@ -122,6 +122,50 @@ class WizardFlowTests(ForgeCase):
         self.assertEqual(step.label, ex.UNDO_EXPORT)
         self.assertFalse(session.project.ws.can_undo())
 
+    def test_world_level_creates_countries_on_export(self):
+        """Iteración 9b: «Mundo» enseña sus campos, reparte la tierra entre países nuevos y la exportación los crea
+        en la misma transacción que el mapa."""
+        self.open_forge()
+        wiz = self.wiz
+        countries = wiz._widgets[("owners", "countries")]
+        existing = wiz._widgets[("owners", "existing_tags")]
+        self.assertTrue(countries.isHidden(), "en «Solo mapa» no se piden países nuevos")
+        self.assertFalse(existing.isHidden())
+        self.assertTrue(wiz._widgets[("owners", "colonized_fraction")].isHidden(), "avanzado, oculto al empezar")
+        self.assertTrue(wiz.level_buttons["world"].isEnabled())
+        self.assertFalse(wiz.level_buttons["overlay"].isEnabled())
+        wiz.level_buttons["world"].setChecked(True)
+        self.assertFalse(countries.isHidden())
+        self.assertTrue(existing.isHidden())
+        self.assertTrue(wiz.owners_buttons["existing_tags"].isHidden())
+        countries.setValue(4)
+        wiz._widgets[("owners", "culture_groups")].setValue(2)
+        self.small_world()
+        data = wiz.world.entities["world"]
+        self.assertEqual(len(data["countries"]), 4)
+        self.assertIn(data["countries"][0]["tag"], wiz.owners_stats.text())
+        gallery = wiz.flag_gallery
+        self.assertEqual([gallery.item(i).text() for i in range(gallery.count())],
+                         [c["tag"] for c in data["countries"]])
+        self.assertFalse(gallery.item(0).icon().isNull())
+        wiz.go("owners")
+        self.window.resize(1560, 980)
+        _qt.process_events(20)
+        area = wiz.panels.currentWidget()
+        self.assertLessEqual(area.widget().minimumSizeHint().width(), area.viewport().width(), "cabe a lo ancho")
+        wiz.go("review")
+        self.idle()
+        planned = {f.rel for f in wiz.review.plan}
+        self.assertIn("common/cultures.txt", planned)
+        touched = wiz.export()
+        tags = [c["tag"] for c in data["countries"]]
+        for tag in tags:
+            self.assertIn(f"gfx/flags/{tag}.tga", touched)
+        self.assertIn("common/countries.txt", touched)
+        step = self.window.session.undo()
+        self.assertEqual(step.label, ex.UNDO_EXPORT)
+        self.assertFalse(self.window.session.project.ws.can_undo())
+
     def test_save_and_reopen_a_workshop_project(self):
         self.open_forge()
         self.small_world()
@@ -172,6 +216,35 @@ class WizardFlowTests(ForgeCase):
         r = self.wiz.world.raster
         self.assertEqual(r.count, tiny_world(3).raster.count)
         self.assertIn(tr("forge.status.imported"), self.wiz.steps.item(SCREEN_KEYS.index("import")).text())
+
+    def test_import_an_fmg_json_into_the_world_level(self):
+        """Iteración 9b: el origen «JSON de FMG» solo enseña su ranura, y construir da los países de FMG."""
+        from _mapforge_fixtures import fmg_json_full
+
+        self.open_forge()
+        wiz = self.wiz
+        wiz.level_buttons["world"].setChecked(True)
+        wiz.origin_buttons["fmg_json"].setChecked(True)
+        panel = wiz.import_panel
+        visible = [s for r, s in enumerate(panel.slots) if not panel.slot_table.isRowHidden(r)]
+        self.assertEqual(visible, ["fmg_json"])
+        wiz.go("canvas")
+        wiz.size_combo.setCurrentIndex(SIZES.index((1404, 540)))
+        self.idle()
+        self.assertIsNone(wiz.world, "con un origen importado no se genera nada")
+        wiz.go("import")
+        panel.set_file("fmg_json", fmg_json_full())
+        panel.inspect_button.click()
+        self.idle()
+        self.assertIsNotNone(panel.report)
+        panel.build_button.click()
+        self.idle()
+        names = [c["name"] for c in wiz.world.entities["world"]["countries"]]
+        self.assertEqual(names, ["Velmora", "Ostrand", "Kaldun"])
+        self.assertIn(tr("forge.status.imported"), wiz.steps.item(SCREEN_KEYS.index("provinces")).text())
+        wiz.origin_buttons["bitmaps"].setChecked(True)
+        visible = [s for r, s in enumerate(panel.slots) if not panel.slot_table.isRowHidden(r)]
+        self.assertNotIn("fmg_json", visible)
 
     def test_english_texts(self):
         self.open_forge()

@@ -49,6 +49,8 @@ CODES: dict[str, tuple[Severity, tuple[str, ...]]] = {
     "forge_env_changed": (I, ()),
     "forge_export_conflict": (W, ("overwrite_export",)),
     "forge_loc_shadowed": (W, ("remove_shadowed_keys",)),
+    "fmg_version_unknown": (W, ()),
+    "fmg_aspect": (I, ()),
 }
 
 

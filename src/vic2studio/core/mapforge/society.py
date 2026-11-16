@@ -149,3 +149,52 @@ def owners_for_map(t: ProvisionalTable, adj: list[list[int]], tags: list[TagInfo
     return {"owner": owner, "capitals": np.array(centers, np.int64), "owners": [u.tag for u in use],
             "civilized": [u.civilized for u in use], "culture": culture, "religion": religion,
             "cultures": cultures, "religions": religions}
+
+
+# --- Mundo (iteración 9b) ---------------------------------------------------------------------------------
+
+
+def owners_for_world(t: ProvisionalTable, adj: list[list[int]], *, k: int, groups: int, civilized_fraction: float,
+                     W: float, rng: np.random.Generator, religions: list[str]) -> dict:
+    """Dueños de «Mundo»: ``k`` países nuevos que se reparten **toda** la tierra (la misma expansión que Solo mapa,
+    sin tope de colonización) y ``groups`` zonas culturales (la expansión con menos centros). Cada país tiene su
+    cultura; cada zona, su grupo cultural y una religión de la instalación. Los nombres, TAG, colores y banderas
+    los pone ``nations.name_world`` (el paso de nombres de mundo), aquí solo los índices."""
+    P0 = t.count
+    landp = ~t.is_sea
+    if not landp.any() or k <= 0:
+        return {"owner": np.full(P0, -1, np.int64), "capitals": np.zeros(0, np.int64), "owners": [],
+                "civilized": [], "culture": np.full(P0, -1, np.int64), "religion": np.full(P0, -1, np.int64),
+                "cultures": [], "religions": list(religions[:1]), "culture_group": [], "groups": 0}
+    centers, owner = expand(t, adj, k, rng, W / 40, W, limit_frac=1.0)
+    _, nearest = expand(t, adj, len(centers), rng, W / 40, W, centers=centers)
+    src = np.where(owner >= 0, owner, nearest)
+    lost = landp & (src < 0)
+    if lost.any():
+        cent = np.array(centers)
+        for p in np.flatnonzero(lost).tolist():
+            dx = wrap_dx(t.cx[cent], t.cx[p], W)
+            src[p] = int(np.argmin(dx * dx + (t.cy[cent] - t.cy[p]) ** 2))
+    owner = np.where(landp, src, -1).astype(np.int64)
+    n = len(centers)
+    g = max(1, min(groups, n))
+    _, zone = expand(t, adj, g, rng, W / 12, W, limit_frac=1.0)
+    zone_of_country = [int(zone[c]) if zone[c] >= 0 else i % g for i, c in enumerate(centers)]
+    rel = list(religions) or ["forge_religion"]
+    religion_of_zone = [rel[z % len(rel)] for z in range(g)]
+    used_rel: list[str] = []
+    for r in religion_of_zone:
+        if r not in used_rel:
+            used_rel.append(r)
+    # Los países más grandes son los civilizados (como en 1836: pocos y extensos).
+    size = np.bincount(owner[landp], minlength=n)
+    order = np.argsort(-size, kind="stable")
+    civ = np.zeros(n, bool)
+    civ[order[:int(round(civilized_fraction * n))]] = True
+    culture = np.where(landp, owner, -1)
+    religion = np.where(landp, np.array([used_rel.index(religion_of_zone[zone_of_country[c]])
+                                         for c in range(n)], np.int64)[np.maximum(owner, 0)], -1)
+    return {"owner": owner, "capitals": np.array(centers, np.int64), "owners": [f"__{i}" for i in range(n)],
+            "civilized": civ.tolist(), "culture": culture, "religion": religion,
+            "cultures": [f"__culture_{i}" for i in range(n)], "religions": used_rel,
+            "culture_group": zone_of_country, "groups": g}
