@@ -6,10 +6,11 @@ vista sobre el ``Block`` real de un documento abierto: lee y escribe con la API
 del CST (§4.1) sin copiar datos, y toda mutación pasa por ``ws.touch``, que
 exige una transacción abierta por quien llama (igual que editar a mano). Leer
 (``get``, ``dynamic``, ``unknown``, ``issues``, ``loc_keys``) no escribe nada
-(I4). ``Entities`` es el servicio: lista, abre, crea, duplica, renombra, borra y
-restaura registros. ``create``/``duplicate``/``rename``/``delete``/
-``restore_vanilla`` abren su propia transacción (archivo + compañeros + claves de
-localización): un ``ws.undo()`` lo deshace todo (I5). El renombrado seguro (§15) está en ``rename.py``.
+(I4). ``Entities`` es el servicio: lista, abre, crea, duplica, renombra, mueve de
+grupo, borra y restaura registros. ``create``/``duplicate``/``rename``/
+``move_to_group``/``delete``/``restore_vanilla`` abren su propia transacción
+(archivo + compañeros + claves de localización): un ``ws.undo()`` lo deshace todo
+(I5). El renombrado seguro (§15) está en ``rename.py``.
 
 La vista efectiva (I7): ``list`` sale del índice con **todos** los documentos
 abiertos del layout encima (los sin guardar y los ya guardados que el índice
@@ -661,8 +662,8 @@ class Entities:
     que pueden ser lo recién guardado y aún no releído por el índice) se enumeran con el layout y ganan
     sobre el índice; el resto sale del índice. Así lo creado y no guardado sale, lo borrado no, un
     ``undo`` lo devuelve y tras guardar sigue saliendo aunque el índice vaya por detrás.
-    ``create``, ``duplicate``, ``rename``, ``delete`` y ``restore_vanilla`` abren su propia
-    transacción (``undo.create_<kind>`` y compañía), I5.
+    ``create``, ``duplicate``, ``rename``, ``move_to_group``, ``delete`` y ``restore_vanilla`` abren su
+    propia transacción (``undo.create_<kind>`` y compañía), I5.
     """
 
     def __init__(self, ws: Workspace, index, loc: LocSync) -> None:
@@ -1136,6 +1137,62 @@ class Entities:
                 # Los 13 idiomas de la fila: copiar una clave del juego no pierde sus otras traducciones.
                 texts = {lang: self.loc.text(change.old, lang) for lang in LANGUAGE_CODES}
                 self.loc.ensure({change.new: {lang: text for lang, text in texts.items() if text}}, area=area)
+
+    # --- grupos (§14.13) ----------------------------------------------------------------
+
+    def group_kind(self, kind: str) -> str | None:
+        """El ``kind`` de los grupos de un esquema ``GroupedIn`` de nivel 1 (``culture`` →
+        ``culture_group``): el esquema de nivel 0 del mismo archivo. None si ``kind`` no va en grupos."""
+        layout = self._schema(kind).layout
+        if not isinstance(layout, GroupedIn) or layout.level == 0:
+            return None
+        for schema in registry.all_schemas():
+            other = schema.layout
+            if isinstance(other, GroupedIn) and other.level == 0 \
+                    and VPath.of(other.path).key == VPath.of(layout.path).key:
+                return schema.kind
+        return None
+
+    def groups(self, kind: str) -> list[str]:
+        """Grupos donde puede ir un registro de ``kind`` (``GroupedIn`` de nivel 1), en orden de archivo y
+        también los vacíos, en la vista efectiva (I7). Lista vacía si ``kind`` no va en grupos."""
+        layout = self._schema(kind).layout
+        if not isinstance(layout, GroupedIn) or layout.level == 0:
+            return []
+        rel = VPath.of(layout.path)
+        handle = self.ws.peek(rel)
+        if handle is not None and handle.deleted:
+            document = self._underlying(rel)
+        else:
+            document = self._read_only_document(rel)
+        return [] if document is None else [name for name, _, _ in layout.groups(document)]
+
+    def move_to_group(self, ref: RecordRef, group: str) -> RecordRef:
+        """Mueve un registro de un ``GroupedIn`` de nivel 1 (una cultura) al final de ``group``, en una
+        transacción ``undo.move_<kind>``. El bloque se quita y se añade con su texto intacto: comentarios,
+        sangría y formato (§14.13, I3); el resto del archivo no cambia.
+
+        ``InvalidIdentError("no_group")`` si el grupo no existe; ``ValueError`` si el esquema no va en
+        grupos. Si ya está en ``group`` no hace nada (ni transacción ni paso de deshacer)."""
+        schema = self._schema(ref.kind)
+        self._require_editable(schema)
+        layout = schema.layout
+        if not isinstance(layout, GroupedIn) or layout.level == 0:
+            raise ValueError(f"{ref.kind} no va en grupos")
+        record = self.open(ref)
+        document = record._document if record._document is not None else record.handle.model.document
+        if not any(name == group for name, _, _ in layout.groups(document)):
+            raise InvalidIdentError("no_group", group)
+        if self._parent(schema, document, ref.ident) == group:
+            return record.ref
+        with self.ws.transaction(f"undo.move_{ref.kind}", kind=ref.kind, ident=ref.ident, group=group):
+            record._touch()   # si se veía el archivo del juego bajo una lápida, lo revive
+            document = record.handle.model.document
+            source = parent_block(document, record._entry)
+            target = next(block for name, block, _ in layout.groups(document) if name == group)
+            source.move(record._entry, to=target)
+            self._reread(record.handle)
+        return RecordRef(ref.kind, ref.ident, record.handle.rel)
 
     def _vanilla_entry(self, record: Record):
         """``(documento del juego, entrada del registro en él)`` si el registro se ve desde el mod o con

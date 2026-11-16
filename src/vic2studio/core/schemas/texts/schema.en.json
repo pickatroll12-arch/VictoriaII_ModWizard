@@ -67,6 +67,7 @@
   "undo.rename_culture": "Rename culture {ident} to {new}",
   "undo.rename_culture_group": "Rename culture group {ident} to {new}",
   "undo.rename_event_modifier": "Rename modifier {ident} to {new}",
+  "undo.move_culture": "Move culture {ident} to group {group}",
   "issue.unit_never_active": "Unit «{ident}» has «active = no» and no technology or invention activates it.",
   "explain.title.unit_never_active": "Why nobody can build this unit",
   "explain.outcome.unit_never_active": "In game, the unit will not appear in any country’s build list.",

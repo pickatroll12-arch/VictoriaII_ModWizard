@@ -731,6 +731,118 @@ class RejectionTests(Case):
                                      {"ident", "new"})
 
 
+class CultureMoveTests(Case):
+    extra_game = {CULTURES: CULTURES_TEXT}
+
+    BLOCK = _crlf("""\
+	# la cultura de la capital
+	alander = {
+		color = { 100 20 20 }   # granate
+		first_names = { Ana Luis }
+		last_names = { Mar "De la Vega" }
+		primary = AAA
+	}
+""").encode()
+
+    def test_the_block_moves_with_its_text_intact(self):
+        before = self.game_data(CULTURES)
+        self.assertEqual(before.count(self.BLOCK), 1)
+        ref = self.entities.move_to_group(RecordRef("culture", "alander"), "south_folk")
+        self.assertEqual(ref, RecordRef("culture", "alander", VPath.of(CULTURES)))
+        after = self.data(CULTURES)
+        tail = _crlf("\tdominer = {\n\t\tcolor = { 90 90 90 }\n\t\tprimary = D01\n\t}\n").encode()
+        expected = before.replace(self.BLOCK, b"").replace(tail + b"}", tail + self.BLOCK + b"}")
+        self.assertEqual(after, expected, "el bloque sale de su grupo y entra al final del otro, con su comentario")
+        self.assertEqual(self.entities.parent(ref), "south_folk")
+        self.assertEqual({item.ref.ident: item.parent for item in self.entities.list("culture")},
+                         {"alander": "south_folk", "borlander": "north_folk", "corlander": "south_folk",
+                          "dominer": "south_folk"})
+        record = self.entities.open(ref)
+        self.assertEqual((record.get("color"), record.get("last_names")), ((100, 20, 20), ["Mar", "De la Vega"]))
+        issues = self.entities.open(RecordRef("culture", "dominer")).issues(self.entities.check_context())
+        self.assertEqual({(issue.code, issue.line) for issue in issues}, {("required_missing", 14)},
+                         "las posiciones de los demás registros son las de después de mover")
+        self.assertEqual(self.ws.history(), [("undo.move_culture", {
+            "kind": "culture", "ident": "alander", "group": "south_folk"})], "una transacción")
+        self.ws.undo()
+        self.assertEqual(self.data(CULTURES), before)
+        self.assertEqual(self.dirty(), [])
+
+    def test_saving_writes_the_same_lines_in_another_place(self):
+        from vic2studio.core.project.diffing import changed_lines as diff_lines
+
+        self.entities.move_to_group(RecordRef("culture", "alander"), "south_folk")
+        self.project.save()
+        saved = self.game.mod(CULTURES).read_bytes()
+        lines = self.BLOCK.count(b"\n")
+        self.assertEqual(diff_lines(self.game_data(CULTURES), saved), (lines, lines))
+        self.assertEqual(sorted(saved.split(b"\r\n")), sorted(self.game_data(CULTURES).split(b"\r\n")),
+                         "las mismas líneas, en otro orden")
+
+    def test_moving_to_its_own_group_does_nothing(self):
+        ref = self.entities.move_to_group(RecordRef("culture", "alander"), "north_folk")
+        self.assertEqual(ref.ident, "alander")
+        self.assert_untouched()
+
+    def test_an_unknown_group_or_a_schema_without_groups_is_refused(self):
+        for group in ("no_such_folk", "borlander", ""):
+            with self.assertRaises(InvalidIdentError) as caught:
+                self.entities.move_to_group(RecordRef("culture", "alander"), group)
+            self.assertEqual(caught.exception.code, "no_group")
+        with self.assertRaises(ValueError):
+            self.entities.move_to_group(RecordRef("government", "monarchy"), "south_folk")
+        with self.assertRaises(ValueError):
+            self.entities.move_to_group(RecordRef("culture_group", "north_folk"), "south_folk")
+        self.assert_untouched()
+
+    def test_the_move_label_has_its_text(self):
+        for lang in ("es", "en"):
+            self.assertEqual(set(re.findall(r"{(\w+)}", load_texts(lang)["undo.move_culture"])), {"ident", "group"})
+
+
+class CultureGroupTests(Case):
+    extra_game = {CULTURES: CULTURES_TEXT}
+
+    def test_a_new_group_is_created_with_its_fields_and_its_key(self):
+        before = self.game_data(CULTURES)
+        ref = self.entities.create("culture_group", "east_folk",
+                                   {"leader": "asian", "unit": "NorthGC", "union": "BBB", "is_overseas": True},
+                                   texts={"east_folk": {"en": "Eastern", "es": "oriental"}})
+        after = self.data(CULTURES)
+        self.assertEqual(after, before + _crlf("east_folk = {\n\tleader = asian\n\tunit = NorthGC\n\tunion = BBB\n"
+                                               "\tis_overseas = yes\n}\n").encode(),
+                         "al final del archivo, con sus campos en el orden del esquema")
+        record = self.entities.open(ref)
+        self.assertEqual([record.get(key) for key in ("leader", "unit", "union", "is_overseas")],
+                         ["asian", "NorthGC", "BBB", True])
+        self.assertEqual((self.loc.text("east_folk", "en"), self.loc.text("east_folk", "es")), ("Eastern", "oriental"))
+        self.assertEqual(str(self.loc.where("east_folk")[0]), "localisation/00_TESTMOD_cultures.csv")
+        self.assertEqual(self.entities.groups("culture"), ["north_folk", "south_folk", "east_folk"],
+                         "un grupo vacío también se ofrece")
+        self.assertEqual(self.idents("culture_group"), ["east_folk", "north_folk", "south_folk"])
+        self.assertEqual(len(self.ws.history()), 1)
+        self.ws.undo()
+        self.assertEqual(self.data(CULTURES), before)
+        self.assertIsNone(self.loc.entry("east_folk"))
+
+    def test_cultures_can_be_created_in_and_moved_to_the_new_group(self):
+        self.entities.create("culture_group", "east_folk", {"leader": "asian"})
+        created = self.entities.create("culture", "eastling", {"group": "east_folk"})
+        self.assertEqual(self.entities.parent(created), "east_folk")
+        self.entities.move_to_group(RecordRef("culture", "borlander"), "east_folk")
+        group = self.entities.open(RecordRef("culture_group", "east_folk"))
+        self.assertEqual([child.ref.ident for child in group.children()], ["eastling", "borlander"])
+        self.assertIn(b"\tborlander = { color = { 20 100 20 } }\r\n}\r\n", self.data(CULTURES))
+
+    def test_group_kind_and_groups(self):
+        self.assertEqual(self.entities.group_kind("culture"), "culture_group")
+        self.assertIsNone(self.entities.group_kind("culture_group"))
+        self.assertIsNone(self.entities.group_kind("government"))
+        self.assertEqual(self.entities.groups("culture"), ["north_folk", "south_folk"])
+        self.assertEqual(self.entities.groups("government"), [])
+        self.assert_untouched()
+
+
 @unittest.skipUnless(vanilla_root(), "sin corpus")
 class VanillaRenameTests(unittest.TestCase):
     """Sobre el juego real con un mod vacío en una carpeta temporal: los archivos que crea el mod difieren del
