@@ -131,7 +131,7 @@ class CatalogPicker(QWidget):
         buttons.addWidget(self.family_ok)
         column.addLayout(buttons)
         self.stack.addWidget(family)
-        translator().languageChanged.connect(lambda _code: self.retranslate())
+        translator().languageChanged.connect(self._on_language)
         self.retranslate()
 
     # --- contexto ---------------------------------------------------------------------------------
@@ -282,6 +282,9 @@ class CatalogPicker(QWidget):
         text = self.search.text().strip()
         if text:
             self.raw_requested.emit(text)
+
+    def _on_language(self, _code: str = "") -> None:
+        self.retranslate()
 
     def retranslate(self) -> None:
         self.search.setPlaceholderText(tr(N_("script_ui.picker.search")))

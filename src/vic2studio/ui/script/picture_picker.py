@@ -157,7 +157,7 @@ class PicturePicker(QWidget):
         self.setObjectName("picturePicker")
         row = QHBoxLayout(self)
         row.setContentsMargins(0, 0, 0, 0)
-        self.thumb = QLabel()
+        self.thumb = mark_data(QLabel())         # la miniatura, o «?» / «—» sin imagen: signos, no texto
         self.thumb.setObjectName("pictureThumb")
         width, height = spec.size
         scale = min(1.0, 160 / width, 90 / height)
@@ -169,6 +169,7 @@ class PicturePicker(QWidget):
         self.combo = mark_data(QComboBox())
         self.combo.setObjectName("pictureNames")
         self.combo.setEditable(True)
+        mark_data(self.combo.lineEdit())         # el texto de ejemplo es el nombre de una imagen: dato
         self.combo.activated.connect(self._on_combo)
         self.combo.lineEdit().editingFinished.connect(self._on_combo)
         column.addWidget(self.combo)
@@ -181,7 +182,7 @@ class PicturePicker(QWidget):
         self.import_button.clicked.connect(self._ask_import)
         column.addWidget(self.import_button)
         row.addLayout(column, 1)
-        translator().languageChanged.connect(lambda _code: self.retranslate())
+        translator().languageChanged.connect(self._on_language)
         self.retranslate()
 
     def value(self) -> str | None:
@@ -285,6 +286,9 @@ class PicturePicker(QWidget):
         self._read_only = bool(read_only)
         self.combo.setEnabled(not self._read_only)
         self.import_button.setEnabled(not self._read_only)
+
+    def _on_language(self, _code: str = "") -> None:
+        self.retranslate()
 
     def retranslate(self) -> None:
         self.import_button.setText(tr(N_("script_ui.picture.import")))

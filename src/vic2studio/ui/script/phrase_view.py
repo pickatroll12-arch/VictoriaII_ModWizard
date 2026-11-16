@@ -69,7 +69,7 @@ class PhraseView(QWidget):
         self.lines.itemActivated.connect(lambda item: self.node_activated.emit(item.data(_PATH)))
         self.lines.hide()
         outer.addWidget(self.lines)
-        translator().languageChanged.connect(lambda _code: self.retranslate())
+        translator().languageChanged.connect(self._on_language)
         self.retranslate()
 
     def _lang(self) -> str:
@@ -158,6 +158,9 @@ class PhraseView(QWidget):
             item = QListWidgetItem(prefix + str(getattr(line, "text", "")))
             item.setData(_PATH, tuple(getattr(line, "path", ()) or ()))
             self.lines.addItem(item)
+
+    def _on_language(self, _code: str = "") -> None:
+        self.retranslate()
 
     def retranslate(self) -> None:
         kind = getattr(self._tree, "kind", None)

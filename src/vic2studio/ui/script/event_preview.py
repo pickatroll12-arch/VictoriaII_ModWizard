@@ -299,16 +299,19 @@ class EventPreview(QWidget):
         outer.addWidget(self.canvas, 1)
         self.lang_buttons["es"].setChecked(True)
         if hasattr(session, "documentsChanged"):
-            session.documentsChanged.connect(lambda _rels: self._reload())
+            session.documentsChanged.connect(self._on_documents)
         if hasattr(session, "textsChanged"):
             session.textsChanged.connect(self._reload)
-        translator().languageChanged.connect(lambda _code: self.retranslate())
+        translator().languageChanged.connect(self._on_language)
         self.retranslate()
 
     def bind(self, ref) -> None:
         """Enlaza con el evento ``ref`` y se repinta con cada cambio suyo o de sus textos. None: vacío."""
         self._ref = ref
         self._manual = False
+        self._reload()
+
+    def _on_documents(self, _rels=None) -> None:
         self._reload()
 
     def _reload(self) -> None:
@@ -358,6 +361,9 @@ class EventPreview(QWidget):
         self.canvas.paint_window(painter, width, height)
         painter.end()
         return image
+
+    def _on_language(self, _code: str = "") -> None:
+        self.retranslate()
 
     def retranslate(self) -> None:
         self.lang_buttons["es"].setText(tr(N_("events.preview.lang_es")))

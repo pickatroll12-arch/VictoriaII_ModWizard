@@ -59,8 +59,8 @@ FLOWS = (
     (N_("home.flow.provinces"), "map", None, "map:world"),
     (N_("home.flow.country"), "countries", None, "nations:countries"),   # iteración 6
     (N_("home.flow.war"), "swords", None, "war:wars"),
-    (N_("home.flow.event"), "events", 7, "events:events"),
-    (N_("home.flow.decision"), "quill", 7, "events:decisions"),
+    (N_("home.flow.event"), "events", None, "events:events"),        # iteración 7
+    (N_("home.flow.decision"), "quill", None, "events:decisions"),
     (N_("home.flow.window"), "window", 8, "interface:windows"),
     (N_("home.flow.map"), "anvil", 9, "map:forge"),
 )

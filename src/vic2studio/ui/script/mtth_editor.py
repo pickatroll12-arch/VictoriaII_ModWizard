@@ -95,6 +95,9 @@ class ModifierCard(QFrame):
         column.addLayout(row)
         column.addWidget(self.phrase)
 
+    def _on_language(self, _code: str = "") -> None:
+        self.retranslate()
+
     def retranslate(self) -> None:
         self.factor_label.setText(tr(N_("script_ui.mtth.factor")))
         self.satisfied.setText(tr(N_("script_ui.mtth.satisfied")))
@@ -144,7 +147,8 @@ class MtthEditor(QWidget):
         for unit in UNITS:
             self.unit.addItem("", unit)
         self.unit.currentIndexChanged.connect(self._on_unit)
-        self.unit.setVisible(key == MTTH_KEY)
+        if key != MTTH_KEY:
+            self.unit.hide()                     # sin padre aún: mostrarlo lo haría ventana propia
         self.add_button = QPushButton()
         self.add_button.setObjectName("mtthAdd")
         self.add_button.setIcon(make_icon("plus", "gold_light"))
@@ -168,7 +172,7 @@ class MtthEditor(QWidget):
         outer.addWidget(self.result)
         if hasattr(session, "documentsChanged"):
             session.documentsChanged.connect(self._on_documents)
-        translator().languageChanged.connect(lambda _code: self.retranslate())
+        translator().languageChanged.connect(self._on_language)
         self.retranslate()
 
     # --- enlace -----------------------------------------------------------------------------------
@@ -424,6 +428,9 @@ class MtthEditor(QWidget):
         for index, card in enumerate(self.cards):
             if card.factor.hasFocus():
                 self.set_factor(index, card.factor.value())
+
+    def _on_language(self, _code: str = "") -> None:
+        self.retranslate()
 
     def retranslate(self) -> None:
         self.title.setText(tr(TITLE_KEYS.get(self.key, TITLE_KEYS[MTTH_KEY])))

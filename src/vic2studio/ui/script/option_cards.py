@@ -204,6 +204,9 @@ class OptionCard(QFrame):
         self.effects.commit_pending()
         self.ai_chance.commit_pending()
 
+    def _on_language(self, _code: str = "") -> None:
+        self.retranslate()
+
     def retranslate(self) -> None:
         self.title.setText(tr(N_("events.option.title"), letter=option_letter(self.index)))
         for lang, label in self.text_labels.items():
@@ -246,7 +249,7 @@ class OptionCards(QWidget):
         outer.addWidget(self.add_button)
         if hasattr(session, "documentsChanged"):
             session.documentsChanged.connect(self._on_documents)
-        translator().languageChanged.connect(lambda _code: self.retranslate())
+        translator().languageChanged.connect(self._on_language)
         self.retranslate()
 
     def bind(self, ref) -> None:
@@ -372,6 +375,9 @@ class OptionCards(QWidget):
     def commit_pending(self) -> None:
         for card in self.cards:
             card.commit_pending()
+
+    def _on_language(self, _code: str = "") -> None:
+        self.retranslate()
 
     def retranslate(self) -> None:
         self.add_button.setText(tr(N_("events.option.add")))
