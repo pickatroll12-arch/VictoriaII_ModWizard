@@ -2,11 +2,13 @@
 # para Linux (PyInstaller one-folder + appimagetool). PyInstaller no compila en cruzado: cada sistema se construye en
 # el suyo.
 #
-# - Cada empuje a la rama de trabajo construye los dos paquetes, los prueba y los deja como artefactos.
+# - Cada empuje a la rama de trabajo construye los dos paquetes y los prueba (sin artefactos: la cuota de
+#   almacenamiento de Actions es pequeña y los paquetes van directos a la release cuando se publica).
 #   Las pruebas: el ejecutable congelado, el instalador (instalar, abrir y desinstalar) y el AppImage, cada uno con
 #   VIC2STUDIO_SMOKE_TEST (abre la ventana, comprueba sus textos y el trabajador del taller de mapas y sale con 0).
 # - Lanzado a mano (workflow_dispatch) o con una etiqueta v*, además los publica en una versión previa de GitHub con
 #   las notas de packaging/release_notes_alpha.md, y antes borra la release de la entrada «borrar» si existe.
+#   La release se crea como borrador, cada sistema sube su paquete con su .sha256 y al final se hace pública.
 name: Ejecutables
 
 on:
@@ -30,10 +32,53 @@ permissions:
 env:
   PYTHON_VERSION: "3.12"
   PYTHONUTF8: "1"
+  PUBLISH: ${{ github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v') }}
+  TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+  GH_TOKEN: ${{ github.token }}
+  GH_REPO: ${{ github.repository }}
 
 jobs:
+  release:
+    name: Preparar la release (borrador)
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      OLD_RELEASE: ${{ inputs.borrar }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Borrar la release anterior
+        if: env.OLD_RELEASE != ''
+        run: |
+          if gh release view "$OLD_RELEASE" > /dev/null 2>&1; then
+            gh release delete "$OLD_RELEASE" --cleanup-tag --yes
+            echo "Borrada la release $OLD_RELEASE y su etiqueta"
+          else
+            echo "No hay ninguna release $OLD_RELEASE"
+          fi
+      - name: Crear el borrador
+        run: |
+          VERSION="$(PYTHONPATH=src python3 -c 'import vic2studio; print(vic2studio.__version__)')"
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
+            # Publicar otra vez la misma etiqueta a mano sustituye la release y la etiqueta.
+            if gh release view "$TAG" > /dev/null 2>&1; then
+              gh release delete "$TAG" --cleanup-tag --yes
+            fi
+            TARGET=(--target "$GITHUB_SHA")
+          else
+            TARGET=(--verify-tag)
+          fi
+          gh release create "$TAG" "${TARGET[@]}" --draft --prerelease \
+            --title "Victoria II Mod Studio $VERSION (alfa, $TAG)" \
+            --notes-file packaging/release_notes_alpha.md
+
   windows:
     name: Windows (instalador .exe)
+    needs: release
+    if: ${{ !cancelled() && (needs.release.result == 'success' || needs.release.result == 'skipped') }}
+    permissions:
+      contents: write
     runs-on: windows-latest
     timeout-minutes: 40
     steps:
@@ -104,14 +149,22 @@ jobs:
           if ($code -ne 0) { exit 1 }
           $code = Invoke-Timed (Join-Path $dir "unins000.exe") @("/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART")
           Write-Host "Desinstalador: $code"
-      - uses: actions/upload-artifact@v4
-        with:
-          name: windows
-          path: dist/VictoriaIIModStudio-*-setup.exe
-          if-no-files-found: error
+      - name: Subir a la release
+        if: env.PUBLISH == 'true'
+        shell: bash
+        run: |
+          cd dist
+          f=$(ls VictoriaIIModStudio-*-setup.exe)
+          sha256sum "$f" > "$f.sha256"
+          cat "$f.sha256"
+          gh release upload "$TAG" "$f" "$f.sha256" --clobber
 
   linux:
     name: Linux (AppImage)
+    needs: release
+    if: ${{ !cancelled() && (needs.release.result == 'success' || needs.release.result == 'skipped') }}
+    permissions:
+      contents: write
     # 22.04: el AppImage funciona en glibc 2.35 o posterior.
     runs-on: ubuntu-22.04
     timeout-minutes: 40
@@ -158,57 +211,24 @@ jobs:
           VIC2STUDIO_CACHE_DIR: ${{ runner.temp }}/cache
           APPIMAGE_EXTRACT_AND_RUN: "1"
         run: timeout 300 dist/Victoria_II_Mod_Studio-*.AppImage
-      - uses: actions/upload-artifact@v4
-        with:
-          name: linux
-          path: dist/Victoria_II_Mod_Studio-*.AppImage
-          if-no-files-found: error
+      - name: Subir a la release
+        if: env.PUBLISH == 'true'
+        run: |
+          cd dist
+          f=$(ls Victoria_II_Mod_Studio-*.AppImage)
+          sha256sum "$f" > "$f.sha256"
+          cat "$f.sha256"
+          gh release upload "$TAG" "$f" "$f.sha256" --clobber
 
   publish:
-    name: Publicar en Releases
-    needs: [windows, linux]
-    if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v')
+    name: Hacer pública la release
+    needs: [release, windows, linux]
+    if: ${{ !cancelled() && needs.release.result == 'success' && needs.windows.result == 'success' && needs.linux.result == 'success' }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
-    env:
-      GH_TOKEN: ${{ github.token }}
-      GH_REPO: ${{ github.repository }}
-      TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
-      OLD_RELEASE: ${{ inputs.borrar }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
-        with:
-          path: paquetes
-          merge-multiple: true
-      - name: Sumas SHA-256
-        working-directory: paquetes
-        run: |
-          sha256sum * > SHA256SUMS.txt
-          cat SHA256SUMS.txt
-      - name: Borrar la release anterior
-        if: env.OLD_RELEASE != ''
-        run: |
-          if gh release view "$OLD_RELEASE" > /dev/null 2>&1; then
-            gh release delete "$OLD_RELEASE" --cleanup-tag --yes
-            echo "Borrada la release $OLD_RELEASE y su etiqueta"
-          else
-            echo "No hay ninguna release $OLD_RELEASE"
-          fi
       - name: Publicar
         run: |
-          VERSION="$(PYTHONPATH=src python3 -c 'import vic2studio; print(vic2studio.__version__)')"
-          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
-            # Publicar otra vez la misma etiqueta a mano sustituye la release y la etiqueta.
-            if gh release view "$TAG" > /dev/null 2>&1; then
-              gh release delete "$TAG" --cleanup-tag --yes
-            fi
-            TARGET=(--target "$GITHUB_SHA")
-          else
-            TARGET=(--verify-tag)
-          fi
-          gh release create "$TAG" paquetes/* "${TARGET[@]}" --prerelease \
-            --title "Victoria II Mod Studio $VERSION (alfa, $TAG)" \
-            --notes-file packaging/release_notes_alpha.md
+          gh release edit "$TAG" --draft=false
           gh release view "$TAG"
