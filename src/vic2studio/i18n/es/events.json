@@ -39,7 +39,7 @@
   "events.tab.studio": "Studio",
   "events.text_only.code": "Abrir el texto",
   "events.text_only.failed": "No se pudo arreglar: {error}",
-  "events.text_only.fix": "Añadir } al final",
+  "events.text_only.fix": "Añadir {brace} al final",
   "events.text_only.fixed": "Se añadió la llave que faltaba en {file}.",
   "events.text_only.title": "{file} tiene errores de sintaxis: solo se puede editar como texto.",
   "events.undo.picture": "Imagen de {ident}"

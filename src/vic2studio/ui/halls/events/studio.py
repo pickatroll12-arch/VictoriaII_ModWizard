@@ -116,7 +116,7 @@ class TextOnlyBanner(QFrame):
     def retranslate(self) -> None:
         rel = "" if self.state is None else str(self.state.rel)
         self.title.setText(tr(N_("events.text_only.title"), file=rel))
-        self.fix_button.setText(tr(N_("events.text_only.fix")))
+        self.fix_button.setText(tr(N_("events.text_only.fix"), brace="}"))
         self.code_button.setText(tr(N_("events.text_only.code")))
 
 

@@ -177,6 +177,7 @@ class Record:
     handle: DocHandle
     block: Block
     origin: LayerKind | None = None           # capa de la que se leyó (juego, mod, nuevo)
+    _group_view: bool = False                 # True en las vistas de grupo (``group``, ``groups``)
 
     def __init__(self, schema: EntitySchema, ref: RecordRef, handle: DocHandle, block: Block,
                  origin: LayerKind | None = None, *, ws: Workspace = None, index=None,
@@ -1085,8 +1086,10 @@ class Entities:
         if problem is not None:
             raise InvalidIdentError(problem, ident)
         rule = schema.ident_rule
-        if rule.mode == "int_range":
-            allocator = self.id_allocator(rule.value or "event")
+        # Solo los ids de evento tienen rango del proyecto (``ProjectSettings.id_ranges``); las provincias usan
+        # ``INT_RANGE("province")`` para la forma (un número) y su id es el de ``definition.csv``.
+        if rule.mode == "int_range" and (rule.value or "event") == "event":
+            allocator = self.id_allocator("event")
             problem = allocator.problem(ident)
             if problem is not None:
                 params = {}
