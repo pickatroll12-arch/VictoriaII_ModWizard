@@ -124,7 +124,7 @@ class EverySchemaFormTests(EntityWindowCase):
                     continue
                 if schema.variants is not None and item.key == schema.variants.field:
                     continue   # cambiar el discriminador cambia los campos visibles: tiene su propia prueba
-                if schema.ident.mode == "field" and item.key == schema.ident.value:
+                if item.key == schema.id_field:
                     self.assertFalse(row.editor.isEnabled(), "el id no se cambia en el formulario")
                     continue
                 current = session.entities.open(ref).get(item.key, None)

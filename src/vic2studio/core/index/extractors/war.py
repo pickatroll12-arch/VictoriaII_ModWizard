@@ -10,7 +10,7 @@ from ._support import Facts
 ROLE_PEACE_ORDER = "peace_order"
 
 
-@extractor("common/cb_types.txt", version=1)
+@extractor("common/cb_types.txt", version=2)
 def cb_types(rel, data, layer):
     """``peace_order = { … }`` (referencias, H17: incluye ``annex``, que no es un CB) y los CB que siguen."""
     facts = Facts(rel, layer)
@@ -29,7 +29,11 @@ def cb_types(rel, data, layer):
         block = entry.value
         facts.define(KIND_CB, entry.key.text, entry.line, {
             "in_peace_order": entry.key.text in in_order, "sprite_index": as_int(block.get_text("sprite_index")),
-            "war_name": block.get_text("war_name"), "months": as_int(block.get_text("months"))})
+            "war_name": block.get_text("war_name"), "months": as_int(block.get_text("months")),
+            # Las opciones de paz que admite (iteración 6: el asistente «Nueva guerra» y wargoal_state_required).
+            "po": [child.key.text.lower() for child in block.entries
+                   if child.key is not None and child.key.text.lower().startswith("po_")
+                   and child.value.__class__ is Scalar and child.value.text.lower() == "yes"]})
     return facts.result()
 
 

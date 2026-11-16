@@ -2,8 +2,8 @@
 
 El archivo empieza con ``peace_order = { … }`` (la lista no es un CB: ``SingleFile`` la salta) y sigue con un
 bloque por CB. Crear un CB lo añade al **final** de ``peace_order`` (compañero ``AppendToList``) y borrarlo
-lo quita. Los bloques de guion (``can_use``, ``on_add``…) se conservan y se editan como código hasta la
-iteración 7. Textos: ``<cb>``, ``<cb>_desc``, ``<cb>_setup`` y ``<cb>_short`` en ``00_<P>_cb.csv``; los
+lo quita. Los bloques de guion (``can_use``, ``on_add``…) se conservan sin pérdidas y, desde la iteración 7,
+se editan con el constructor de condiciones o de efectos (``ui.forms.editors.ScriptFieldEditor``). Textos: ``<cb>``, ``<cb>_desc``, ``<cb>_setup`` y ``<cb>_short`` en ``00_<P>_cb.csv``; los
 ``NORMAL_``/``AGRESSION_<war_name>`` los comparten varios CB y no se crean ni se borran con ninguno.
 """
 

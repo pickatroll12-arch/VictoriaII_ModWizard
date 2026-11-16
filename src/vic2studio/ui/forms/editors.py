@@ -17,7 +17,7 @@ from PySide6.QtCore import QLocale, QSignalBlocker, QTimer, Signal
 from PySide6.QtGui import QDoubleValidator, QIntValidator
 from PySide6.QtWidgets import QCheckBox, QComboBox, QHBoxLayout, QLineEdit, QPushButton, QWidget
 
-from ...i18n import tr, translator
+from ...i18n import N_, tr, translator
 from ..pickers import ColorField, DateEdit, NameListEditor, SpriteFramePicker, SymbolPicker
 from ..widgets import mark_data
 
@@ -377,6 +377,81 @@ class CodeOnlyEditor(FieldEditor):
 
     def _show(self, value) -> None:
         self.retranslate()
+
+    def retranslate(self) -> None:
+        self.button.setText(tr("forms.edit_as_code") if self._last is not None else tr("forms.add_as_code"))
+
+
+class ScriptFieldEditor(CodeOnlyEditor):
+    """Un campo ``Script`` del formulario generado (iteración 7): su frase legible (``PhraseView``), el botón
+    que abre el constructor de condiciones o de efectos en una ventana y, como alternativa, «Editar como
+    código». Así pasan al constructor los bloques de los CB (``can_use``, ``is_valid``…) y los de cualquier
+    esquema con guion."""
+
+    def __init__(self, script_field, **kwargs):
+        self.script_field = script_field
+        self._ref = None
+        self.dialog = None
+        super().__init__(None, **kwargs)
+
+    def _build(self) -> None:
+        from ..script.phrase_view import PhraseView
+
+        self.phrase = PhraseView()
+        self.phrase.setObjectName(f"phrase_{self.key}")
+        self.phrase.edit_requested.connect(self.open_builder)
+        self._row.addWidget(self.phrase, 1)
+        self.button = QPushButton()
+        self.button.setObjectName(f"field_{self.key}")
+        self.button.clicked.connect(lambda: self.code_requested.emit(self.key))
+        self._row.addWidget(self.button)
+
+    def bind_record(self, record) -> None:
+        """La frase del bloque del registro (None: vacío). En una vista de grupo solo se enseña la frase."""
+        self._ref = None if record is None or record._is_group_view() else record.ref
+        tree = None
+        if record is not None:
+            try:
+                tree = record.script(self.key)
+            except (KeyError, ValueError):
+                tree = None
+        index = getattr(self.session, "index", None)
+        loc = None
+        finder = getattr(self.session, "_loc_for_search", None)
+        if callable(finder):
+            try:
+                loc = finder()
+            except Exception:  # noqa: BLE001
+                loc = None
+        self.phrase.set_tree(tree, index=index, loc=loc)
+        self.phrase.edit_button.setEnabled(self._ref is not None)
+
+    def open_builder(self):
+        """La ventana con el constructor del bloque (se edita en vivo: cada cambio es un paso de deshacer)."""
+        from PySide6.QtWidgets import QDialog, QDialogButtonBox, QVBoxLayout
+
+        from ...core.script.scopes import ScriptKind
+        from ..script.effect_builder import EffectBuilder
+        from ..script.trigger_builder import ScriptBinding, TriggerBuilder
+
+        if self._ref is None or self.session is None:
+            return None
+        effects = getattr(self.script_field, "kind", None) == ScriptKind.EFFECT
+        self.dialog = QDialog(self)
+        self.dialog.setObjectName("scriptBuilderDialog")
+        self.dialog.setWindowTitle(tr(N_("script_ui.phrase.edit_effects") if effects
+                                      else N_("script_ui.phrase.edit_conditions")))
+        self.dialog.resize(640, 520)
+        layout = QVBoxLayout(self.dialog)
+        builder = (EffectBuilder if effects else TriggerBuilder)(self.session)
+        builder.bind(ScriptBinding(self._ref, (self.key,)))
+        layout.addWidget(builder, 1)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
+        buttons.rejected.connect(self.dialog.reject)
+        layout.addWidget(buttons)
+        self.dialog.builder = builder
+        self.dialog.open()
+        return self.dialog
 
     def retranslate(self) -> None:
         self.button.setText(tr("forms.edit_as_code") if self._last is not None else tr("forms.add_as_code"))

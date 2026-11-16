@@ -1,0 +1,19 @@
+{
+  "schema.country.title": "Archivos de país",
+  "schema.country.name": "Archivo de país",
+  "schema.country.doc": "common/countries/<Archivo>.txt: color de mapa, cultura gráfica, partidos y nombres de unidades. El id es el nombre del archivo, tal como lo escribe countries.txt.",
+  "schema.country.section.identity": "Identidad",
+  "schema.country.section.parties": "Partidos",
+  "schema.country.field.color": "Color del mapa",
+  "schema.country.field.graphical_culture": "Cultura gráfica",
+  "schema.country.group.party": "Partido",
+  "schema.country.field.name": "Nombre",
+  "schema.country.field.start_date": "Desde",
+  "schema.country.field.end_date": "Hasta",
+  "schema.country.field.ideology": "Ideología",
+  "schema.country.field.economic_policy": "Política económica",
+  "schema.country.field.trade_policy": "Política comercial",
+  "schema.country.field.religious_policy": "Política religiosa",
+  "schema.country.field.citizenship_policy": "Ciudadanía",
+  "schema.country.field.war_policy": "Política militar"
+}

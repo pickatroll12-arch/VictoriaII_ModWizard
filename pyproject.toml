@@ -53,6 +53,8 @@ vic2studio = [
     # Fragmentos por área (i18n/<idioma>/<área>.json) y textos del núcleo (core/**/texts/*.json), wizard §4.1.
     "i18n/*/*.json",
     "core/**/texts/*.json",
+    # Catálogo de guion (core/script/data/*.json): datos propios, wizard §12.1.
+    "core/**/data/*.json",
     "ui/*.qss",
     "assets/**/*",
 ]

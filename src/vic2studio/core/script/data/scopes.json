@@ -1,0 +1,599 @@
+{
+ "format": 1,
+ "entries": [
+  {
+   "name": "AND",
+   "role": "logic",
+   "kinds": [
+    "condition",
+    "effect"
+   ],
+   "scopes": [
+    "any"
+   ],
+   "label": {
+    "es": "Todas se cumplen",
+    "en": "All of these"
+   }
+  },
+  {
+   "name": "OR",
+   "role": "logic",
+   "kinds": [
+    "condition",
+    "effect"
+   ],
+   "scopes": [
+    "any"
+   ],
+   "label": {
+    "es": "Alguna se cumple",
+    "en": "Any of these"
+   }
+  },
+  {
+   "name": "NOT",
+   "role": "logic",
+   "kinds": [
+    "condition",
+    "effect"
+   ],
+   "scopes": [
+    "any"
+   ],
+   "label": {
+    "es": "Ninguna se cumple",
+    "en": "None of these"
+   }
+  },
+  {
+   "name": "limit",
+   "role": "logic",
+   "kinds": [
+    "effect"
+   ],
+   "scopes": [
+    "any"
+   ],
+   "label": {
+    "es": "Solo donde…",
+    "en": "Only where…"
+   },
+   "body": "condition"
+  },
+  {
+   "name": "THIS",
+   "role": "scope",
+   "kinds": [
+    "condition",
+    "effect"
+   ],
+   "scopes": [
+    "any"
+   ],
+   "scope_change": "any",
+   "label": {
+    "es": "Este ámbito",
+    "en": "This scope"
+   }
+  },
+  {
+   "name": "FROM",
+   "role": "scope",
+   "kinds": [
+    "condition",
+    "effect"
+   ],
+   "scopes": [
+    "any"
+   ],
+   "scope_change": "any",
+   "label": {
+    "es": "Quien lo provocó",
+    "en": "The one who caused it"
+   }
+  },
+  {
+   "name": "capital_scope",
+   "role": "scope",
+   "kinds": [
+    "condition",
+    "effect"
+   ],
+   "scopes": [
+    "country"
+   ],
+   "scope_change": "province",
+   "label": {
+    "es": "En la capital",
+    "en": "In the capital"
+   }
+  },
+  {
+   "name": "owner",
+   "role": "scope",
+   "kinds": [
+    "condition",
+    "effect"
+   ],
+   "scopes": [
+    "province",
+    "state",
+    "pop"
+   ],
+   "scope_change": "country",
+   "label": {
+    "es": "El dueño",
+    "en": "The owner"
+   }
+  },
+  {
+   "name": "controller",
+   "role": "scope",
+   "kinds": [
+    "condition",
+    "effect"
+   ],
+   "scopes": [
+    "province"
+   ],
+   "scope_change": "country",
+   "label": {
+    "es": "Quien la controla",
+    "en": "The controller"
+   }
+  },
+  {
+   "name": "state_scope",
+   "role": "scope",
+   "kinds": [
+    "condition",
+    "effect"
+   ],
+   "scopes": [
+    "province"
+   ],
+   "scope_change": "state",
+   "label": {
+    "es": "En su estado",
+    "en": "In its state"
+   }
+  },
+  {
+   "name": "location",
+   "role": "scope",
+   "kinds": [
+    "condition",
+    "effect"
+   ],
+   "scopes": [
+    "pop"
+   ],
+   "scope_change": "province",
+   "label": {
+    "es": "Donde vive",
+    "en": "Where it lives"
+   }
+  },
+  {
+   "name": "sphere_owner",
+   "role": "scope",
+   "kinds": [
+    "condition",
+    "effect"
+   ],
+   "scopes": [
+    "country"
+   ],
+   "scope_change": "country",
+   "label": {
+    "es": "El líder de su esfera",
+    "en": "Its sphere leader"
+   }
+  },
+  {
+   "name": "overlord",
+   "role": "scope",
+   "kinds": [
+    "condition",
+    "effect"
+   ],
+   "scopes": [
+    "country"
+   ],
+   "scope_change": "country",
+   "label": {
+    "es": "Su señor",
+    "en": "Its overlord"
+   }
+  },
+  {
+   "name": "cultural_union",
+   "role": "scope",
+   "kinds": [
+    "condition",
+    "effect"
+   ],
+   "scopes": [
+    "country"
+   ],
+   "scope_change": "country",
+   "label": {
+    "es": "Su unión cultural",
+    "en": "Its cultural union"
+   }
+  },
+  {
+   "name": "any_owned_province",
+   "role": "iterator",
+   "kinds": [
+    "condition",
+    "effect"
+   ],
+   "scopes": [
+    "country"
+   ],
+   "scope_change": "province",
+   "label": {
+    "es": "En alguna provincia propia",
+    "en": "In any owned province"
+   }
+  },
+  {
+   "name": "any_owned",
+   "role": "iterator",
+   "kinds": [
+    "condition",
+    "effect"
+   ],
+   "scopes": [
+    "country"
+   ],
+   "scope_change": "province",
+   "label": {
+    "es": "En cada provincia propia",
+    "en": "In every owned province"
+   }
+  },
+  {
+   "name": "all_core",
+   "role": "iterator",
+   "kinds": [
+    "condition",
+    "effect"
+   ],
+   "scopes": [
+    "country"
+   ],
+   "scope_change": "province",
+   "label": {
+    "es": "En todos sus núcleos",
+    "en": "In all its cores"
+   }
+  },
+  {
+   "name": "any_core",
+   "role": "iterator",
+   "kinds": [
+    "condition",
+    "effect"
+   ],
+   "scopes": [
+    "country",
+    "province"
+   ],
+   "scope_change": "province",
+   "label": {
+    "es": "En algún núcleo",
+    "en": "In any core"
+   }
+  },
+  {
+   "name": "any_state",
+   "role": "iterator",
+   "kinds": [
+    "condition",
+    "effect"
+   ],
+   "scopes": [
+    "country"
+   ],
+   "scope_change": "state",
+   "label": {
+    "es": "En algún estado propio",
+    "en": "In any owned state"
+   }
+  },
+  {
+   "name": "any_neighbor_country",
+   "role": "iterator",
+   "kinds": [
+    "condition",
+    "effect"
+   ],
+   "scopes": [
+    "country"
+   ],
+   "scope_change": "country",
+   "label": {
+    "es": "Algún país vecino",
+    "en": "Any neighbouring country"
+   }
+  },
+  {
+   "name": "any_neighbor_province",
+   "role": "iterator",
+   "kinds": [
+    "condition",
+    "effect"
+   ],
+   "scopes": [
+    "province"
+   ],
+   "scope_change": "province",
+   "label": {
+    "es": "Alguna provincia vecina",
+    "en": "Any neighbouring province"
+   }
+  },
+  {
+   "name": "any_greater_power",
+   "role": "iterator",
+   "kinds": [
+    "condition",
+    "effect"
+   ],
+   "scopes": [
+    "any"
+   ],
+   "scope_change": "country",
+   "label": {
+    "es": "Alguna gran potencia",
+    "en": "Any great power"
+   }
+  },
+  {
+   "name": "any_country",
+   "role": "iterator",
+   "kinds": [
+    "condition",
+    "effect"
+   ],
+   "scopes": [
+    "any"
+   ],
+   "scope_change": "country",
+   "label": {
+    "es": "Algún país",
+    "en": "Any country"
+   }
+  },
+  {
+   "name": "any_pop",
+   "role": "iterator",
+   "kinds": [
+    "condition",
+    "effect"
+   ],
+   "scopes": [
+    "any"
+   ],
+   "scope_change": "pop",
+   "label": {
+    "es": "Algún POP",
+    "en": "Any POP"
+   }
+  },
+  {
+   "name": "random_owned",
+   "role": "iterator",
+   "kinds": [
+    "effect"
+   ],
+   "scopes": [
+    "country"
+   ],
+   "scope_change": "province",
+   "label": {
+    "es": "Una provincia propia al azar",
+    "en": "A random owned province"
+   }
+  },
+  {
+   "name": "random_state",
+   "role": "iterator",
+   "kinds": [
+    "effect"
+   ],
+   "scopes": [
+    "country"
+   ],
+   "scope_change": "state",
+   "label": {
+    "es": "Un estado propio al azar",
+    "en": "A random owned state"
+   }
+  },
+  {
+   "name": "random_country",
+   "role": "iterator",
+   "kinds": [
+    "effect"
+   ],
+   "scopes": [
+    "any"
+   ],
+   "scope_change": "country",
+   "label": {
+    "es": "Un país al azar",
+    "en": "A random country"
+   }
+  },
+  {
+   "name": "random_province",
+   "role": "iterator",
+   "kinds": [
+    "effect"
+   ],
+   "scopes": [
+    "any"
+   ],
+   "scope_change": "province",
+   "label": {
+    "es": "Una provincia al azar",
+    "en": "A random province"
+   }
+  },
+  {
+   "name": "random_pop",
+   "role": "iterator",
+   "kinds": [
+    "effect"
+   ],
+   "scopes": [
+    "any"
+   ],
+   "scope_change": "pop",
+   "label": {
+    "es": "Un POP al azar",
+    "en": "A random POP"
+   }
+  },
+  {
+   "name": "random_neighbor_province",
+   "role": "iterator",
+   "kinds": [
+    "effect"
+   ],
+   "scopes": [
+    "province"
+   ],
+   "scope_change": "province",
+   "label": {
+    "es": "Una provincia vecina al azar",
+    "en": "A random neighbouring province"
+   }
+  },
+  {
+   "name": "poor_strata",
+   "role": "iterator",
+   "kinds": [
+    "effect"
+   ],
+   "scopes": [
+    "country",
+    "province",
+    "state"
+   ],
+   "scope_change": "pop",
+   "label": {
+    "es": "Los POP de clase baja",
+    "en": "The poor strata POPs"
+   }
+  },
+  {
+   "name": "middle_strata",
+   "role": "iterator",
+   "kinds": [
+    "effect"
+   ],
+   "scopes": [
+    "country",
+    "province",
+    "state"
+   ],
+   "scope_change": "pop",
+   "label": {
+    "es": "Los POP de clase media",
+    "en": "The middle strata POPs"
+   }
+  },
+  {
+   "name": "rich_strata",
+   "role": "iterator",
+   "kinds": [
+    "effect"
+   ],
+   "scopes": [
+    "country",
+    "province",
+    "state"
+   ],
+   "scope_change": "pop",
+   "label": {
+    "es": "Los POP de clase alta",
+    "en": "The rich strata POPs"
+   }
+  },
+  {
+   "family": "tag_scope",
+   "pattern": "[A-Z][A-Z0-9]{2}",
+   "role": "scope",
+   "kinds": [
+    "condition",
+    "effect"
+   ],
+   "scopes": [
+    "any"
+   ],
+   "scope_change": "country",
+   "label": {
+    "es": "El país {key}",
+    "en": "The country {key}"
+   }
+  },
+  {
+   "family": "province_scope",
+   "pattern": "[0-9]+",
+   "role": "scope",
+   "kinds": [
+    "condition",
+    "effect"
+   ],
+   "scopes": [
+    "any"
+   ],
+   "scope_change": "province",
+   "label": {
+    "es": "La provincia {key}",
+    "en": "Province {key}"
+   }
+  },
+  {
+   "family": "region_scope",
+   "key_kind": "region",
+   "role": "scope",
+   "kinds": [
+    "condition",
+    "effect"
+   ],
+   "scopes": [
+    "any"
+   ],
+   "scope_change": "state",
+   "label": {
+    "es": "En el estado {key}",
+    "en": "In the state {key}"
+   }
+  },
+  {
+   "family": "pop_type_scope",
+   "key_kind": "pop_type",
+   "role": "iterator",
+   "kinds": [
+    "condition",
+    "effect"
+   ],
+   "scopes": [
+    "country",
+    "province",
+    "state"
+   ],
+   "scope_change": "pop",
+   "label": {
+    "es": "Los POP de {key}",
+    "en": "The {key} POPs"
+   }
+  }
+ ]
+}

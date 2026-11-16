@@ -407,6 +407,8 @@ class Session(QObject):
         self._explaining = None             # el problema que se está explicando
         # Entidades (iteración 4): el servicio del motor de esquemas sobre el proyecto abierto
         self._entities = None
+        # Mapa (iteración 5): ``MapSession``, creada al pedirla (``map``)
+        self._map = None
 
     # --- estado ----------------------------------------------------------------------------
 
@@ -799,6 +801,19 @@ class Session(QObject):
             self._entities = Entities(project.ws, self._index, self._locsync)
         self._entities.index = self._index
         return self._entities
+
+    # --- mapa (iteración 5) -------------------------------------------------------------------------
+
+    @property
+    def map(self):
+        """``ui.session_map.MapSession`` de esta sesión: el ráster de provincias, los hechos en la fecha de
+        trabajo y las ediciones del mapa. Se crea al pedirla por primera vez y vive lo que la sesión; sin proyecto
+        existe igual, vacía (``raster`` y ``facts`` son None)."""
+        if self._map is None:
+            from .session_map import MapSession
+
+            self._map = MapSession(self)
+        return self._map
 
     # --- localización -------------------------------------------------------------------------------
 

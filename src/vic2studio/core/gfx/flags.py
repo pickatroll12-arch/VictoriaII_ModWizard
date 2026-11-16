@@ -101,3 +101,71 @@ def make_flag_set(images: Mapping[str, Image.Image], *, mode: str = "cover",
             rgba = np.asarray(fit_flag(images[suffix], mode=mode, focus=focus))
             flags[suffix] = _verified(write_tga(rgba), rgba)
     return flags
+
+
+# --- banderas procedurales (taller de mapas, iteración 9b) -------------------------------------------------
+
+FLAG_PATTERNS = ("vertical", "horizontal", "cross", "nordic", "diagonal", "canton", "border", "disc")
+# Variante por gobierno: el mismo país cambia de diseño con un matiz propio de cada ideología.
+_VARIANT_SHIFT = {"": 0, "_communist": 3, "_fascist": 5, "_monarchy": 1, "_republic": 2}
+_ACCENT = {"_communist": (190, 20, 30), "_fascist": (40, 40, 40), "_monarchy": (200, 160, 40),
+           "_republic": (30, 70, 160)}
+
+
+def _mix(color, other, t: float) -> tuple[int, int, int]:
+    return tuple(int(round(a + (b - a) * t)) for a, b in zip(color, other))
+
+
+def procedural_flag(seed: int, colors: tuple[tuple[int, int, int], ...], *, suffix: str = "") -> Image.Image:
+    """Una bandera de 93×64 dibujada con formas simples (franjas, cruces, cantón, borde o disco), estable para una
+    semilla. ``colors`` son 2 o 3 colores del país; ``suffix`` (``_communist``…) da la variante de ese gobierno:
+    el patrón se desplaza y lleva un acento de la ideología, para que las 5 banderas del país no sean iguales."""
+    import random
+
+    if suffix not in _VARIANT_SHIFT:
+        raise ValueError(f"sufijo de bandera desconocido: {suffix!r}")
+    rnd = random.Random(seed)
+    cols = [tuple(int(v) for v in c) for c in colors] or [(200, 200, 200)]
+    while len(cols) < 3:
+        cols.append(_mix(cols[-1], (255, 255, 255) if sum(cols[-1]) < 384 else (0, 0, 0), 0.6))
+    base = rnd.randrange(len(FLAG_PATTERNS))
+    pattern = FLAG_PATTERNS[(base + _VARIANT_SHIFT[suffix]) % len(FLAG_PATTERNS)]
+    if suffix in _ACCENT:
+        cols[2] = _mix(cols[2], _ACCENT[suffix], 0.75)
+    w, h = FLAG_SIZE
+    img = np.zeros((h, w, 3), np.uint8)
+    yy, xx = np.mgrid[0:h, 0:w]
+    a, b, c = (np.array(x, np.uint8) for x in cols[:3])
+    img[:] = a
+    if pattern == "vertical":
+        img[:, w // 3:2 * w // 3] = b
+        img[:, 2 * w // 3:] = c
+    elif pattern == "horizontal":
+        img[h // 3:2 * h // 3] = b
+        img[2 * h // 3:] = c
+    elif pattern == "cross":
+        img[(abs(xx - w // 2) < 6) | (abs(yy - h // 2) < 6)] = b
+        img[(abs(xx - w // 2) < 2) | (abs(yy - h // 2) < 2)] = c
+    elif pattern == "nordic":
+        img[(abs(xx - w // 3) < 7) | (abs(yy - h // 2) < 7)] = b
+        img[(abs(xx - w // 3) < 3) | (abs(yy - h // 2) < 3)] = c
+    elif pattern == "diagonal":
+        img[yy * w > xx * h] = b
+        img[abs(yy * w - xx * h) < 5 * w] = c
+    elif pattern == "canton":
+        img[h // 2:] = b
+        img[:h // 2, :w // 2] = c
+    elif pattern == "border":
+        img[(xx < 7) | (xx >= w - 7) | (yy < 7) | (yy >= h - 7)] = b
+        img[(abs(xx - w // 2) < 10) & (abs(yy - h // 2) < 10)] = c
+    else:  # disc
+        img[(xx - w // 2) ** 2 + (yy - h // 2) ** 2 < (h // 3) ** 2] = b
+        img[(xx - w // 2) ** 2 + (yy - h // 2) ** 2 < (h // 6) ** 2] = c
+    rgba = np.dstack([img, np.full((h, w), 255, np.uint8)])
+    return Image.fromarray(rgba, "RGBA")
+
+
+def procedural_flag_set(seed: int, colors: tuple[tuple[int, int, int], ...]) -> dict[str, bytes]:
+    """Las 5 banderas TGA de un país (``FLAG_SUFFIXES``), verificadas con Pillow."""
+    return make_flag_set({suffix: procedural_flag(seed, colors, suffix=suffix) for suffix in FLAG_SUFFIXES},
+                         mode="stretch")

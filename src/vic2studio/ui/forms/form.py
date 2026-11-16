@@ -49,7 +49,7 @@ from ...core.schema.fields import (
 from ...i18n import N_, tr, translator
 from ..pickers import GoodsAmountsField
 from ..widgets import ParchmentCard, mark_data
-from .editors import CodeOnlyEditor, FieldEditor, FieldState, editor_for
+from .editors import CodeOnlyEditor, FieldEditor, FieldState, ScriptFieldEditor, editor_for
 
 SIMPLE, ADVANCED = "simple", "advanced"
 UNDO_EDIT = N_("forms.undo_edit")
@@ -292,8 +292,35 @@ class EntityForm(QWidget):
         if added:
             self.cards.append(card)
             self.column.addWidget(card)
+            if self.schema.kind == "bookmark" and title_key.endswith(".section.camera"):
+                self._add_map_view_button(card)
         else:
             card.deleteLater()
+
+    def _add_map_view_button(self, card: SectionCard) -> None:
+        """«Usar la vista actual del mapa» (wizard §16.3): ``cameraX``/``cameraY`` del bookmark = el centro del
+        lienzo de la sala Mapa, en un solo paso de deshacer."""
+        self.map_view_button = QPushButton()
+        self.map_view_button.setObjectName("useMapView")
+        self.map_view_button.clicked.connect(self.use_map_view)
+        card.form.addRow(QLabel(), self.map_view_button)
+
+    def use_map_view(self) -> bool:
+        map_session = getattr(self.session, "map", None)
+        center = None if map_session is None else map_session.view_center
+        if center is None or self.ref is None:
+            self.status_requested.emit(N_("forms.map_view.none"), {})
+            return False
+        x, y = center
+
+        def apply(record) -> None:
+            record.set("cameraX", int(x))
+            record.set("cameraY", int(y))
+
+        done = self._edit("cameraX", apply)
+        if done:
+            self.status_requested.emit(N_("forms.map_view.done"), {"x": int(x), "y": int(y)})
+        return done
 
     def _build_row(self, item, card: SectionCard, variant) -> _Row | None:
         kind = self.schema.kind
@@ -304,7 +331,10 @@ class EntityForm(QWidget):
             if item.default is not MISSING:
                 editor.set_default(item.default)
             editor.value_committed.connect(lambda value, key=item.key: self._commit_field(key, value))
-        elif isinstance(item, (Script, Opaque)):
+        elif isinstance(item, Script):
+            editor = ScriptFieldEditor(item, session=self.session, kind=kind, key=item.key)
+            editor.code_requested.connect(self.code_requested)
+        elif isinstance(item, Opaque):
             editor = CodeOnlyEditor(None, session=self.session, kind=kind, key=item.key)
             editor.code_requested.connect(self.code_requested)
         elif isinstance(item, DynamicKeys):
@@ -350,6 +380,10 @@ class EntityForm(QWidget):
         self.retranslate()
 
     def retranslate(self) -> None:
+        button = getattr(self, "map_view_button", None)
+        if button is not None:
+            button.setText(tr("forms.map_view"))
+            button.setToolTip(tr("forms.map_view.tooltip"))
         for card in self.cards:
             card.retranslate()
         for row in self.rows:
@@ -383,7 +417,7 @@ class EntityForm(QWidget):
             for problem in record.issues(entities.check_context()):
                 if problem.field:
                     problems.setdefault(problem.field[0], []).append(problem)
-        ident_field = self.schema.ident.value if self.schema.ident.mode == "field" else None
+        ident_field = self.schema.id_field
         for row in self.rows:
             self._fill_row(row, record, problems)
             # El campo que da el id (``name`` de un bookmark) no se cambia aquí: sería renombrar (wizard §15).
@@ -406,6 +440,8 @@ class EntityForm(QWidget):
             row.editor.set_value(value, FieldState(origin, None, tuple(problems.get(item.key, ()))))
         elif isinstance(item, (Script, Opaque)):
             row.editor.set_value(record.node(item.key))
+            if isinstance(row.editor, ScriptFieldEditor):
+                row.editor.bind_record(record)
         elif isinstance(item, DynamicKeys):
             values = record.dynamic(item.name)
             if isinstance(row.editor, DynamicChecklist):

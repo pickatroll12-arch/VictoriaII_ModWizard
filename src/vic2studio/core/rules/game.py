@@ -43,7 +43,7 @@ DEFAULT_MAP_FILES = MappingProxyType({
 })
 # Claves de un gobierno que no son ideologías (``<ideología> = yes``, H16).
 GOVERNMENT_FIELDS = frozenset({"election", "duration", "appoint_ruling_party", "flagtype"})
-BMP_HEADER_BYTES = 26
+BMP_HEADER_BYTES = 30                               # core.map.bmp.HEADER_BYTES (sin importar numpy aquí)
 
 
 @dataclass(frozen=True)
@@ -242,9 +242,14 @@ def _governments(reader: _Reader) -> dict:
 
 
 def _bmp_size(header: bytes | None) -> tuple[int, int]:
-    """Ancho y alto de un BMP leyendo solo su cabecera (``BITMAPINFOHEADER``); (0, 0) si no es un BMP."""
-    if header is None or len(header) < BMP_HEADER_BYTES or header[:2] != b"BM":
+    """Ancho y alto de un BMP leyendo solo su cabecera; (0, 0) si no es un BMP. La cabecera la interpreta
+    ``core.map.bmp``, el único lector de BMP (contrato de la iteración 5)."""
+    if header is None:
         return (0, 0)
-    width = int.from_bytes(header[18:22], "little", signed=True)
-    height = int.from_bytes(header[22:26], "little", signed=True)
-    return (abs(width), abs(height))
+    from ..map.bmp import BmpError, bmp_size
+
+    try:
+        width, height = bmp_size(header)
+    except BmpError:
+        return (0, 0)
+    return (abs(width), height)

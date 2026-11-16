@@ -1,0 +1,14 @@
+{
+ "undo.new_sprite": "New sprite {name}",
+ "undo.import_picture": "Import picture {name} into {folder}",
+ "undo.create_sprite": "Create sprite {ident}",
+ "undo.gui_move": "Move {element}",
+ "undo.gui_resize": "Resize {element}",
+ "undo.gui_hide": "Hide {element}",
+ "undo.gui_sprite": "Change the sprite of {element}",
+ "gui.sprite_error.bad_name": "«{name}» is not a valid sprite name: use letters, digits and _, not starting with a digit.",
+ "gui.sprite_error.taken": "There is already a sprite called «{name}».",
+ "gui.sprite_error.bad_frames": "The picture is {width} pixels wide: it cannot be split into {frames} equal frames.",
+ "gui.sprite_error.bad_image": "The picture is empty.",
+ "gui.sprite_error.bad_kind": "Unknown sprite kind: {kind}."
+}

@@ -1,6 +1,6 @@
 # Casus belli (`casus_belli`)
 
-Motivos de guerra de common/cb_types.txt. Crear uno lo añade al final de peace_order; borrarlo lo quita. Los bloques de guion se editan como código hasta la iteración 7.
+Motivos de guerra de common/cb_types.txt. Crear uno lo añade al final de peace_order; borrarlo lo quita. Los bloques de guion se editan con el constructor de condiciones o de efectos.
 
 - **Archivos:** `common/cb_types.txt`
 - **Disposición:** un archivo con un bloque por registro
@@ -54,14 +54,14 @@ Motivos de guerra de common/cb_types.txt. Crear uno lo añade al final de peace_
 | `po_status_quo` | sí o no | — | no | Statu quo |
 | `po_transfer_provinces` | sí o no | — | no | Transferir provincias |
 | `po_uninstall_communist_gov_type` | sí o no | — | no | Derrocar gobierno comunista |
-| `can_use` | bloque de guion (se edita como código) | — | no | Puede usarse si |
-| `is_valid` | bloque de guion (se edita como código) | — | no | Es válido si |
-| `allowed_states` | bloque de guion (se edita como código) | — | no | Estados permitidos |
-| `allowed_states_in_crisis` | bloque de guion (se edita como código) | — | no | Estados permitidos en crisis |
-| `allowed_substate_regions` | bloque de guion (se edita como código) | — | no | Regiones de subestados permitidas |
-| `allowed_countries` | bloque de guion (se edita como código) | — | no | Países permitidos |
-| `on_add` | bloque de guion (se edita como código) | — | no | Al obtenerlo |
-| `on_po_accepted` | bloque de guion (se edita como código) | — | no | Al aceptar la paz |
+| `can_use` | bloque de guion (constructor de condiciones o de efectos) | — | no | Puede usarse si |
+| `is_valid` | bloque de guion (constructor de condiciones o de efectos) | — | no | Es válido si |
+| `allowed_states` | bloque de guion (constructor de condiciones o de efectos) | — | no | Estados permitidos |
+| `allowed_states_in_crisis` | bloque de guion (constructor de condiciones o de efectos) | — | no | Estados permitidos en crisis |
+| `allowed_substate_regions` | bloque de guion (constructor de condiciones o de efectos) | — | no | Regiones de subestados permitidas |
+| `allowed_countries` | bloque de guion (constructor de condiciones o de efectos) | — | no | Países permitidos |
+| `on_add` | bloque de guion (constructor de condiciones o de efectos) | — | no | Al obtenerlo |
+| `on_po_accepted` | bloque de guion (constructor de condiciones o de efectos) | — | no | Al aceptar la paz |
 
 ## Claves de texto
 

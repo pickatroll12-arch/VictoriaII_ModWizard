@@ -23,7 +23,8 @@ from vic2studio import APP_NAME  # noqa: E402  (solo metadatos; no importa Qt)
 
 # Los mismos patrones que [tool.setuptools.package-data] de pyproject.toml (lo comprueba tests/test_packaging.py):
 # los fragmentos i18n/<idioma>/*.json y los textos del núcleo core/**/texts/*.json también viajan.
-DATA_PATTERNS = ("i18n/*.json", "i18n/*/*.json", "core/**/texts/*.json", "ui/*.qss", "assets/**/*")
+DATA_PATTERNS = ("i18n/*.json", "i18n/*/*.json", "core/**/texts/*.json", "core/**/data/*.json", "ui/*.qss",
+                 "assets/**/*")
 
 
 def package_data(patterns):
@@ -50,7 +51,7 @@ def package_modules():
     return modules
 
 
-# El icono de Windows se generará en packaging/icons/ (planificado); sin él se usa el de PyInstaller.
+# El emblema de la ventana, dibujado por tools/render_icon.py (sin él se usa el de PyInstaller).
 ICON = ROOT / "packaging" / "icons" / "vic2studio.ico"
 
 a = Analysis(

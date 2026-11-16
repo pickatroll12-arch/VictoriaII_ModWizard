@@ -149,7 +149,9 @@ class SectionWindowTests(EntityWindowCase):
                 rail.refresh_badges()
                 self.assertEqual(rail.rail.buttons[rail.section_index(section)].badge, len(idents))
         self.assertNotIsInstance(window.page("war:cb"), PlannedSectionPage)
-        self.assertIsInstance(window.page("war:wars"), PlannedSectionPage)
+        self.assertNotIsInstance(window.page("war:wars"), PlannedSectionPage)   # iteración 6: página propia
+        self.assertNotIsInstance(window.page("interface:windows"), PlannedSectionPage)   # iteración 8: propia
+        self.assertNotIsInstance(window.page("map:forge"), PlannedSectionPage)   # iteración 9a: el taller
 
     def test_without_a_project_the_page_says_so(self):
         window = self.make_window()
@@ -166,7 +168,7 @@ class SectionWindowTests(EntityWindowCase):
         self.assertTrue(page.tabs.isVisible())
         self.assertEqual([page.tabs.tabText(i) for i in range(page.tabs.count())],
                          [tr("entity.tab.form"), tr("entity.tab.texts"), tr("entity.tab.uses"), tr("entity.tab.code"),
-                          tr("entity.tab.other")])
+                          tr("entity.tab.other"), tr("entity.tab.unit")])   # Unidad: cierre de la iteración 4
         self.assertEqual(page.origin_badge.text(), tr("entity.origin.game"))
         uses = [page.uses.item(i).text() for i in range(page.uses.count())]
         self.assertTrue(any("activate_unit" in use for use in uses), uses)

@@ -1,0 +1,22 @@
+{
+  "schema.default_map.title": "Map settings",
+  "schema.default_map.name": "Map settings",
+  "schema.default_map.doc": "map/default.map: the maximum number of provinces, the list of sea provinces (sea_starts) and the names of the map files. It is a single record.",
+  "schema.default_map.section.provinces": "Provinces",
+  "schema.default_map.section.files": "Map files",
+  "schema.default_map.field.max_provinces": "Maximum provinces",
+  "schema.default_map.field.max_provinces.help": "A province id is valid if it is greater than 0 and lower than this number.",
+  "schema.default_map.field.sea_starts": "Sea provinces",
+  "schema.default_map.field.definitions": "Province table",
+  "schema.default_map.field.provinces": "Province image",
+  "schema.default_map.field.positions": "Positions",
+  "schema.default_map.field.terrain": "Terrain image",
+  "schema.default_map.field.rivers": "River image",
+  "schema.default_map.field.terrain_definition": "Terrain definition",
+  "schema.default_map.field.tree_definition": "Tree definition",
+  "schema.default_map.field.continent": "Continent file",
+  "schema.default_map.field.adjacencies": "Straits file",
+  "schema.default_map.field.region": "Region file",
+  "schema.default_map.field.region_sea": "Sea region file",
+  "schema.default_map.field.province_flag_sprite": "Province flag sprite"
+}

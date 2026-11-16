@@ -32,12 +32,23 @@ class LocSpec:
     ``area``, el área de destino (``localisation/00_<P>_<area>.csv``, §2.7). ``shared``: la clave
     la comparten varias entidades (``NORMAL_<war_name>``, H17): no se renombra ni se borra con
     ninguna.
+
+    ``field`` (iteración 7): ruta del campo ``LocKey`` del registro que **guarda** la clave
+    (``("title",)``, ``("option", "name")``). Con ``field``, la clave efectiva es el valor de ese
+    campo, una por cada repetición del grupo, y la plantilla solo sirve al crear: se escribe en el
+    campo y se crea su fila. ``{letter}`` es A, B, C… según la posición de la repetición
+    (``EVTOPT{letter}{id}``). Un valor que no es una clave (texto en prosa, con espacios) se respeta
+    y no cuenta. En vanilla, 253 de 1 064 títulos, 272 descripciones y 352 de 1 655 nombres de opción
+    no son la plantilla con el id de su propio evento (reutilizan la clave de otro): por eso manda el
+    campo y no la plantilla, y al borrar un registro no se borra una clave que otro sigue usando
+    (``index.refs_to``).
     """
 
     template: str
     area: str
     required: bool = True
     shared: bool = False
+    field: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -151,3 +162,12 @@ class EntitySchema:
     icon: str = "file_text"
     preview: str | None = None               # "event", "decision", "unit_card", "flag"…
     editable: bool = True                    # False: solo se indexa (tecnologías, ideologías…)
+
+    @property
+    def id_field(self) -> str | None:
+        """Campo del bloque del que sale el id, si hay uno: el formulario no lo deja cambiar (sería renombrar,
+        wizard §15). ``IdSpec.FIELD`` lo dice el esquema; un layout que deriva el id de un campo (la ruta de un
+        elemento de ``.gui`` sale de su ``name``) lo declara con ``id_field``."""
+        if self.ident.mode == "field":
+            return self.ident.value
+        return getattr(self.layout, "id_field", None)

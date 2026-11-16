@@ -107,9 +107,19 @@ class VsmValidationTests(unittest.TestCase):
         by_code = Counter(p.code for p in warnings)
         self.assertEqual(set(by_code), {"ruling_party_ideology_not_allowed", "party_unknown_policy",
                                         "government_election_without_duration", "loc_copy_degraded",
-                                        "semicolon_in_quotes"}, "cualquier otro aviso hay que clasificarlo")
+                                        "semicolon_in_quotes", "ruling_party_inactive"},
+                         "cualquier otro aviso hay que clasificarlo")
+        # Iteración 6: el partido gobernante de Somalia (socialista) no está activo hasta 1848 y la partida
+        # empieza en 1836. Es un fallo real del mod: el juego lo cambia por otro partido al cargar.
+        [inactive] = [p for p in warnings if p.code == "ruling_party_inactive"]
+        self.assertEqual((inactive.args["tag"], inactive.args["party"], inactive.args["start"]),
+                         ("SOM", "SOM_socialist", "1848.1.1"))
         [ruling] = [p for p in warnings if p.code == "ruling_party_ideology_not_allowed"]
         self.assertEqual((ruling.args["party"], ruling.args["government"]), ("SOM_socialist", "absolute_monarchy"))
+        # Criterio 4 de la iteración 6: el aviso trae su arreglo, con un partido de Somalia activo y admitido.
+        self.assertEqual(ruling.fixes, ("set_ruling_party",))
+        self.assertTrue(ruling.args["suggestion"].startswith("SOM_"), ruling.args)
+        self.assertEqual(inactive.fixes, ("set_ruling_party",))
         self.assertEqual({p.args["policy"] for p in warnings if p.code == "party_unknown_policy"}, {"social_policy"})
         self.assertEqual(by_code["party_unknown_policy"], 35)
         [election] = [p for p in warnings if p.code == "government_election_without_duration"]

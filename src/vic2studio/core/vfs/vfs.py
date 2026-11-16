@@ -100,6 +100,8 @@ class VirtualFS:
         self._guard = WriteGuard(self._mod_root, extra_files=[self._descriptor] if self._descriptor else [],
                                  extra_roots=extra_roots)
         self._files: list[_LayerFiles] = [{} for _ in self._layers]
+        # Listados de ``list`` ya calculados; se vacía con cada cambio de ``_files`` (scan, descriptor, refresh).
+        self._listing: dict[tuple, tuple[FileEntry, ...]] = {}
 
     @classmethod
     def from_descriptor(cls, game_root: Path, descriptor: ModDescriptor, *,
@@ -181,6 +183,7 @@ class VirtualFS:
                 stack.sort(key=lambda e: e.rel)
             files.append(found)
         self._files = files
+        self._listing.clear()
         self._add_descriptor()
 
     def _top_entries(self, layer: Layer) -> list[os.DirEntry]:
@@ -193,6 +196,7 @@ class VirtualFS:
         return sorted((e for e in entries if e.name.lower() not in ignored), key=lambda e: e.name)
 
     def _add_descriptor(self) -> None:
+        self._listing.clear()
         mod_files = self._files[0]
         mod_files.pop(DESCRIPTOR_REL.key, None)
         if self._descriptor is None:
@@ -247,13 +251,22 @@ class VirtualFS:
         return keys
 
     def list(self, folder: str, pattern: str = "*.txt", *, recursive: bool | None = None) -> list[FileEntry]:
-        """Ganadores bajo ``folder`` ordenados por ``rel.key``; ``recursive=None`` usa la regla de carga."""
-        found = []
-        for key in matching_keys(self._keys(), folder, pattern, recursive):
-            entry = winner(self._stack(key), self._hidden(key))
-            if entry is not None:
-                found.append(entry)
-        return found
+        """Ganadores bajo ``folder`` ordenados por ``rel.key``; ``recursive=None`` usa la regla de carga.
+
+        Recorrer todas las claves cuesta unos 3 ms con vanilla (9 000 archivos), y hay quien lista en bucle (el
+        nombre de cada provincia busca los CSV de ``localisation/``): el listado se guarda hasta el siguiente
+        cambio de los archivos.
+        """
+        cache_key = (folder, pattern, recursive)
+        cached = self._listing.get(cache_key)
+        if cached is None:
+            found = []
+            for key in matching_keys(self._keys(), folder, pattern, recursive):
+                entry = winner(self._stack(key), self._hidden(key))
+                if entry is not None:
+                    found.append(entry)
+            cached = self._listing[cache_key] = tuple(found)
+        return list(cached)
 
     def hidden_by_replace_path(self, entry: FileEntry) -> bool:
         return entry.layer.kind is LayerKind.GAME and self._hidden(entry.rel.key)
@@ -331,6 +344,7 @@ class VirtualFS:
 
     def _refresh_one(self, index: int, layer: Layer, rel: VPath,
                      listings: dict[Path, list[str] | None] | None = None) -> None:
+        self._listing.clear()
         layer_files = self._files[index]
         key = rel.key
         if rel == DESCRIPTOR_REL:

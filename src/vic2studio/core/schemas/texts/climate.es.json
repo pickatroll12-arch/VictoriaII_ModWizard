@@ -1,0 +1,7 @@
+{
+  "schema.climate.title": "Climas",
+  "schema.climate.name": "Clima",
+  "schema.climate.doc": "Climas de map/climate.txt. Cada clima tiene dos entradas con el mismo nombre: una con sus efectos y otra con la lista de sus provincias.",
+  "schema.climate.section.effects": "Efectos",
+  "schema.climate.dynamic.effects": "Efectos del clima"
+}

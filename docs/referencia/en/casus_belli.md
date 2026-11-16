@@ -1,6 +1,6 @@
 # Casus belli (`casus_belli`)
 
-War justifications in common/cb_types.txt. Creating one appends it to peace_order; deleting it removes it. Script blocks are edited as code until iteration 7.
+War justifications in common/cb_types.txt. Creating one appends it to peace_order; deleting it removes it. Script blocks are edited with the condition or effect builder.
 
 - **Files:** `common/cb_types.txt`
 - **Layout:** one file with a block per record
@@ -54,14 +54,14 @@ War justifications in common/cb_types.txt. Creating one appends it to peace_orde
 | `po_status_quo` | yes or no | — | no | Status quo |
 | `po_transfer_provinces` | yes or no | — | no | Transfer provinces |
 | `po_uninstall_communist_gov_type` | yes or no | — | no | Uninstall communist government |
-| `can_use` | script block (edited as code) | — | no | Can be used if |
-| `is_valid` | script block (edited as code) | — | no | Is valid if |
-| `allowed_states` | script block (edited as code) | — | no | Allowed states |
-| `allowed_states_in_crisis` | script block (edited as code) | — | no | Allowed states in crises |
-| `allowed_substate_regions` | script block (edited as code) | — | no | Allowed substate regions |
-| `allowed_countries` | script block (edited as code) | — | no | Allowed countries |
-| `on_add` | script block (edited as code) | — | no | On acquiring |
-| `on_po_accepted` | script block (edited as code) | — | no | On peace accepted |
+| `can_use` | script block (condition or effect builder) | — | no | Can be used if |
+| `is_valid` | script block (condition or effect builder) | — | no | Is valid if |
+| `allowed_states` | script block (condition or effect builder) | — | no | Allowed states |
+| `allowed_states_in_crisis` | script block (condition or effect builder) | — | no | Allowed states in crises |
+| `allowed_substate_regions` | script block (condition or effect builder) | — | no | Allowed substate regions |
+| `allowed_countries` | script block (condition or effect builder) | — | no | Allowed countries |
+| `on_add` | script block (condition or effect builder) | — | no | On acquiring |
+| `on_po_accepted` | script block (condition or effect builder) | — | no | On peace accepted |
 
 ## Text keys
 

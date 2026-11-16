@@ -85,7 +85,88 @@ arreglarlo, deja una prueba de regresión que falle sin el arreglo y pasa la bat
   Guerra ya cabe en una línea en inglés), la hoja de ruta pasó a «iteración 5 en curso» y `doc --kind` dejó de
   empezar con una línea en blanco. El informe, con las decisiones 1–4, los criterios, los mutantes y la revisión,
   está en `docs/handoff/opencode/INFORME_IT4.md`.
-- **Lo siguiente: la iteración 5, el editor de mapa** (§5.5).
+- **Iteración 5 (editor de mapa): hecha** (16-11-2026, Claude Code en un solo hilo, entregada en local sin subir;
+  `dba14ac`). Sala Mapa con Mundo (13 modos, ficha de provincia, POPs, brocha), Regiones, Continentes y climas y
+  Estrechos; fecha de trabajo global; historia fechada por intervalos de bookmark; `ProvincePicker` y «Elegir en
+  el mapa»; 20 reglas de coherencia del mapa; `tools/bench_map.py` (ráster 1,32 s, caché 0,05 s, modo 40–45 ms).
+  Batería con corpus: 1994 pruebas, 3 umbrales de tiempo de la interfaz sensibles a la carga de la máquina.
+- **Iteración 6 (países y guerras): hecha** (16-11-2026, mismo hilo). Núcleo en `core/domain/{tags,country,nation,
+  oob,war}.py` (TAG con sugerencias, `NewCountrySpec` → plan y creación en una transacción, fachada `Countries`
+  para la ficha, OOB, guerras y diplomacia sin pérdidas); 7 esquemas nuevos con su referencia; 13 reglas nuevas
+  (`ruling_party_inactive`, `capital_not_owned`, `flag_missing`, `flag_format`, `country_colors_missing`,
+  `map_color_duplicate`, `army_location_sea`, `navy_location_inland`, `regiment_type_mismatch`,
+  `wargoal_actor_not_in_war`, `wargoal_state_required`, `war_dates_order`, `war_inactive_at_bookmarks`) calibradas
+  contra vanilla; interfaz: asistente «Nuevo país» de 8 pasos, ficha nacional de 10 pestañas (se abre con doble
+  clic en el mapa), taller de banderas, editor de OOB, Guerras de inicio con línea temporal y «Nueva guerra», y
+  Diplomacia inicial. Pruebas nuevas: `test_country_create`, `test_schema_war`, `test_ui_country_wizard`,
+  `test_ui_country_sheet` y `test_ui_wars`.
+- **Iteración 7 (Event Studio y decisiones): hecha** (16-11-2026, mismo hilo). Núcleo en `core/script/{catalog,
+  tree,scopes,phrases,mtth,idalloc,textonly}.py` con el catálogo en `core/script/data/*.json` (solo nombres, tipos
+  y frases propias) y `tools/catalog_census.py` (vanilla: 111 archivos, 0 fallos de ida y vuelta, condiciones
+  99,6 % y efectos 99,8 % reconocidos; lo demás queda como nodo crudo y se conserva); esquemas `event`,
+  `decision` y `mtth` con su referencia; reglas `core/validate/rules/{events,decisions}.py`. Interfaz en
+  `ui/script/**` (constructor AND/OR/NOT con buscador del catálogo, editor de MTTH y de pesos con tiempo
+  efectivo, tarjetas de opciones con textos ES/EN, selector e importador de imágenes TGA/DDS, vistas previas
+  procedurales de evento y de decisión) y `ui/halls/events/studio.py` (Eventos con filtro país/provincia y
+  «Nuevo» con el primer id libre del rango; Decisiones con la franja de modo texto y su arreglo «Añadir `}`»).
+  Los bloques de guion de cualquier formulario (los `can_use`, `is_valid`… de los CB) se ven como frase y se
+  editan con el constructor (`ScriptFieldEditor`). Pruebas nuevas: `test_script_core`, `test_ui_event_studio` y
+  `test_ui_decisions` (con corpus: ida y vuelta de vanilla, censo ≥ 95 %, las 2 decisiones rotas del usuario y
+  la frase de AUSFlavor 31502).
+- **Iteración 8 (suite de interfaces): hecha** (16-11-2026, mismo hilo). Núcleo en `core/gui/{guimodel,gfxdb,
+  layout,bmfont,textures,render,source,sprites,event_window}.py` y `core/gfx/images.py` (familias de imagen con su
+  tamaño, encuadre y codificación TGA/DDS); esquemas `sprite` (`core/schemas/gfx.py`) y uno por tipo de elemento de
+  `.gui` (`core/schemas/gui_elements.py`, disposición `GuiElements`: el id es la ruta `ventana/hijo`, no se crean ni
+  se renombran elementos y el formulario bloquea su `name`); reglas `core/validate/rules/interface.py`
+  (`gui_sprite_missing`, `texture_missing`, `sprite_duplicate`, `gui_orientation_unknown`,
+  `gui_named_element_removed`). Interfaz en `ui/interface/**` (lienzo con arrastre, asa, imán y resolución; árbol;
+  catálogo de sprites; importador con encuadre; gestor de imágenes y banderas) y `ui/halls/interface/**`
+  (Ventanas, Sprites, Imágenes y banderas). La vista previa de eventos usa la ventana real del `.gui` cuando hay
+  arte del juego y la procedural si no (o con `VIC2STUDIO_NO_GAME_ART=1`). Vanilla medido: 59 `.gui`, 66 `.gfx`,
+  1264 sprites, 432 texturas con la otra extensión, 26 que faltan y 13 duplicados (el diseño decía 434 y 27; las
+  pruebas usan lo medido). Pruebas nuevas: `test_gui_core`, `test_gui_corpus`, `test_gfx_dds` y
+  `test_ui_interface`.
+- **Iteración 9a (taller de mapas, «Solo mapa»): hecha** (16-11-2026, mismo hilo). Núcleo sin Qt en
+  `core/mapforge/**`: parámetros inmutables, etapa de celdas (relieve con las 14 plantillas de FMG, clima, ríos,
+  biomas, provincias, estados, continentes, climas, dueños, población, RGO y nombres) y etapa de ráster común a lo
+  generado y a lo importado (`finish_raster`: fragmentos, ids con la tierra primero, reconciliación, posiciones,
+  estrechos y texturas). Un generador por paso (`rng_for`), ediciones como datos (`EditOp`), proyecto con
+  `cells.pack` (sin `numpy.save`), trabajador `spawn` con cola y Cancelar (`VIC2STUDIO_FORGE_INLINE=1` lo ejecuta
+  en proceso), importación de bitmaps y de alturas, exportación en **una** transacción (papelera de lo que el mod
+  tenía en las carpetas reemplazadas, `replace_path`, y un archivo con solo un comentario en las carpetas
+  reemplazadas que quedarían vacías) y auditoría por expresiones regulares. Interfaz: `ui/mapforge/**` (asistente
+  de 14 pantallas, vista previa con 16 modos, revisión con problemas, auditoría y plan) y Mapa › Taller de mapas.
+  Port de Azgaar's Fantasy Map Generator (MIT) con su aviso en `THIRD_PARTY_NOTICES.md`. Banco:
+  `tools/bench_mapforge.py` (13 de 13 con vanilla; importar los 3 bitmaps, 9,5 s frente a ≤ 10 s). Pruebas nuevas:
+  `test_mapforge_core`, `test_mapforge_io`, `test_ui_mapforge` y `test_third_party_notices`. Reducciones de
+  alcance en `RESUMEN.md` e informe de la entrega (sin interfaz de bloqueo ni de pintar dueños, 2 SimpleFix de 24,
+  deshacer del taller propio, solo destino «este mod»).
+- **Iteración 9b (nivel «Mundo» e importación de FMG JSON): hecha** (16-11-2026, mismo hilo). `owners_for_world`
+  reparte toda la tierra en la etapa de celdas; `core/mapforge/nations.py` pone nombre, TAG, color, cultura, grupo
+  y bandera a cada país, cambia los TAG ocupados al exportar (`retag`) y crea los países con
+  `domain.country.build_new_country` dentro de la transacción de la exportación, con los grupos culturales al final
+  de `common/cultures.txt`. Banderas procedurales (`core/gfx/flags.procedural_flag`, 8 patrones, 5 variantes).
+  `core/mapforge/imports/fmg_json.py` lee el JSON «Full»/«PackCells», rasteriza las celdas, agrupa sin cruzar
+  provincias de FMG ni la costura, y en «Mundo» convierte sus estados en países (`build_world(adjust=…)`).
+  Arreglado `core/map/borders.border_mask` con una LUT más corta que los ids (venía de la 9a). Pruebas nuevas:
+  `test_mapforge_world`, `test_mapforge_fmg_json` y `test_map_borders`. Reducciones de alcance: sin «Sobre
+  vanilla» (el nivel sigue desactivado), sin «Quitar los TAG existentes», sin las bases de nombres de FMG, sin los
+  ríos de FMG, sin edición a mano de países ni FR/DE (detalle en el informe de la entrega).
+- **Iteración 10 (exportar, rendimiento, empaquetado y guía): hecha** (16-11-2026, mismo hilo).
+  - `core/export.py` (`plan_zip`, `check_destination`, `write_zip_export`) y `fileio.write_zip` (atómico,
+    cancelable); `ui/dialogs/export.py` (`ExportZipDialog`), con Ctrl+E y «Exportar a zip…» en Proyecto ›
+    Validación. Bloquean: cambios sin guardar, validación vieja o ausente y errores propios del mod.
+  - Rendimiento con vanilla (`tools/bench_app.py`): `VirtualFS.list` guarda sus listados (abrir un mod tardaba
+    ~15 s por los nombres de provincia), `ProvinceGroups.all_members` y los lienzos del mapa solo tienen imagen
+    mientras se ven (704 → 566 MB). Arranque con el índice en caché ~4 s frente a 3 s: falta construir las
+    secciones a demanda (la ventana tarda ~2,2 s, repartidos entre ~90 secciones).
+  - Empaquetado: `__main__.py` llama a `multiprocessing.freeze_support()` (sin él, el ejecutable congelado lanzaba
+    procesos en cascada al arrancar el trabajador del taller); la comprobación de humo hace un `ping` al
+    trabajador. Ejecutable de Linux probado con PyInstaller 6.22 (la 6.10 no sabe empaquetar numpy 2.5).
+  - `docs/usuario/`: los 5 flujos, exportar y `comprobacion_en_juego.md` (todas las reglas [verificar en juego],
+    con las 28 del taller).
+- **Lo siguiente:** las respuestas del usuario a `docs/usuario/comprobacion_en_juego.md`, que fijan los valores por
+  defecto; secciones a demanda para el arranque de 3 s; probar el ejecutable en Windows 10; «Sobre vanilla».
 - **Segunda tanda de Gemini (G4–G7): hecha por Claude.** La plataforma de Gemini se cayó y el usuario pidió
   asumirlas. Son piezas del núcleo para iteraciones futuras, en archivos nuevos:
   - G4 (`8c33ae6`): `core/tablecsv.py` y `core/map/definition.py`;

@@ -1,0 +1,14 @@
+{
+  "schema.pops.title": "Population",
+  "schema.pops.name": "Population of a province",
+  "schema.pops.doc": "Blocks in history/pops/<date>/*.txt: one per province and date, with one population group (POP) for each type, culture and religion. Its id is «<date>:<province>».",
+  "schema.pop.title": "Population groups",
+  "schema.pop.name": "Population group",
+  "schema.pop.doc": "One population group inside its province block: the key is its type.",
+  "schema.pop.section.pop": "Group",
+  "schema.pop.field.culture": "Culture",
+  "schema.pop.field.religion": "Religion",
+  "schema.pop.field.size": "People",
+  "schema.pop.field.militancy": "Militancy",
+  "schema.pop.field.rebel_type": "Rebel type"
+}

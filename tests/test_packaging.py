@@ -78,5 +78,17 @@ class PackagingDataTests(unittest.TestCase):
         self.assertEqual(smoke_problems(), [])
 
 
+class FrozenEntryTests(unittest.TestCase):
+    def test_the_entry_point_calls_freeze_support_before_loading_the_app(self):
+        """El trabajador del taller de mapas usa «spawn»: congelado, sin freeze_support abriría otra ventana."""
+        tree = ast.parse((PKG / "__main__.py").read_text(encoding="utf-8"))
+        guard = next(n for n in tree.body if isinstance(n, ast.If))
+        calls = [ast.unparse(n) for n in guard.body]
+        self.assertEqual(calls[0], "multiprocessing.freeze_support()")
+        self.assertTrue(any("vic2studio.app" in c for c in calls[1:]), calls)
+        self.assertFalse([n for n in tree.body if isinstance(n, ast.ImportFrom) and "app" in (n.module or "")],
+                         "la aplicación no se importa fuera de la guarda")
+
+
 if __name__ == "__main__":
     unittest.main()

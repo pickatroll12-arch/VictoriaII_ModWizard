@@ -25,6 +25,11 @@ SMOKE_KEYS = (
     "forms.undo_edit",                 # i18n/<idioma>/forms.json
     "entity.tab.form",                 # i18n/<idioma>/entity.json
     "pickers.goods.add",               # i18n/<idioma>/pickers.json
+    "map.hover",                       # i18n/<idioma>/map.json
+    "countries.new",                   # i18n/<idioma>/countries.json
+    "war.new.button",                  # i18n/<idioma>/war.json
+    "events.preview.empty",            # i18n/<idioma>/events.json
+    "script_ui.raw_node",              # i18n/<idioma>/script.json
     "project.save_outside_mod",        # core/project/texts
     "issue.unclosed_block",            # core/validate/texts
     "issue.definition_bad_row",        # core/map/texts
@@ -36,6 +41,33 @@ SMOKE_KEYS = (
     "schema.culture.field.color",      # core/schemas/texts/culture
     "schema.event_modifier.field.icon",      # core/schemas/texts/event_modifier
     "schema.technology.field.year",    # core/schemas/texts/readonly
+    "schema.province_history.field.owner",   # core/schemas/texts/province_history
+    "schema.pops.title",               # core/schemas/texts/pops
+    "schema.region.title",             # core/schemas/texts/region
+    "schema.region_sea.title",         # core/schemas/texts/region_sea
+    "schema.continent.field.provinces",      # core/schemas/texts/continent
+    "schema.climate.title",            # core/schemas/texts/climate
+    "schema.terrain.field.is_water",   # core/schemas/texts/terrain
+    "schema.default_map.field.sea_starts",   # core/schemas/texts/default_map
+    "schema.adjacency.field.through",  # core/schemas/texts/adjacency
+    "undo.province_set",               # core/domain/texts
+    "schema.country.title",            # core/schemas/texts/country
+    "schema.country_colors.title",     # core/schemas/texts/country_colors
+    "schema.country_history.title",    # core/schemas/texts/country_history
+    "schema.country_registry.title",   # core/schemas/texts/country_registry
+    "schema.diplomacy.title",          # core/schemas/texts/diplomacy
+    "schema.oob.title",                # core/schemas/texts/oob
+    "schema.war.title",                # core/schemas/texts/war
+    "schema.event.title",              # core/schemas/texts/event
+    "schema.decision.title",           # core/schemas/texts/decision
+    "schema.mtth.unit.months",         # core/schemas/texts/mtth
+    "script.scope.country",            # core/script/texts
+    "interface.cancel",                # i18n/<idioma>/interface.json
+    "undo.new_sprite",                 # core/gui/texts
+    "schema.sprite.title",             # core/schemas/texts/gfx
+    "schema.gui_window.title",         # core/schemas/texts/gui_elements
+    "forge.advanced",                  # i18n/<idioma>/mapforge.json
+    "issue.replace_path_mod_files_remain",   # core/mapforge/texts
 )
 
 
@@ -85,9 +117,30 @@ def smoke_problems() -> list[str]:
     return missing
 
 
+def smoke_worker(timeout: float = 60.0) -> str | None:
+    """Arranca el trabajador del taller de mapas («spawn») y le hace un ``ping``; None si contesta, o el motivo.
+
+    En el ejecutable congelado es lo que comprueba que ``freeze_support`` desvía el proceso hijo al trabajador.
+    """
+    from .core.mapforge.worker import ForgeCommand, ForgeWorker
+
+    worker = ForgeWorker()
+    try:
+        worker.submit(ForgeCommand("ping")).result(timeout=timeout)
+        return None
+    except Exception as exc:   # noqa: BLE001 — la comprobación de humo lo cuenta, no lo relanza
+        return f"{type(exc).__name__}: {exc}"
+    finally:
+        worker.close()
+
+
 def _smoke_test(app: QApplication, window) -> None:
-    """Dice por la salida estándar si la ventana se construyó con todos sus textos y cierra la aplicación."""
+    """Dice por la salida estándar si la ventana se construyó con todos sus textos y si el trabajador del taller
+    arranca, y cierra la aplicación."""
     missing = smoke_problems()
+    worker = smoke_worker()
+    if worker is not None:
+        missing.append(f"mapforge-worker ({worker})")
     print(f"{APP_NAME} {__version__}: " + ("textos completos" if not missing else "faltan " + ", ".join(missing)),
           flush=True)
     window.close()

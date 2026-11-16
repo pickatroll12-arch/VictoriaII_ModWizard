@@ -92,10 +92,12 @@ RELEASE_DELAY = 0.1
 
 # Grupos de hilos: vistas previas y editores (scripts, JSON, CSV), imágenes, validación del mod,
 # liberación de resultados grandes que ya no se usan (``release_in_background``) y el índice de símbolos
-# (construcción y reextracción incremental, wizard §7).
+# (construcción y reextracción incremental, wizard §7). ``POOL_MAP`` (iteración 5): el ráster de provincias y los
+# hechos del mapa, que tardan segundos la primera vez y no deben esperar al índice ni a la validación.
 POOL_PREVIEW, POOL_IMAGES, POOL_VALIDATION, POOL_RELEASE = "preview", "images", "validation", "release"
 POOL_INDEX = "index"
-POOL_THREADS = {POOL_PREVIEW: 2, POOL_IMAGES: 1, POOL_VALIDATION: 1, POOL_RELEASE: 1, POOL_INDEX: 1}
+POOL_MAP = "map"
+POOL_THREADS = {POOL_PREVIEW: 2, POOL_IMAGES: 1, POOL_VALIDATION: 1, POOL_RELEASE: 1, POOL_INDEX: 1, POOL_MAP: 1}
 
 _FINISHED, _FAILED, _PROGRESS = "finished", "failed", "progress"
 _STEPS_DONE = object()  # fin de los pasos de un ``dismantle`` (sus pasos dan None)

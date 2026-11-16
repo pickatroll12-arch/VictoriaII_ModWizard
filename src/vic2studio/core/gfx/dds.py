@@ -169,3 +169,53 @@ def write_dds(rgba: np.ndarray, *, mipmaps: bool = False) -> bytes:
         CAPS_MIPS if mipmaps else CAPS, 0, 0, 0, 0)
     body = [np.ascontiguousarray(level[..., [2, 1, 0, 3]]).tobytes() for level in levels]   # RGBA → BGRA
     return header + b"".join(body)
+
+
+def write_dxt3(rgb: np.ndarray) -> bytes:
+    """DXT3 sin mips (como ``colormap_no_shadow.dds`` de vanilla), con un codificador numpy propio: alfa explícito
+    0xF y color BC1 de 4 niveles con extremos = mínimo y máximo por canal de cada bloque 4×4 (wizard §18.5).
+    ``rgb`` es ``(alto, ancho, 3)`` uint8 con alto y ancho múltiplos de 4. Medido: error medio de 1,2–1,4 por canal
+    al releerlo con Pillow [p7]."""
+    rgb = np.asarray(rgb)
+    if rgb.dtype != np.uint8 or rgb.ndim != 3 or rgb.shape[2] != 3 or rgb.shape[0] % 4 or rgb.shape[1] % 4 \
+            or 0 in rgb.shape[:2]:
+        raise DdsError(DDS_SHAPE, f"se esperaba (alto, ancho, 3) uint8 múltiplo de 4, no {rgb.shape} {rgb.dtype}")
+    h, w = rgb.shape[:2]
+    b = rgb.reshape(h // 4, 4, w // 4, 4, 3).transpose(0, 2, 1, 3, 4).reshape(-1, 16, 3).astype(np.int32)
+    lo = b.min(1)
+    hi = b.max(1)
+
+    def to565(c):
+        return ((c[:, 0] >> 3) << 11) | ((c[:, 1] >> 2) << 5) | (c[:, 2] >> 3)
+
+    def from565(v):
+        r = (v >> 11) & 31
+        g = (v >> 5) & 63
+        bb = v & 31
+        return np.stack([(r << 3) | (r >> 2), (g << 2) | (g >> 4), (bb << 3) | (bb >> 2)], 1)
+
+    c0 = to565(hi)
+    c1 = to565(lo)
+    swap = c0 < c1
+    c0, c1 = np.where(swap, c1, c0), np.where(swap, c0, c1)
+    eq = c0 == c1                                   # bloque liso: c0 > c1 para el modo de 4 colores
+    c0 = np.where(eq & (c0 < 0xFFFF), c0 + 1, c0)
+    c1 = np.where(eq & (c0 == 0xFFFF) & (c1 > 0), c1 - 1, c1)
+    e0 = from565(c0)
+    e1 = from565(c1)
+    pal = np.stack([e0, e1, (2 * e0 + e1) // 3, (e0 + 2 * e1) // 3], 1)
+    d = ((b[:, :, None, :] - pal[:, None, :, :]) ** 2).sum(-1)
+    idx = d.argmin(-1).astype(np.uint32)
+    bits = (idx << (2 * np.arange(16, dtype=np.uint32))).sum(1).astype(np.uint32)
+    nb = b.shape[0]
+    out = np.zeros((nb, 16), np.uint8)
+    out[:, 0:8] = 0xFF
+    out[:, 8:10] = c0.astype("<u2").view(np.uint8).reshape(-1, 2)
+    out[:, 10:12] = c1.astype("<u2").view(np.uint8).reshape(-1, 2)
+    out[:, 12:16] = bits.astype("<u4").view(np.uint8).reshape(-1, 4)
+    header = struct.pack(
+        "<4sIIIIIII44sII4sIIIIIIIIII",
+        DDS_MAGIC, 124, FLAGS, h, w, nb * 16, 0, 0, bytes(44),
+        32, DDPF_FOURCC, b"DXT3", 0, 0, 0, 0, 0,
+        CAPS, 0, 0, 0, 0)
+    return header + out.tobytes()

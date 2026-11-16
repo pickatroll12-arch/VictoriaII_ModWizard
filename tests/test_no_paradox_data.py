@@ -39,6 +39,7 @@ VANILLA_TEXT_SUFFIXES = frozenset({
     ".txt", ".csv", ".gui", ".gfx", ".lua", ".asset", ".sfx", ".map", ".fx", ".fnt",
 })
 REPO_SCAN_FOLDERS = ("src", "tests", "docs")
+GAME_ART_SUFFIXES = frozenset({".dds", ".tga", ".fnt"})
 BINARY_SUFFIXES = frozenset({
     ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".tga", ".dds", ".ico",
     ".pyc", ".pyo", ".so", ".dll", ".exe", ".zip", ".gz",
@@ -105,6 +106,38 @@ class NoParadoxDataTests(unittest.TestCase):
             [],
             f"Faltan archivos esperados en tests/fixtures/: {', '.join(missing)}",
         )
+
+    def test_no_game_textures_or_fonts_in_the_repository(self):
+        """Iteración 8, criterio 4: la suite de interfaces lee el arte del juego en tiempo de ejecución; el
+        repositorio no trae texturas ni fuentes del juego (ni ningún archivo .dds, .tga o .fnt)."""
+        found = sorted(p.relative_to(PROJECT_ROOT).as_posix() for folder in REPO_SCAN_FOLDERS
+                       for p in (PROJECT_ROOT / folder).rglob("*")
+                       if p.is_file() and p.suffix.lower() in GAME_ART_SUFFIXES)
+        self.assertEqual(found, [])
+
+    def test_no_repository_file_is_a_copy_of_a_game_image(self):
+        vanilla = vanilla_root()
+        if vanilla is None:
+            self.skipTest("Requiere el juego base (VIC2_GAME o VIC2_CORPUS)")
+        import hashlib
+
+        def digest(path: Path) -> str:
+            return hashlib.sha1(path.read_bytes()).hexdigest()
+
+        game = {}
+        for folder in ("gfx", "interface"):
+            for path in (vanilla / folder).rglob("*"):
+                if path.is_file() and path.suffix.lower() in GAME_ART_SUFFIXES | {".png", ".bmp", ".jpg"}:
+                    game.setdefault((path.stat().st_size), []).append(path)
+        copies = []
+        for folder in REPO_SCAN_FOLDERS:
+            for path in (PROJECT_ROOT / folder).rglob("*"):
+                if not path.is_file() or path.stat().st_size not in game:
+                    continue
+                mine = digest(path)
+                copies.extend((path.relative_to(PROJECT_ROOT).as_posix(), other.name)
+                              for other in game[path.stat().st_size] if digest(other) == mine)
+        self.assertEqual(copies, [])
 
     def test_no_vanilla_lines_in_repository_text_files(self):
         vanilla = vanilla_root()

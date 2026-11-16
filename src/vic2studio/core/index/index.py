@@ -48,6 +48,7 @@ from types import MappingProxyType
 from ..vfs.model import LayerKind
 from ..vfs.paths import VPath
 from .model import (
+    ACTOR_KIND,
     KIND_BOOKMARK,
     KIND_DECISION,
     KIND_EVENT,
@@ -72,6 +73,8 @@ SEARCH_PRIORITY = ("tag", "province", "sea_province", "culture", "religion", "re
                    "culture_group", "religion_group", "sea_region", "climate", "terrain", "country_history",
                    "province_history", "sprite", "gui_window", "country_file")
 _SEARCH_LAST = ("loc_key", "image", "pop_block", "country_flag", "global_flag", "province_flag")
+# Tipos que el buscador no ofrece si no se piden con ``kinds`` (aún sin etiqueta en Ctrl+K: ``model.ACTOR_KIND``).
+NOT_SEARCHED = frozenset({ACTOR_KIND})
 # Tipos cuyo nombre para mostrar no sale de la localización.
 _NOT_LOCALISED = frozenset({"loc_key", "image", "pop_block", "country_flag", "global_flag", "province_flag",
                             "sprite", "gui_window", "country_file", "province_history", "country_history", "file"})
@@ -513,7 +516,7 @@ class SymbolIndex:
         if kinds:
             order = list(dict.fromkeys(kinds))
         else:
-            available = set(self._def_sources)
+            available = set(self._def_sources) - NOT_SEARCHED
             if KIND_PROVINCE in available:
                 available.add(KIND_SEA_PROVINCE)
             first = [k for k in SEARCH_PRIORITY if k in available]

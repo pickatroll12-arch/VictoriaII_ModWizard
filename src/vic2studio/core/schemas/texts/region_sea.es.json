@@ -1,0 +1,5 @@
+{
+  "schema.region_sea.title": "Regiones de mar",
+  "schema.region_sea.name": "Región de mar",
+  "schema.region_sea.doc": "Regiones de mar de map/region_sea.txt, con la misma forma que las de tierra. El juego no exige que una provincia de mar esté en una."
+}

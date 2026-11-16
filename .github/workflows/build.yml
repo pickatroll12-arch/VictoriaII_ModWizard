@@ -1,117 +1,214 @@
-# Ejecutables de Victoria II Mod Studio para Linux y Windows (PyInstaller, one-folder; packaging/).
+# Paquetes de Victoria II Mod Studio: instalador .exe para Windows (PyInstaller one-folder + Inno Setup) y AppImage
+# para Linux (PyInstaller one-folder + appimagetool). PyInstaller no compila en cruzado: cada sistema se construye en
+# el suyo.
 #
-# Cada empuje a la rama de trabajo los construye, prueba cada ejecutable congelado (VIC2STUDIO_SMOKE_TEST: abre la
-# ventana, comprueba sus textos en los dos idiomas y sale) y los deja como artefactos de la ejecución. Una etiqueta
-# v* (por ejemplo v0.1.0-alpha.1) además publica los dos paquetes en una versión previa de GitHub, con las notas de
-# packaging/release_notes_alpha.md. PyInstaller no compila en cruzado: cada sistema se construye en el suyo.
+# - Cada empuje a la rama de trabajo construye los dos paquetes, los prueba y los deja como artefactos.
+#   Las pruebas: el ejecutable congelado, el instalador (instalar, abrir y desinstalar) y el AppImage, cada uno con
+#   VIC2STUDIO_SMOKE_TEST (abre la ventana, comprueba sus textos y el trabajador del taller de mapas y sale con 0).
+# - Lanzado a mano (workflow_dispatch) o con una etiqueta v*, además los publica en una versión previa de GitHub con
+#   las notas de packaging/release_notes_alpha.md, y antes borra la release de la entrada «borrar» si existe.
 name: Ejecutables
 
 on:
   push:
-    branches: [claude/keen-fermi-nw8itc]
+    branches: [claude/project-thread-xjs4k1]
     tags: ["v*"]
   workflow_dispatch:
+    inputs:
+      tag:
+        description: Etiqueta de la versión que se publica
+        required: true
+        default: v0.1.0-alpha.10
+      borrar:
+        description: Release que se borra antes de publicar (vacío para no borrar ninguna)
+        required: false
+        default: ""
 
 permissions:
   contents: read
 
+env:
+  PYTHON_VERSION: "3.12"
+  PYTHONUTF8: "1"
+
 jobs:
-  build:
-    name: ${{ matrix.name }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          # Ubuntu 22.04: el ejecutable funciona con glibc 2.35 o posterior.
-          - name: Linux
-            os: ubuntu-22.04
-          - name: Windows
-            os: windows-latest
-    runs-on: ${{ matrix.os }}
+  windows:
+    name: Windows (instalador .exe)
+    runs-on: windows-latest
     timeout-minutes: 40
-    env:
-      QT_QPA_PLATFORM: offscreen
-      PYTHONUTF8: "1"
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Dependencias
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt "pyinstaller>=6.20"
+      - name: Versión
+        id: version
+        shell: bash
+        run: echo "version=$(PYTHONPATH=src python -c 'import vic2studio; print(vic2studio.__version__)')" >> "$GITHUB_OUTPUT"
+      - name: PyInstaller
+        env:
+          PYTHONPATH: src
+        run: python -m PyInstaller --noconfirm --clean --distpath dist --workpath build/pyinstaller packaging/vic2studio.spec
+      - name: Prueba de humo del ejecutable
+        shell: pwsh
+        env:
+          VIC2STUDIO_SMOKE_TEST: "1"
+          QT_QPA_PLATFORM: offscreen
+          VIC2STUDIO_SETTINGS_DIR: ${{ runner.temp }}/settings
+          VIC2STUDIO_DATA_DIR: ${{ runner.temp }}/data
+          VIC2STUDIO_CACHE_DIR: ${{ runner.temp }}/cache
+        run: |
+          function Invoke-Timed([string]$exe, [string[]]$arguments = @()) {
+            $p = if ($arguments.Count) { Start-Process -FilePath $exe -ArgumentList $arguments -PassThru } else { Start-Process -FilePath $exe -PassThru }
+            $null = $p.Handle
+            if (-not $p.WaitForExit(300000)) { $p.Kill(); Write-Host "Sin terminar en 5 min: $exe"; exit 1 }
+            return $p.ExitCode
+          }
+          $code = Invoke-Timed "dist\Victoria II Mod Studio\Victoria II Mod Studio.exe"
+          Write-Host "Código de salida: $code"
+          if ($code -ne 0) { exit 1 }
+      - name: Inno Setup
+        shell: pwsh
+        run: |
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) {
+            choco install innosetup -y --no-progress
+          }
+          & $iscc "/DAppVersion=${{ steps.version.outputs.version }}" packaging\windows\vic2studio.iss
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Prueba del instalador (instalar, abrir y desinstalar)
+        shell: pwsh
+        env:
+          VIC2STUDIO_SMOKE_TEST: "1"
+          QT_QPA_PLATFORM: offscreen
+          VIC2STUDIO_SETTINGS_DIR: ${{ runner.temp }}/settings
+          VIC2STUDIO_DATA_DIR: ${{ runner.temp }}/data
+          VIC2STUDIO_CACHE_DIR: ${{ runner.temp }}/cache
+        run: |
+          $setup = Get-ChildItem dist\VictoriaIIModStudio-*-setup.exe | Select-Object -First 1
+          $dir = Join-Path $env:RUNNER_TEMP "vic2studio-instalado"
+          function Invoke-Timed([string]$exe, [string[]]$arguments = @()) {
+            $p = if ($arguments.Count) { Start-Process -FilePath $exe -ArgumentList $arguments -PassThru } else { Start-Process -FilePath $exe -PassThru }
+            $null = $p.Handle
+            if (-not $p.WaitForExit(300000)) { $p.Kill(); Write-Host "Sin terminar en 5 min: $exe"; exit 1 }
+            return $p.ExitCode
+          }
+          $code = Invoke-Timed $setup.FullName @("/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/CURRENTUSER", "/DIR=`"$dir`"")
+          if ($code -ne 0) { Write-Host "El instalador salió con $code"; exit 1 }
+          $code = Invoke-Timed (Join-Path $dir "Victoria II Mod Studio.exe")
+          Write-Host "Código de salida del instalado: $code"
+          if ($code -ne 0) { exit 1 }
+          $code = Invoke-Timed (Join-Path $dir "unins000.exe") @("/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART")
+          Write-Host "Desinstalador: $code"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: dist/VictoriaIIModStudio-*-setup.exe
+          if-no-files-found: error
 
-      - name: Bibliotecas de Qt (Linux)
-        if: runner.os == 'Linux'
+  linux:
+    name: Linux (AppImage)
+    # 22.04: el AppImage funciona en glibc 2.35 o posterior.
+    runs-on: ubuntu-22.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Bibliotecas del sistema para Qt
         run: |
           sudo apt-get update
           sudo apt-get install -y libegl1 libgl1 libxkbcommon0 libxkbcommon-x11-0 libfontconfig1 libdbus-1-3 \
             fonts-dejavu libxcb-cursor0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-render-util0 \
             libxcb-xkb1 libxcb-shape0 libxcb-util1
-
       - name: Dependencias
-        run: python -m pip install -r requirements.txt "pyinstaller>=6.0"
-
-      - name: Construir (Linux)
-        if: runner.os == 'Linux'
-        run: packaging/build_linux.sh --system
-
-      - name: Construir (Windows)
-        if: runner.os == 'Windows'
-        shell: cmd
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt "pyinstaller>=6.20"
+      - name: Pruebas de empaquetado y textos
+        working-directory: tests
         env:
-          PYTHON: python
-        run: packaging\build_windows.bat --system
-
-      - name: Prueba de humo (Linux)
-        if: runner.os == 'Linux'
+          QT_QPA_PLATFORM: offscreen
+        run: python -m unittest test_packaging test_i18n test_arch_writes
+      - name: PyInstaller
+        env:
+          PYTHONPATH: src
+        run: python -m PyInstaller --noconfirm --clean --distpath dist --workpath build/pyinstaller packaging/vic2studio.spec
+      - name: Prueba de humo del ejecutable
         env:
           VIC2STUDIO_SMOKE_TEST: "1"
-        run: |
-          export VIC2STUDIO_SETTINGS_DIR="$RUNNER_TEMP/settings" VIC2STUDIO_DATA_DIR="$RUNNER_TEMP/data" \
-            VIC2STUDIO_CACHE_DIR="$RUNNER_TEMP/cache"
-          timeout 180 "dist/Victoria II Mod Studio/Victoria II Mod Studio"
-
-      - name: Prueba de humo (Windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          $env:VIC2STUDIO_SMOKE_TEST = "1"
-          $env:VIC2STUDIO_SETTINGS_DIR = "$env:RUNNER_TEMP\settings"
-          $env:VIC2STUDIO_DATA_DIR = "$env:RUNNER_TEMP\data"
-          $env:VIC2STUDIO_CACHE_DIR = "$env:RUNNER_TEMP\cache"
-          # Ejecutable sin consola: el resultado llega por el código de salida (0: textos completos; 3: faltan).
-          $p = Start-Process -FilePath "dist\Victoria II Mod Studio\Victoria II Mod Studio.exe" -PassThru
-          if (-not $p.WaitForExit(180000)) { $p.Kill(); throw "La prueba de humo no terminó en 3 minutos" }
-          if ($p.ExitCode -ne 0) { throw "La prueba de humo falló (código $($p.ExitCode))" }
-          "Prueba de humo: textos completos"
-
+          QT_QPA_PLATFORM: offscreen
+          VIC2STUDIO_SETTINGS_DIR: ${{ runner.temp }}/settings
+          VIC2STUDIO_DATA_DIR: ${{ runner.temp }}/data
+          VIC2STUDIO_CACHE_DIR: ${{ runner.temp }}/cache
+        run: timeout 300 "dist/Victoria II Mod Studio/Victoria II Mod Studio"
+      - name: AppImage
+        run: packaging/linux/build_appimage.sh python
+      - name: Prueba de humo del AppImage
+        env:
+          VIC2STUDIO_SMOKE_TEST: "1"
+          QT_QPA_PLATFORM: offscreen
+          VIC2STUDIO_SETTINGS_DIR: ${{ runner.temp }}/settings
+          VIC2STUDIO_DATA_DIR: ${{ runner.temp }}/data
+          VIC2STUDIO_CACHE_DIR: ${{ runner.temp }}/cache
+          APPIMAGE_EXTRACT_AND_RUN: "1"
+        run: timeout 300 dist/Victoria_II_Mod_Studio-*.AppImage
       - uses: actions/upload-artifact@v4
         with:
-          name: vic2studio-${{ runner.os }}
-          path: |
-            dist/*.tar.gz
-            dist/*.zip
+          name: linux
+          path: dist/Victoria_II_Mod_Studio-*.AppImage
           if-no-files-found: error
 
-  release:
-    name: Versión previa
-    needs: build
-    if: startsWith(github.ref, 'refs/tags/v')
+  publish:
+    name: Publicar en Releases
+    needs: [windows, linux]
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+      OLD_RELEASE: ${{ inputs.borrar }}
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/download-artifact@v4
         with:
           path: paquetes
           merge-multiple: true
-
-      - name: Publicar
-        env:
-          GH_TOKEN: ${{ github.token }}
-          TAG: ${{ github.ref_name }}
+      - name: Sumas SHA-256
+        working-directory: paquetes
         run: |
-          ls -l paquetes
-          gh release create "$TAG" paquetes/* --prerelease --verify-tag \
-            --title "Victoria II Mod Studio $TAG" --notes-file packaging/release_notes_alpha.md
+          sha256sum * > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+      - name: Borrar la release anterior
+        if: env.OLD_RELEASE != ''
+        run: |
+          if gh release view "$OLD_RELEASE" > /dev/null 2>&1; then
+            gh release delete "$OLD_RELEASE" --cleanup-tag --yes
+            echo "Borrada la release $OLD_RELEASE y su etiqueta"
+          else
+            echo "No hay ninguna release $OLD_RELEASE"
+          fi
+      - name: Publicar
+        run: |
+          VERSION="$(PYTHONPATH=src python3 -c 'import vic2studio; print(vic2studio.__version__)')"
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
+            # Publicar otra vez la misma etiqueta a mano sustituye la release y la etiqueta.
+            if gh release view "$TAG" > /dev/null 2>&1; then
+              gh release delete "$TAG" --cleanup-tag --yes
+            fi
+            TARGET=(--target "$GITHUB_SHA")
+          else
+            TARGET=(--verify-tag)
+          fi
+          gh release create "$TAG" paquetes/* "${TARGET[@]}" --prerelease \
+            --title "Victoria II Mod Studio $VERSION (alfa, $TAG)" \
+            --notes-file packaging/release_notes_alpha.md
+          gh release view "$TAG"

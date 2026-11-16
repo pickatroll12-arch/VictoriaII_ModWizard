@@ -50,12 +50,27 @@ Versión **0.1.0**, pre-alfa.
   - la referencia ES/EN de cada esquema en
     [docs/referencia/](docs/referencia/es/README.md).
 
+- **Iteraciones 5 a 10** (hechas en la rama `claude/project-thread-xjs4k1`, entregadas por partes y pendientes de
+  integrar). Llegan:
+  - **5:** el mapa del juego con sus modos, la brocha de provincias, regiones, continentes, climas y estrechos;
+  - **6:** «Nuevo país…», la ficha del país con banderas, «Nueva guerra…» y la diplomacia inicial;
+  - **7:** el Event Studio (eventos y decisiones con constructor de condiciones y efectos);
+  - **8:** la suite de interfaz (ventanas `.gui` y sprites `.gfx`);
+  - **9a y 9b:** el taller de mapas: «Solo mapa» y «Mundo» (países, culturas y banderas nuevas), generado o
+    importado de bitmaps, de un mapa de alturas o de un JSON de Azgaar's Fantasy Map Generator;
+  - **10:** «Exportar a zip» (Ctrl+E) y la [guía de usuario](docs/usuario/README.md) con la
+    [lista de comprobación en el juego](docs/usuario/comprobacion_en_juego.md).
+
 La iteración 2 pasó dos rondas de revisión adversarial: 55 hallazgos
 confirmados, todos corregidos con su prueba de regresión. La iteración 3 pasó
 la suya, por componentes, con las correcciones también probadas con
 mutaciones. La 4 lleva su propia revisión adversarial y 18 mutantes
 (`docs/handoff/opencode/INFORME_IT4.md`). El estado detallado está en el
 [documento de traspaso](CONTINUAR_EN_CLAUDE_CODE.md).
+
+**¿Primera vez?** Empieza por la [guía de usuario](docs/usuario/README.md): los cinco flujos principales (crear un
+país, repartir provincias, montar una guerra de inicio, escribir un evento y crear un mapa nuevo) y cómo exportar el
+mod a un zip.
 
 ### Qué funciona hoy
 
@@ -224,27 +239,27 @@ Las salas y el proyecto transaccional de la iteración 2 son la base de las
 iteración en que llega cada una:
 
 1. Generar el archivo `.mod` (2, hecha).
-2. Países: asistente, ficha, banderas `.tga` e historial (6).
-3. Provincias (5; las nuevas, 9).
+2. Países: asistente, ficha, banderas `.tga` e historial (6, hecha).
+3. Provincias (5, hecha; las nuevas «Sobre vanilla», pendiente).
 4. Unidades terrestres (4, hecha).
-5. Decisiones (7).
-6. Suite de modificación de interfaces `.gui`/`.gfx` (8).
-7. Eventos (7).
-8. Guerras de inicio (6).
+5. Decisiones (7, hecha).
+6. Suite de modificación de interfaces `.gui`/`.gfx` (8, hecha).
+7. Eventos (7, hecha).
+8. Guerras de inicio (6, hecha).
 9. Casus belli (4, hecha).
 10. Bookmarks o fechas de inicio (4, hecha).
 11. Gobiernos nuevos (4, hecha).
 12. Unidades navales (4, hecha).
 13. Culturas (4, hecha).
-14. Regiones, continentes y climas (5).
+14. Regiones, continentes y climas (5, hecha).
 15. Taller de mapas nuevos: generación procedural al estilo de Azgaar's
     Fantasy Map Generator o importación de bitmaps, con todos sus archivos
-    dependientes (9a y 9b).
+    dependientes (9a y 9b, hecha salvo el nivel «Sobre vanilla»).
 
 La iteración 3 (hecha) añadió el índice de símbolos, la validación con línea
 base, la localización editable sincronizada y Ctrl+K, que necesitan todas las
-capacidades. La 4 (hecha) trae el motor de esquemas y la 10, el pulido, la exportación
-a zip y el empaquetado final. Los prototipos del taller de mapas están en
+capacidades. La 4 (hecha) trae el motor de esquemas y la 10 (hecha), la exportación
+a zip, la guía de usuario y la lista de comprobación en el juego. Los prototipos del taller de mapas están en
 [docs/diseno/prototipos/mapforge/](docs/diseno/prototipos/mapforge/README.md).
 
 ## Requisitos
@@ -610,16 +625,35 @@ conexión); `--system` usa el Python actual. PyInstaller no compila en cruzado:
 cada ejecutable se genera en su sistema.
 
 Por eso los construye GitHub Actions (`.github/workflows/build.yml`), en una
-máquina Linux (Ubuntu 22.04) y otra Windows, con Python 3.12. Cada ejecutable
-congelado pasa una prueba de humo: con `VIC2STUDIO_SMOKE_TEST=1` abre la
-ventana, comprueba que tiene todos sus textos en los dos idiomas
-(`app.SMOKE_KEYS`) y sale con 0 (o con 3 si falta alguno). Un empuje a la rama
-de trabajo deja los paquetes como artefactos de la ejecución. Una etiqueta
-`v*` además los publica en una versión previa de GitHub, con las notas de
-`packaging/release_notes_alpha.md`. `tests/test_packaging.py` comprueba que el
-`.spec` copia los mismos datos que declara `pyproject.toml`.
+máquina Windows y otra Linux (Ubuntu 22.04), con Python 3.12. Salen dos
+paquetes:
 
-La primera versión alfa es la `v0.1.0-alpha.1`: lo hecho hasta la iteración 3.
+- **Windows:** el instalador `VictoriaIIModStudio-<versión>-setup.exe`, hecho
+  con Inno Setup (`packaging/windows/vic2studio.iss`). Instala para el usuario,
+  sin permisos de administrador.
+- **Linux:** el AppImage `Victoria_II_Mod_Studio-<versión>-x86_64.AppImage`,
+  hecho con `packaging/linux/build_appimage.sh` sobre la carpeta de
+  PyInstaller.
+
+El icono de los dos sale de `packaging/icons/`. Son el mismo emblema de la
+ventana, dibujado con `tools/render_icon.py`.
+
+Cada paquete pasa una prueba de humo: con `VIC2STUDIO_SMOKE_TEST=1` abre la
+ventana, comprueba que tiene todos sus textos en los dos idiomas
+(`app.SMOKE_KEYS`) y que el trabajador del taller de mapas responde, y sale con
+0 (o con 3 si falta algo). El instalador además se instala, se abre y se
+desinstala.
+
+Cuándo se ejecuta:
+
+- **Un empuje a la rama de trabajo** deja los paquetes como artefactos.
+- **Lanzado a mano** (`workflow_dispatch`, con la etiqueta y, si se quiere, una
+  release que borrar antes) o **con una etiqueta `v*`**, además los publica en
+  una versión previa de GitHub. Las notas salen de
+  `packaging/release_notes_alpha.md`.
+
+`tests/test_packaging.py` comprueba que el `.spec` copia los mismos datos que
+declara `pyproject.toml`.
 
 ## Estructura
 
@@ -664,6 +698,7 @@ tests/                 pruebas unittest, muestra del mod del usuario en fixtures
 tools/screenshot.py    capturas sin pantalla
 packaging/             PyInstaller y lanzador de Linux
 docs/
+├── usuario/           guía de usuario: los 5 flujos, exportar a zip y la comprobación en el juego
 ├── diseno/            wizard.md (iteraciones 2 a 10) y prototipos del taller de mapas
 ├── capturas/          26 capturas ES/EN de la muestra (T5 e iteraciones 2 y 3)
 ├── requisitos/        requisitos originales del usuario
@@ -692,7 +727,7 @@ El árbol detallado y la arquitectura están en [ARCHITECTURE.md](ARCHITECTURE.m
   elija.
 - **Terceros.** [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) recoge la
   licencia MIT de Azgaar's Fantasy Map Generator, cuyos algoritmos portan los
-  prototipos del taller de mapas y portará la iteración 9.
+  prototipos del taller de mapas y que porta el taller (iteraciones 9a y 9b).
 
 ---
 

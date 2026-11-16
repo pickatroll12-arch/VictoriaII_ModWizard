@@ -1,0 +1,9 @@
+{
+  "schema.country_colors.title": "Colores de uniforme",
+  "schema.country_colors.name": "Colores de uniforme",
+  "schema.country_colors.doc": "common/country_colors.txt: tres colores de uniforme por TAG. Son opcionales (en vanilla los tienen 147 de 271 países).",
+  "schema.country_colors.section.uniform": "Uniforme",
+  "schema.country_colors.field.color1": "Color 1",
+  "schema.country_colors.field.color2": "Color 2",
+  "schema.country_colors.field.color3": "Color 3"
+}

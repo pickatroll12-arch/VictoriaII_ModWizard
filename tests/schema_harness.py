@@ -181,7 +181,7 @@ class SchemaContract(unittest.TestCase):
             for script in self._all_scripts():
                 self.assertIn(field_text_key(kind, script.key), texts, f"{lang}: falta el bloque {script.key}")
             if self.schema.editable:
-                for action in ("create", "duplicate", "delete"):
+                for action in ("create", "duplicate", "delete", "rename"):
                     self.assertIn(f"undo.{action}_{kind}", texts, f"{lang}: falta la etiqueta de deshacer")
 
     def _all_scripts(self) -> list:

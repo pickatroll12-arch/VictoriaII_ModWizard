@@ -15,6 +15,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Union
 
+from ..script.scopes import Scope, ScopeByEntry, ScriptKind
 from .types import ValueType
 
 if TYPE_CHECKING:
@@ -61,17 +62,9 @@ class SetOps:
     remove: str
 
 
-class Scope:
-    """Ámbito de un bloque de guion (§10.2): ``Script.scope``."""
-
-    COUNTRY = "country"
-    PROVINCE = "province"
-    POP = "pop"
-    WAR = "war"
-
-
-# Tipo de guion: condiciones o efectos (los edita core.script, iteración 7).
-ScriptKind = str
+# ``Script.key`` de «el resto del bloque»: todo lo que no reclaman los demás campos del grupo
+# (``modifier = { factor = 2 <condiciones> }``, ``option = { name = X ai_chance = { … } <efectos> }``).
+REST = "*"
 
 
 @dataclass(frozen=True)
@@ -162,18 +155,31 @@ class Children:
 
 @dataclass(frozen=True)
 class Script:
-    """Condiciones y efectos: los edita ``core.script`` (iteración 7).
+    """Un bloque de guion (condiciones o efectos): lo edita ``core.script`` (wizard §12, iteración 7).
 
-    ``key`` da la clave del bloque; ``REST`` (una cadena) indica «el resto del bloque»
-    (``modifier = { factor = 2 <condiciones> }``). ``kind`` es ``ScriptKind``
-    (``"condition"``/``"effect"``).
+    ``key`` es la clave del bloque (``trigger``, ``effect``) o ``REST``: el resto del bloque del grupo que
+    lo declara. ``kind``: ``ScriptKind.TRIGGER`` o ``ScriptKind.EFFECT`` (se admiten sus valores,
+    ``"condition"`` y ``"effect"``). ``scope``: el ámbito inicial, un ``Scope`` fijo o un ``ScopeByEntry``
+    cuando depende de la clave de la entrada dueña de la entidad (``province_event`` → provincia).
+    ``Record.script(key)`` da su ``ScriptTree``. El formulario lo enseña como una frase legible con el
+    botón que abre el constructor (wizard §13.6); sus claves nunca son «desconocidas» (I6).
     """
 
     key: str
     kind: ScriptKind
-    scope: str = Scope.COUNTRY
+    scope: Scope | ScopeByEntry = Scope.COUNTRY
     repeat: bool = False
     required: bool = False
+
+    def __post_init__(self) -> None:
+        # Los esquemas de la iteración 4 pasan cadenas: se normalizan (ValueError si no existen).
+        object.__setattr__(self, "kind", ScriptKind(self.kind))
+        if not isinstance(self.scope, ScopeByEntry):
+            object.__setattr__(self, "scope", Scope(self.scope))
+
+    def scope_for(self, entry_key: str | None) -> Scope:
+        """El ámbito inicial para una entidad cuya entrada dueña tiene la clave ``entry_key``."""
+        return self.scope.resolve(entry_key) if isinstance(self.scope, ScopeByEntry) else self.scope
 
 
 @dataclass(frozen=True)

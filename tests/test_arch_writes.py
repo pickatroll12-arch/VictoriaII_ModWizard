@@ -55,7 +55,7 @@ OPEN_FUNCTIONS = {("builtins", "open"), ("io", "open"), ("codecs", "open"), ("gz
                   ("lzma", "open"), ("tarfile", "open"), ("zipfile", "ZipFile")}
 # API de escritura de fileio (fsync_dir no modifica nada) y sus envoltorios.
 FILEIO_WRITERS = {"atomic_write_bytes", "write_text", "stage_bytes", "commit_staged", "discard_staged", "copy_file",
-                  "move_file", "remove_file", "make_dirs", "remove_empty_dirs", "create_exclusive"}
+                  "move_file", "remove_file", "make_dirs", "remove_empty_dirs", "create_exclusive", "write_zip"}
 WRAPPERS = {
     "vic2studio.core.clausewitz.serializer": {"write_file"},
     "vic2studio.core.clausewitz": {"write_file"},
@@ -71,6 +71,10 @@ WRITERS_ALLOWED = {
                            "si esa carpeta cae dentro de la capa",
     "core/validate/baseline.py": "la caché de la línea base, fuera del mod (core.appdirs.cache_dir()/baseline); no "
                                  "escribe si cae dentro del juego o del mod",
+    "core/map/cache.py": "la caché del ráster de provincias, fuera del mod (core.appdirs.cache_dir()/raster); no "
+                         "escribe si esa carpeta cae dentro del juego o del mod",
+    "core/export.py": "el zip de la exportación, donde indica el usuario y nunca dentro del mod ni del juego "
+                      "(check_destination)",
     "core/clausewitz/serializer.py": "es el envoltorio write_file",
     "core/csvloc/serialization.py": "es el envoltorio write_csv_file",
 }
@@ -203,7 +207,9 @@ class _Finder(ast.NodeVisitor):
         if self._qualified(func) == ("os", "open") and self._write_flags(node):
             self.raw.append((node.lineno, "os.open(..., escritura)"))
         if isinstance(func, ast.Attribute) and target is None:
-            if func.attr in PATH_WRITERS:
+            if func.attr == "rename" and (len(node.args) != 1 or node.keywords):
+                pass        # Path.rename(destino) lleva un argumento; loc.rename(old, new) es otra API
+            elif func.attr in PATH_WRITERS:
                 self.raw.append((node.lineno, f".{func.attr}()"))
             elif func.attr == "replace" and len(node.args) == 1 and not node.keywords:
                 self.raw.append((node.lineno, ".replace(destino)"))   # Path.replace (str.replace lleva 2)
@@ -278,11 +284,14 @@ class DetectorTests(unittest.TestCase):
         self.assertEqual(self.raw("import os\nos.open(p, os.O_WRONLY | os.O_CREAT)"), ["os.open(..., escritura)"])
         self.assertEqual(self.raw("p.replace(q)"), [".replace(destino)"])
         self.assertEqual(self.raw("p.unlink()"), [".unlink()"])
+        self.assertEqual(self.raw("p.rename(q)"), [".rename()"])
+        self.assertEqual(self.raw("path.with_suffix('.bak').rename(target)"), [".rename()"])
         self.assertEqual(self.raw("p.touch()"), [".touch()"])
 
     def test_reads_are_not_writes(self):
         for code in ("open(p)", "open(p, 'rb')", "open(p, encoding='utf-8')", "p.open('rb')", "p.read_bytes()",
-                     "'a'.replace('a', 'b')", "ws.touch(handle)", "import os\nos.open(p, os.O_RDONLY)",
+                     "'a'.replace('a', 'b')", "ws.touch(handle)", "loc.rename(old, new)",
+                     "entities.rename(ref, 'new_id')", "import os\nos.open(p, os.O_RDONLY)",
                      "import os\nos.scandir(p)", "import shutil\nshutil.disk_usage(p)", "ws.open(rel, create=True)",
                      "Image.open(handle)"):
             with self.subTest(code=code):

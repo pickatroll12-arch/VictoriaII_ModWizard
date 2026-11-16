@@ -154,6 +154,7 @@ class MainWindow(QMainWindow):
             hall.status_requested.connect(self.show_status)
             hall.navigate_requested.connect(self.navigate)
             hall.save_requested.connect(self.save_project)
+            hall.entity_requested.connect(self._on_entity_requested)
             hall.sectionChanged.connect(lambda section, h=index: self._on_section_changed(h, section))
             action = QAction(self)
             action.setObjectName(f"goto_{spec.key}")
@@ -334,6 +335,7 @@ class MainWindow(QMainWindow):
         self.redo_action = action("redoAction", ["Ctrl+Y", "Ctrl+Shift+Z"], self.redo)
         self.validate_action = action("validateAction", ["F7"], self.validate_mod)
         self.palette_action = action("paletteAction", ["Ctrl+K"], self.open_palette)
+        self.export_action = action("exportAction", ["Ctrl+E"], self.export_zip)
 
     def _wire_sections(self) -> None:
         project, localisation, home = self.page("project"), self.page("localisation"), self.page("home")
@@ -354,6 +356,7 @@ class MainWindow(QMainWindow):
         project.validate_button.clicked.connect(self.validate_mod)
         self.validation_page = self.page("project:validation")
         self.validation_page.open_requested.connect(self.open_problem)
+        self.validation_page.export_requested.connect(self.export_zip)
         self.problems_dock.open_requested.connect(self.open_problem)
         self.problems_dock.explain_requested.connect(self.explain_problem)
         self.problems_dock.validate_requested.connect(self.validate_mod)
@@ -643,6 +646,16 @@ class MainWindow(QMainWindow):
         page = self.show_page("project:validation")
         return page.validate()
 
+    def export_zip(self) -> int:
+        """Ctrl+E y «Exportar a zip…» de Proyecto › Validación: el mod guardado en un zip limpio."""
+        from .dialogs.export import ExportZipDialog
+
+        self.commit_edits()
+        if self.session.project is None:
+            self.show_status("status.no_project")
+            return QDialog.DialogCode.Rejected
+        return self.exec_dialog(ExportZipDialog(self.session, self))
+
     # --- buscador, problemas y navegación a un archivo ------------------------------------------
 
     def _palette_sections(self) -> list[tuple[str, str]]:
@@ -751,6 +764,9 @@ class MainWindow(QMainWindow):
                 return f"{host.hall}:{view.section}", ref
             return f"{host.hall}:{host.section}", ref
         return None
+
+    def _on_entity_requested(self, kind: str, ident: str) -> None:
+        self.open_entity(kind, ident)
 
     def open_entity(self, kind: str, ident: str, field=(), rel=None) -> bool:
         """El editor de la entidad ``kind:ident`` en su sección y, con ``field``, en ese campo. False si no hay

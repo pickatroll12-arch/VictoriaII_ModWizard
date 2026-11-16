@@ -149,8 +149,10 @@ class CatalogFragmentTests(unittest.TestCase):
         for code in ("es", "en"):
             paths = i18n.fragment_paths(code)
             self.assertEqual([p.name for p in paths],
-                             ["entity.json", "forms.json", "localisation.json", "palette.json", "pickers.json",
-                              "project.json", "shell.json", "validation.json"],   # +3 de la iteración 4
+                             ["countries.json", "entity.json", "events.json", "forms.json", "interface.json",
+                              "localisation.json", "map.json", "mapforge.json", "palette.json", "pickers.json",
+                              "project.json", "script.json", "shell.json", "validation.json", "war.json"],
+                             # +3 de la it. 4, +2 de la 6, +2 de la 7, +1 de la 8 y +1 de la 9a
                              code)
             for path in paths:
                 raw = path.read_bytes()

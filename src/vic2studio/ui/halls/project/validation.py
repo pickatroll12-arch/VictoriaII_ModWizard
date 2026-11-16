@@ -420,6 +420,7 @@ class ValidationPage(BasePage):
     icon_name = "validate"
 
     open_requested = Signal(object)
+    export_requested = Signal()
 
     def __init__(self, session, parent: QWidget | None = None):
         self.session = session
@@ -446,6 +447,11 @@ class ValidationPage(BasePage):
         self.validate_button.setProperty("accent", True)
         self.validate_button.setIcon(make_icon("validate", "gold_pale"))
         self.validate_button.clicked.connect(self.validate)
+        self.export_button = QPushButton()
+        self.export_button.setObjectName("checksExport")
+        self.export_button.setIcon(make_icon("save", "gold_pale"))
+        self.export_button.clicked.connect(self.export_requested)
+        self.header.trailing.addWidget(self.export_button, 0, Qt.AlignmentFlag.AlignVCenter)
         self.header.trailing.addWidget(self.validate_button, 0, Qt.AlignmentFlag.AlignVCenter)
 
         self.stack = QStackedWidget()
@@ -744,6 +750,7 @@ class ValidationPage(BasePage):
         state = session.validation_state()
         has_project = session.project is not None
         self.validate_button.setEnabled(has_project and not session.is_validating())
+        self.export_button.setEnabled(has_project)
         self.empty_validate.setEnabled(has_project and not session.is_validating())
         self.empty_validate.setVisible(has_project)
         # Los textos del estado vacío se ponen siempre, se vea o no: oculto también cambia de idioma.
@@ -815,6 +822,8 @@ class ValidationPage(BasePage):
             return
         self.validate_button.setText(tr("checks.validate"))
         self.validate_button.setToolTip(tr("checks.validate_tooltip"))
+        self.export_button.setText(tr("checks.export"))
+        self.export_button.setToolTip(tr("checks.export_tooltip"))
         self.empty_validate.setText(tr("checks.validate"))
         self.empty_validate.setToolTip(tr("checks.validate_tooltip"))
         self.cancel_button.setText(tr("checks.cancel"))

@@ -1,0 +1,5 @@
+{
+  "schema.country_registry.title": "Registro de países",
+  "schema.country_registry.name": "TAG",
+  "schema.country_registry.doc": "common/countries.txt: una línea TAG = \"countries/<Archivo>.txt\" por país. Los TAG nuevos van antes de dynamic_tags (y de los comentarios que lo preceden); detrás, el juego los toma por dominios dinámicos."
+}

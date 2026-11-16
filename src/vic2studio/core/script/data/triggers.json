@@ -1,0 +1,3015 @@
+{
+ "format": 1,
+ "entries": [
+  {
+   "name": "tag",
+   "role": "condition",
+   "scopes": [
+    "country"
+   ],
+   "category": "country",
+   "label": {
+    "es": "Es el país",
+    "en": "Is the country"
+   },
+   "value": {
+    "type": "ref",
+    "kind": "tag"
+   },
+   "phrase": {
+    "es": "el país es {value}",
+    "en": "the country is {value}"
+   },
+   "negated": {
+    "es": "el país no es {value}",
+    "en": "the country is not {value}"
+   }
+  },
+  {
+   "name": "exists",
+   "role": "condition",
+   "scopes": [
+    "any"
+   ],
+   "category": "country",
+   "label": {
+    "es": "Existe",
+    "en": "Exists"
+   },
+   "value": {
+    "type": "word"
+   },
+   "phrase": {
+    "es": "existe ({value})",
+    "en": "exists ({value})"
+   },
+   "negated": {
+    "es": "no existe ({value})",
+    "en": "does not exist ({value})"
+   },
+   "help": {
+    "es": "Con un TAG, si ese país existe; con yes, si existe el país del ámbito.",
+    "en": "With a TAG, whether that country exists; with yes, whether the scoped country exists."
+   }
+  },
+  {
+   "name": "prestige",
+   "role": "condition",
+   "scopes": [
+    "country"
+   ],
+   "category": "country",
+   "label": {
+    "es": "Prestigio mínimo",
+    "en": "Prestige at least"
+   },
+   "value": {
+    "type": "float"
+   },
+   "phrase": {
+    "es": "tiene {value} de prestigio o más",
+    "en": "it has {value} prestige or more"
+   },
+   "negated": {
+    "es": "tiene menos de {value} de prestigio",
+    "en": "it has less than {value} prestige"
+   }
+  },
+  {
+   "name": "is_greater_power",
+   "role": "condition",
+   "scopes": [
+    "country"
+   ],
+   "category": "diplomacy",
+   "label": {
+    "es": "Es gran potencia",
+    "en": "Is a great power"
+   },
+   "value": {
+    "type": "bool"
+   },
+   "phrase": {
+    "es": "es una gran potencia",
+    "en": "it is a great power"
+   },
+   "negated": {
+    "es": "no es una gran potencia",
+    "en": "it is not a great power"
+   }
+  },
+  {
+   "name": "is_secondary_power",
+   "role": "condition",
+   "scopes": [
+    "country"
+   ],
+   "category": "diplomacy",
+   "label": {
+    "es": "Es potencia secundaria",
+    "en": "Is a secondary power"
+   },
+   "value": {
+    "type": "bool"
+   },
+   "phrase": {
+    "es": "es una potencia secundaria",
+    "en": "it is a secondary power"
+   },
+   "negated": {
+    "es": "no es una potencia secundaria",
+    "en": "it is not a secondary power"
+   }
+  },
+  {
+   "name": "civilized",
+   "role": "condition",
+   "scopes": [
+    "country"
+   ],
+   "category": "country",
+   "label": {
+    "es": "Civilizado",
+    "en": "Civilized"
+   },
+   "value": {
+    "type": "bool"
+   },
+   "phrase": {
+    "es": "está civilizado",
+    "en": "it is civilized"
+   },
+   "negated": {
+    "es": "no está civilizado",
+    "en": "it is not civilized"
+   }
+  },
+  {
+   "name": "government",
+   "role": "condition",
+   "scopes": [
+    "country"
+   ],
+   "category": "politics",
+   "label": {
+    "es": "Forma de gobierno",
+    "en": "Government type"
+   },
+   "value": {
+    "type": "ref",
+    "kind": "government"
+   },
+   "phrase": {
+    "es": "su gobierno es {value}",
+    "en": "its government is {value}"
+   },
+   "negated": {
+    "es": "su gobierno no es {value}",
+    "en": "its government is not {value}"
+   }
+  },
+  {
+   "name": "has_country_flag",
+   "role": "condition",
+   "scopes": [
+    "country"
+   ],
+   "category": "flags",
+   "label": {
+    "es": "Tiene la marca de país",
+    "en": "Has country flag"
+   },
+   "value": {
+    "type": "word"
+   },
+   "phrase": {
+    "es": "tiene la marca «{value}»",
+    "en": "it has the flag «{value}»"
+   },
+   "negated": {
+    "es": "no tiene la marca «{value}»",
+    "en": "it does not have the flag «{value}»"
+   }
+  },
+  {
+   "name": "has_global_flag",
+   "role": "condition",
+   "scopes": [
+    "any"
+   ],
+   "category": "flags",
+   "label": {
+    "es": "Existe la marca global",
+    "en": "Global flag is set"
+   },
+   "value": {
+    "type": "word"
+   },
+   "phrase": {
+    "es": "está puesta la marca global «{value}»",
+    "en": "the global flag «{value}» is set"
+   },
+   "negated": {
+    "es": "no está puesta la marca global «{value}»",
+    "en": "the global flag «{value}» is not set"
+   }
+  },
+  {
+   "name": "has_province_flag",
+   "role": "condition",
+   "scopes": [
+    "province"
+   ],
+   "category": "flags",
+   "label": {
+    "es": "Tiene la marca de provincia",
+    "en": "Has province flag"
+   },
+   "value": {
+    "type": "word"
+   },
+   "phrase": {
+    "es": "la provincia tiene la marca «{value}»",
+    "en": "the province has the flag «{value}»"
+   },
+   "negated": {
+    "es": "la provincia no tiene la marca «{value}»",
+    "en": "the province does not have the flag «{value}»"
+   }
+  },
+  {
+   "name": "average_consciousness",
+   "role": "condition",
+   "scopes": [
+    "any"
+   ],
+   "category": "population",
+   "label": {
+    "es": "Conciencia media",
+    "en": "Average consciousness"
+   },
+   "value": {
+    "type": "float"
+   },
+   "phrase": {
+    "es": "la conciencia media es {value} o más",
+    "en": "average consciousness is {value} or more"
+   },
+   "negated": {
+    "es": "la conciencia media es menor que {value}",
+    "en": "average consciousness is below {value}"
+   }
+  },
+  {
+   "name": "average_militancy",
+   "role": "condition",
+   "scopes": [
+    "any"
+   ],
+   "category": "population",
+   "label": {
+    "es": "Militancia media",
+    "en": "Average militancy"
+   },
+   "value": {
+    "type": "float"
+   },
+   "phrase": {
+    "es": "la militancia media es {value} o más",
+    "en": "average militancy is {value} or more"
+   },
+   "negated": {
+    "es": "la militancia media es menor que {value}",
+    "en": "average militancy is below {value}"
+   }
+  },
+  {
+   "name": "num_of_cities",
+   "role": "condition",
+   "scopes": [
+    "country"
+   ],
+   "category": "country",
+   "label": {
+    "es": "Número de provincias",
+    "en": "Number of provinces"
+   },
+   "value": {
+    "type": "int"
+   },
+   "phrase": {
+    "es": "tiene {value} provincias o más",
+    "en": "it has {value} provinces or more"
+   },
+   "negated": {
+    "es": "tiene menos de {value} provincias",
+    "en": "it has fewer than {value} provinces"
+   }
+  },
+  {
+   "name": "owns",
+   "role": "condition",
+   "scopes": [
+    "country"
+   ],
+   "category": "province",
+   "label": {
+    "es": "Posee la provincia",
+    "en": "Owns the province"
+   },
+   "value": {
+    "type": "ref",
+    "kind": "province"
+   },
+   "phrase": {
+    "es": "posee {value}",
+    "en": "it owns {value}"
+   },
+   "negated": {
+    "es": "no posee {value}",
+    "en": "it does not own {value}"
+   }
+  },
+  {
+   "name": "controls",
+   "role": "condition",
+   "scopes": [
+    "country"
+   ],
+   "category": "province",
+   "label": {
+    "es": "Controla la provincia",
+    "en": "Controls the province"
+   },
+   "value": {
+    "type": "ref",
+    "kind": "province"
+   },
+   "phrase": {
+    "es": "controla {value}",
+    "en": "it controls {value}"
+   },
+   "negated": {
+    "es": "no controla {value}",
+    "en": "it does not control {value}"
+   }
+  },
+  {
+   "name": "invention",
+   "role": "condition",
+   "scopes": [
+    "country"
+   ],
+   "category": "technology",
+   "label": {
+    "es": "Ha descubierto el invento",
+    "en": "Has the invention"
+   },
+   "value": {
+    "type": "ref",
+    "kind": "invention"
+   },
+   "phrase": {
+    "es": "ha descubierto {value}",
+    "en": "it has discovered {value}"
+   },
+   "negated": {
+    "es": "no ha descubierto {value}",
+    "en": "it has not discovered {value}"
+   }
+  },
+  {
+   "name": "war",
+   "role": "condition",
+   "scopes": [
+    "country"
+   ],
+   "category": "military",
+   "label": {
+    "es": "En guerra",
+    "en": "At war"
+   },
+   "value": {
+    "type": "bool"
+   },
+   "phrase": {
+    "es": "está en guerra",
+    "en": "it is at war"
+   },
+   "negated": {
+    "es": "no está en guerra",
+    "en": "it is not at war"
+   }
+  },
+  {
+   "name": "war_with",
+   "role": "condition",
+   "scopes": [
+    "country"
+   ],
+   "category": "military",
+   "label": {
+    "es": "En guerra con",
+    "en": "At war with"
+   },
+   "value": {
+    "type": "ref",
+    "kind": "tag"
+   },
+   "phrase": {
+    "es": "está en guerra con {value}",
+    "en": "it is at war with {value}"
+   },
+   "negated": {
+    "es": "no está en guerra con {value}",
+    "en": "it is not at war with {value}"
+   }
+  },
+  {
+   "name": "war_exhaustion",
+   "role": "condition",
+   "scopes": [
+    "country"
+   ],
+   "category": "military",
+   "label": {
+    "es": "Cansancio de guerra",
+    "en": "War exhaustion"
+   },
+   "value": {
+    "type": "float"
+   },
+   "phrase": {
+    "es": "su cansancio de guerra es {value} o más",
+    "en": "its war exhaustion is {value} or more"
+   },
+   "negated": {
+    "es": "su cansancio de guerra es menor que {value}",
+    "en": "its war exhaustion is below {value}"
+   }
+  },
+  {
+   "name": "has_country_modifier",
+   "role": "condition",
+   "scopes": [
+    "country"
+   ],
+   "category": "country",
+   "label": {
+    "es": "Tiene el modificador de país",
+    "en": "Has country modifier"
+   },
+   "value": {
+    "type": "ref",
+    "kind": "modifier"
+   },
+   "phrase": {
+    "es": "tiene el modificador {value}",
+    "en": "it has the modifier {value}"
+   },
+   "negated": {
+    "es": "no tiene el modificador {value}",
+    "en": "it does not have the modifier {value}"
+   }
+  },
+  {
+   "name": "has_province_modifier",
+   "role": "condition",
+   "scopes": [
+    "province"
+   ],
+   "category": "province",
+   "label": {
+    "es": "Tiene el modificador de provincia",
+    "en": "Has province modifier"
+   },
+   "value": {
+    "type": "ref",
+    "kind": "modifier"
+   },
+   "phrase": {
+    "es": "la provincia tiene el modificador {value}",
+    "en": "the province has the modifier {value}"
+   },
+   "negated": {
+    "es": "la provincia no tiene el modificador {value}",
+    "en": "the province does not have the modifier {value}"
+   }
+  },
+  {
+   "name": "is_primary_culture",
+   "role": "condition",
+   "scopes": [
+    "country",
+    "pop",
+    "province",
+    "state"
+   ],
+   "category": "population",
+   "label": {
+    "es": "Es la cultura principal",
+    "en": "Is the primary culture"
+   },
+   "value": {
+    "type": "word"
+   },
+   "phrase": {
+    "es": "{value} es la cultura principal",
+    "en": "{value} is the primary culture"
+   },
+   "negated": {
+    "es": "{value} no es la cultura principal",
+    "en": "{value} is not the primary culture"
+   }
+  },
+  {
+   "name": "is_accepted_culture",
+   "role": "condition",
+   "scopes": [
+    "country",
+    "pop",
+    "province",
+    "state"
+   ],
+   "category": "population",
+   "label": {
+    "es": "Es una cultura aceptada",
+    "en": "Is an accepted culture"
+   },
+   "value": {
+    "type": "word"
+   },
+   "phrase": {
+    "es": "{value} es una cultura aceptada",
+    "en": "{value} is an accepted culture"
+   },
+   "negated": {
+    "es": "{value} no es una cultura aceptada",
+    "en": "{value} is not an accepted culture"
+   }
+  },
+  {
+   "name": "primary_culture",
+   "role": "condition",
+   "scopes": [
+    "country"
+   ],
+   "category": "population",
+   "label": {
+    "es": "Cultura principal",
+    "en": "Primary culture"
+   },
+   "value": {
+    "type": "ref",
+    "kind": "culture"
+   },
+   "phrase": {
+    "es": "su cultura principal es {value}",
+    "en": "its primary culture is {value}"
+   },
+   "negated": {
+    "es": "su cultura principal no es {value}",
+    "en": "its primary culture is not {value}"
+   }
+  },
+  {
+   "name": "is_culture_group",
+   "role": "condition",
+   "scopes": [
+    "any"
+   ],
+   "category": "population",
+   "label": {
+    "es": "Grupo cultural",
+    "en": "Culture group"
+   },
+   "value": {
+    "type": "ref",
+    "kind": "culture_group"
+   },
+   "phrase": {
+    "es": "su grupo cultural es {value}",
+    "en": "its culture group is {value}"
+   },
+   "negated": {
+    "es": "su grupo cultural no es {value}",
+    "en": "its culture group is not {value}"
+   }
+  },
+  {
+   "name": "culture",
+   "role": "condition",
+   "scopes": [
+    "any"
+   ],
+   "category": "population",
+   "label": {
+    "es": "Cultura",
+    "en": "Culture"
+   },
+   "value": {
+    "type": "ref",
+    "kind": "culture"
+   },
+   "phrase": {
+    "es": "su cultura es {value}",
+    "en": "its culture is {value}"
+   },
+   "negated": {
+    "es": "su cultura no es {value}",
+    "en": "its culture is not {value}"
+   }
+  },
+  {
+   "name": "religion",
+   "role": "condition",
+   "scopes": [
+    "any"
+   ],
+   "category": "population",
+   "label": {
+    "es": "Religión",
+    "en": "Religion"
+   },
+   "value": {
+    "type": "ref",
+    "kind": "religion"
+   },
+   "phrase": {
+    "es": "su religión es {value}",
+    "en": "its religion is {value}"
+   },
+   "negated": {
+    "es": "su religión no es {value}",
+    "en": "its religion is not {value}"
+   }
+  },
+  {
+   "name": "pop_majority_culture",
+   "role": "condition",
+   "scopes": [
+    "country",
+    "province",
+    "state"
+   ],
+   "category": "population",
+   "label": {
+    "es": "Cultura mayoritaria",
+    "en": "Majority culture"
+   },
+   "value": {
+    "type": "ref",
+    "kind": "culture"
+   },
+   "phrase": {
+    "es": "la cultura mayoritaria es {value}",
+    "en": "the majority culture is {value}"
+   },
+   "negated": {
+    "es": "la cultura mayoritaria no es {value}",
+    "en": "the majority culture is not {value}"
+   }
+  },
+  {
+   "name": "has_pop_culture",
+   "role": "condition",
+   "scopes": [
+    "any"
+   ],
+   "category": "population",
+   "label": {
+    "es": "Tiene POP de cultura",
+    "en": "Has POPs of culture"
+   },
+   "value": {
+    "type": "ref",
+    "kind": "culture"
+   },
+   "phrase": {
+    "es": "tiene POP de cultura {value}",
+    "en": "it has POPs of culture {value}"
+   },
+   "negated": {
+    "es": "no tiene POP de cultura {value}",
+    "en": "it has no POPs of culture {value}"
+   }
+  },
+  {
+   "name": "has_pop_religion",
+   "role": "condition",
+   "scopes": [
+    "any"
+   ],
+   "category": "population",
+   "label": {
+    "es": "Tiene POP de religión",
+    "en": "Has POPs of religion"
+   },
+   "value": {
+    "type": "ref",
+    "kind": "religion"
+   },
+   "phrase": {
+    "es": "tiene POP de religión {value}",
+    "en": "it has POPs of religion {value}"
+   },
+   "negated": {
+    "es": "no tiene POP de religión {value}",
+    "en": "it has no POPs of religion {value}"
+   }
+  },
+  {
+   "name": "has_pop_type",
+   "role": "condition",
+   "scopes": [
+    "any"
+   ],
+   "category": "population",
+   "label": {
+    "es": "Tiene POP del tipo",
+    "en": "Has POPs of type"
+   },
+   "value": {
+    "type": "ref",
+    "kind": "pop_type"
+   },
+   "phrase": {
+    "es": "tiene POP del tipo {value}",
+    "en": "it has POPs of type {value}"
+   },
+   "negated": {
+    "es": "no tiene POP del tipo {value}",
+    "en": "it has no POPs of type {value}"
+   }
+  },
+  {
+   "name": "political_reform_want",
+   "role": "condition",
+   "scopes": [
+    "any"
+   ],
+   "category": "politics",
+   "label": {
+    "es": "Deseo de reforma política",
+    "en": "Political reform desire"
+   },
+   "value": {
+    "type": "float"
+   },
+   "phrase": {
+    "es": "el deseo de reforma política es {value} o más",
+    "en": "political reform desire is {value} or more"
+   },
+   "negated": {
+    "es": "el deseo de reforma política es menor que {value}",
+    "en": "political reform desire is below {value}"
+   }
+  },
+  {
+   "name": "social_reform_want",
+   "role": "condition",
+   "scopes": [
+    "any"
+   ],
+   "category": "politics",
+   "label": {
+    "es": "Deseo de reforma social",
+    "en": "Social reform desire"
+   },
+   "value": {
+    "type": "float"
+   },
+   "phrase": {
+    "es": "el deseo de reforma social es {value} o más",
+    "en": "social reform desire is {value} or more"
+   },
+   "negated": {
+    "es": "el deseo de reforma social es menor que {value}",
+    "en": "social reform desire is below {value}"
+   }
+  },
+  {
+   "name": "ruling_party_ideology",
+   "role": "condition",
+   "scopes": [
+    "country"
+   ],
+   "category": "politics",
+   "label": {
+    "es": "Ideología del gobierno",
+    "en": "Ruling party ideology"
+   },
+   "value": {
+    "type": "ref",
+    "kind": "ideology"
+   },
+   "phrase": {
+    "es": "gobierna un partido {value}",
+    "en": "a {value} party rules"
+   },
+   "negated": {
+    "es": "no gobierna un partido {value}",
+    "en": "no {value} party rules"
+   }
+  },
+  {
+   "name": "is_ideology_enabled",
+   "role": "condition",
+   "scopes": [
+    "any"
+   ],
+   "category": "politics",
+   "label": {
+    "es": "Ideología activa",
+    "en": "Ideology enabled"
+   },
+   "value": {
+    "type": "ref",
+    "kind": "ideology"
+   },
+   "phrase": {
+    "es": "la ideología {value} ya existe",
+    "en": "the {value} ideology is enabled"
+   },
+   "negated": {
+    "es": "la ideología {value} aún no existe",
+    "en": "the {value} ideology is not enabled yet"
+   }
+  },
+  {
+   "name": "nationalvalue",
+   "role": "condition",
+   "scopes": [
+    "country"
+   ],
+   "category": "country",
+   "label": {
+    "es": "Valor nacional",
+    "en": "National value"
+   },
+   "value": {
+    "type": "ref",
+    "kind": "national_value"
+   },
+   "phrase": {
+    "es": "su valor nacional es {value}",
+    "en": "its national value is {value}"
+   },
+   "negated": {
+    "es": "su valor nacional no es {value}",
+    "en": "its national value is not {value}"
+   }
+  },
+  {
+   "name": "plurality",
+   "role": "condition",
+   "scopes": [
+    "country"
+   ],
+   "category": "politics",
+   "label": {
+    "es": "Pluralidad",
+    "en": "Plurality"
+   },
+   "value": {
+    "type": "float"
+   },
+   "phrase": {
+    "es": "la pluralidad es {value} o más",
+    "en": "plurality is {value} or more"
+   },
+   "negated": {
+    "es": "la pluralidad es menor que {value}",
+    "en": "plurality is below {value}"
+   }
+  },
+  {
+   "name": "upper_house",
+   "role": "condition",
+   "scopes": [
+    "country"
+   ],
+   "category": "politics",
+   "label": {
+    "es": "Peso en la cámara alta",
+    "en": "Upper house share"
+   },
+   "block": {
+    "ideology": {
+     "type": "ref",
+     "kind": "ideology"
+    },
+    "value": {
+     "type": "float"
+    }
+   },
+   "phrase": {
+    "es": "{ideology} tiene al menos {value} de la cámara alta",
+    "en": "{ideology} holds at least {value} of the upper house"
+   },
+   "negated": {
+    "es": "{ideology} tiene menos de {value} de la cámara alta",
+    "en": "{ideology} holds less than {value} of the upper house"
+   }
+  },
+  {
+   "name": "literacy",
+   "role": "condition",
+   "scopes": [
+    "any"
+   ],
+   "category": "population",
+   "label": {
+    "es": "Alfabetización",
+    "en": "Literacy"
+   },
+   "value": {
+    "type": "float"
+   },
+   "phrase": {
+    "es": "la alfabetización es {value} o más",
+    "en": "literacy is {value} or more"
+   },
+   "negated": {
+    "es": "la alfabetización es menor que {value}",
+    "en": "literacy is below {value}"
+   }
+  },
+  {
+   "name": "unemployment",
+   "role": "condition",
+   "scopes": [
+    "any"
+   ],
+   "category": "economy",
+   "label": {
+    "es": "Desempleo",
+    "en": "Unemployment"
+   },
+   "value": {
+    "type": "float"
+   },
+   "phrase": {
+    "es": "el desempleo es {value} o más",
+    "en": "unemployment is {value} or more"
+   },
+   "negated": {
+    "es": "el desempleo es menor que {value}",
+    "en": "unemployment is below {value}"
+   }
+  },
+  {
+   "name": "social_alienation",
+   "role": "condition",
+   "scopes": [
+    "any"
+   ],
+   "category": "population",
+   "label": {
+    "es": "Alienación social",
+    "en": "Social alienation"
+   },
+   "value": {
+    "type": "float"
+   },
+   "phrase": {
+    "es": "la alienación social es {value} o más",
+    "en": "social alienation is {value} or more"
+   },
+   "negated": {
+    "es": "la alienación social es menor que {value}",
+    "en": "social alienation is below {value}"
+   }
+  },
+  {
+   "name": "political_alienation",
+   "role": "condition",
+   "scopes": [
+    "any"
+   ],
+   "category": "population",
+   "label": {
+    "es": "Alienación política",
+    "en": "Political alienation"
+   },
+   "value": {
+    "type": "float"
+   },
+   "phrase": {
+    "es": "la alienación política es {value} o más",
+    "en": "political alienation is {value} or more"
+   },
+   "negated": {
+    "es": "la alienación política es menor que {value}",
+    "en": "political alienation is below {value}"
+   }
+  },
+  {
+   "name": "consciousness",
+   "role": "condition",
+   "scopes": [
+    "pop"
+   ],
+   "category": "population",
+   "label": {
+    "es": "Conciencia",
+    "en": "Consciousness"
+   },
+   "value": {
+    "type": "float"
+   },
+   "phrase": {
+    "es": "su conciencia es {value} o más",
+    "en": "its consciousness is {value} or more"
+   },
+   "negated": {
+    "es": "su conciencia es menor que {value}",
+    "en": "its consciousness is below {value}"
+   }
+  },
+  {
+   "name": "militancy",
+   "role": "condition",
+   "scopes": [
+    "pop"
+   ],
+   "category": "population",
+   "label": {
+    "es": "Militancia",
+    "en": "Militancy"
+   },
+   "value": {
+    "type": "float"
+   },
+   "phrase": {
+    "es": "su militancia es {value} o más",
+    "en": "its militancy is {value} or more"
+   },
+   "negated": {
+    "es": "su militancia es menor que {value}",
+    "en": "its militancy is below {value}"
+   }
+  },
+  {
+   "name": "type",
+   "role": "condition",
+   "scopes": [
+    "pop"
+   ],
+   "category": "population",
+   "label": {
+    "es": "Tipo de POP",
+    "en": "POP type"
+   },
+   "value": {
+    "type": "ref",
+    "kind": "pop_type"
+   },
+   "phrase": {
+    "es": "es un POP de {value}",
+    "en": "it is a {value} POP"
+   },
+   "negated": {
+    "es": "no es un POP de {value}",
+    "en": "it is not a {value} POP"
+   }
+  },
+  {
+   "name": "is_state_religion",
+   "role": "condition",
+   "scopes": [
+    "pop"
+   ],
+   "category": "population",
+   "label": {
+    "es": "Religión del estado",
+    "en": "State religion"
+   },
+   "value": {
+    "type": "bool"
+   },
+   "phrase": {
+    "es": "profesa la religión del estado",
+    "en": "it follows the state religion"
+   },
+   "negated": {
+    "es": "no profesa la religión del estado",
+    "en": "it does not follow the state religion"
+   }
+  },
+  {
+   "name": "is_slave",
+   "role": "condition",
+   "scopes": [
+    "any"
+   ],
+   "category": "population",
+   "label": {
+    "es": "Esclavo",
+    "en": "Slave"
+   },
+   "value": {
+    "type": "bool"
+   },
+   "phrase": {
+    "es": "es esclavo",
+    "en": "it is enslaved"
+   },
+   "negated": {
+    "es": "no es esclavo",
+    "en": "it is not enslaved"
+   }
+  },
+  {
+   "name": "poor_strata_life_needs",
+   "role": "condition",
+   "scopes": [
+    "country"
+   ],
+   "category": "economy",
+   "label": {
+    "es": "Necesidades vitales de la clase baja",
+    "en": "poor strata life needs"
+   },
+   "value": {
+    "type": "float"
+   },
+   "phrase": {
+    "es": "la clase baja cubre {value} o más de sus necesidades vitales",
+    "en": "the poor strata meet {value} or more of their life needs"
+   },
+   "negated": {
+    "es": "la clase baja cubre menos de {value} de sus necesidades vitales",
+    "en": "the poor strata meet less than {value} of their life needs"
+   }
+  },
+  {
+   "name": "poor_strata_everyday_needs",
+   "role": "condition",
+   "scopes": [
+    "country"
+   ],
+   "category": "economy",
+   "label": {
+    "es": "Necesidades cotidianas de la clase baja",
+    "en": "poor strata everyday needs"
+   },
+   "value": {
+    "type": "float"
+   },
+   "phrase": {
+    "es": "la clase baja cubre {value} o más de sus necesidades cotidianas",
+    "en": "the poor strata meet {value} or more of their everyday needs"
+   },
+   "negated": {
+    "es": "la clase baja cubre menos de {value} de sus necesidades cotidianas",
+    "en": "the poor strata meet less than {value} of their everyday needs"
+   }
+  },
+  {
+   "name": "poor_strata_luxury_needs",
+   "role": "condition",
+   "scopes": [
+    "country"
+   ],
+   "category": "economy",
+   "label": {
+    "es": "Necesidades de lujo de la clase baja",
+    "en": "poor strata luxury needs"
+   },
+   "value": {
+    "type": "float"
+   },
+   "phrase": {
+    "es": "la clase baja cubre {value} o más de sus necesidades de lujo",
+    "en": "the poor strata meet {value} or more of their luxury needs"
+   },
+   "negated": {
+    "es": "la clase baja cubre menos de {value} de sus necesidades de lujo",
+    "en": "the poor strata meet less than {value} of their luxury needs"
+   }
+  },
+  {
+   "name": "middle_strata_life_needs",
+   "role": "condition",
+   "scopes": [
+    "country"
+   ],
+   "category": "economy",
+   "label": {
+    "es": "Necesidades vitales de la clase media",
+    "en": "middle strata life needs"
+   },
+   "value": {
+    "type": "float"
+   },
+   "phrase": {
+    "es": "la clase media cubre {value} o más de sus necesidades vitales",
+    "en": "the middle strata meet {value} or more of their life needs"
+   },
+   "negated": {
+    "es": "la clase media cubre menos de {value} de sus necesidades vitales",
+    "en": "the middle strata meet less than {value} of their life needs"
+   }
+  },
+  {
+   "name": "middle_strata_everyday_needs",
+   "role": "condition",
+   "scopes": [
+    "country"
+   ],
+   "category": "economy",
+   "label": {
+    "es": "Necesidades cotidianas de la clase media",
+    "en": "middle strata everyday needs"
+   },
+   "value": {
+    "type": "float"
+   },
+   "phrase": {
+    "es": "la clase media cubre {value} o más de sus necesidades cotidianas",
+    "en": "the middle strata meet {value} or more of their everyday needs"
+   },
+   "negated": {
+    "es": "la clase media cubre menos de {value} de sus necesidades cotidianas",
+    "en": "the middle strata meet less than {value} of their everyday needs"
+   }
+  },
+  {
+   "name": "middle_strata_luxury_needs",
+   "role": "condition",
+   "scopes": [
+    "country"
+   ],
+   "category": "economy",
+   "label": {
+    "es": "Necesidades de lujo de la clase media",
+    "en": "middle strata luxury needs"
+   },
+   "value": {
+    "type": "float"
+   },
+   "phrase": {
+    "es": "la clase media cubre {value} o más de sus necesidades de lujo",
+    "en": "the middle strata meet {value} or more of their luxury needs"
+   },
+   "negated": {
+    "es": "la clase media cubre menos de {value} de sus necesidades de lujo",
+    "en": "the middle strata meet less than {value} of their luxury needs"
+   }
+  },
+  {
+   "name": "rich_strata_life_needs",
+   "role": "condition",
+   "scopes": [
+    "country"
+   ],
+   "category": "economy",
+   "label": {
+    "es": "Necesidades vitales de la clase alta",
+    "en": "rich strata life needs"
+   },
+   "value": {
+    "type": "float"
+   },
+   "phrase": {
+    "es": "la clase alta cubre {value} o más de sus necesidades vitales",
+    "en": "the rich strata meet {value} or more of their life needs"
+   },
+   "negated": {
+    "es": "la clase alta cubre menos de {value} de sus necesidades vitales",
+    "en": "the rich strata meet less than {value} of their life needs"
+   }
+  },
+  {
+   "name": "rich_strata_everyday_needs",
+   "role": "condition",
+   "scopes": [
+    "country"
+   ],
+   "category": "economy",
+   "label": {
+    "es": "Necesidades cotidianas de la clase alta",
+    "en": "rich strata everyday needs"
+   },
+   "value": {
+    "type": "float"
+   },
+   "phrase": {
+    "es": "la clase alta cubre {value} o más de sus necesidades cotidianas",
+    "en": "the rich strata meet {value} or more of their everyday needs"
+   },
+   "negated": {
+    "es": "la clase alta cubre menos de {value} de sus necesidades cotidianas",
+    "en": "the rich strata meet less than {value} of their everyday needs"
+   }
+  },
+  {
+   "name": "rich_strata_luxury_needs",
+   "role": "condition",
+   "scopes": [
+    "country"
+   ],
+   "category": "economy",
+   "label": {
+    "es": "Necesidades de lujo de la clase alta",
+    "en": "rich strata luxury needs"
+   },
+   "value": {
+    "type": "float"
+   },
+   "phrase": {
+    "es": "la clase alta cubre {value} o más de sus necesidades de lujo",
+    "en": "the rich strata meet {value} or more of their luxury needs"
+   },
+   "negated": {
+    "es": "la clase alta cubre menos de {value} de sus necesidades de lujo",
+    "en": "the rich strata meet less than {value} of their luxury needs"
+   }
+  },
+  {
+   "name": "poor_strata_militancy",
+   "role": "condition",
+   "scopes": [
+    "country"
+   ],
+   "category": "population",
+   "label": {
+    "es": "Militancia de la clase baja",
+    "en": "poor strata militancy"
+   },
+   "value": {
+    "type": "float"
+   },
+   "phrase": {
+    "es": "la militancia de la clase baja es {value} o más",
+    "en": "poor strata militancy is {value} or more"
+   },
+   "negated": {
+    "es": "la militancia de la clase baja es menor que {value}",
+    "en": "poor strata militancy is below {value}"
+   }
+  },
+  {
+   "name": "middle_strata_militancy",
+   "role": "condition",
+   "scopes": [
+    "country"
+   ],
+   "category": "population",
+   "label": {
+    "es": "Militancia de la clase media",
+    "en": "middle strata militancy"
+   },
+   "value": {
+    "type": "float"
+   },
+   "phrase": {
+    "es": "la militancia de la clase media es {value} o más",
+    "en": "middle strata militancy is {value} or more"
+   },
+   "negated": {
+    "es": "la militancia de la clase media es menor que {value}",
+    "en": "middle strata militancy is below {value}"
+   }
+  },
+  {
+   "name": "rich_strata_militancy",
+   "role": "condition",
+   "scopes": [
+    "country"
+   ],
+   "category": "population",
+   "label": {
+    "es": "Militancia de la clase alta",
+    "en": "rich strata militancy"
+   },
+   "value": {
+    "type": "float"
+   },
+   "phrase": {
+    "es": "la militancia de la clase alta es {value} o más",
+    "en": "rich strata militancy is {value} or more"
+   },
+   "negated": {
+    "es": "la militancia de la clase alta es menor que {value}",
+    "en": "rich strata militancy is below {value}"
+   }
+  },
+  {
+   "name": "part_of_sphere",
+   "role": "condition",
+   "scopes": [
+    "country"
+   ],
+   "category": "diplomacy",
+   "label": {
+    "es": "En una esfera",
+    "en": "In a sphere"
+   },
+   "value": {
+    "type": "bool"
+   },
+   "phrase": {
+    "es": "está en la esfera de alguien",
+    "en": "it is in someone's sphere"
+   },
+   "negated": {
+    "es": "no está en ninguna esfera",
+    "en": "it is in no sphere"
+   }
+  },
+  {
+   "name": "in_sphere",
+   "role": "condition",
+   "scopes": [
+    "country"
+   ],
+   "category": "diplomacy",
+   "label": {
+    "es": "En la esfera de",
+    "en": "In the sphere of"
+   },
+   "value": {
+    "type": "ref",
+    "kind": "tag"
+   },
+   "phrase": {
+    "es": "está en la esfera de {value}",
+    "en": "it is in the sphere of {value}"
+   },
+   "negated": {
+    "es": "no está en la esfera de {value}",
+    "en": "it is not in the sphere of {value}"
+   }
+  },
+  {
+   "name": "is_sphere_leader_of",
+   "role": "condition",
+   "scopes": [
+    "country"
+   ],
+   "category": "diplomacy",
+   "label": {
+    "es": "Lidera la esfera de",
+    "en": "Sphere leader of"
+   },
+   "value": {
+    "type": "ref",
+    "kind": "tag"
+   },
+   "phrase": {
+    "es": "tiene en su esfera a {value}",
+    "en": "it has {value} in its sphere"
+   },
+   "negated": {
+    "es": "no tiene en su esfera a {value}",
+    "en": "it does not have {value} in its sphere"
+   }
+  },
+  {
+   "name": "alliance_with",
+   "role": "condition",
+   "scopes": [
+    "country"
+   ],
+   "category": "diplomacy",
+   "label": {
+    "es": "Aliado de",
+    "en": "Allied with"
+   },
+   "value": {
+    "type": "ref",
+    "kind": "tag"
+   },
+   "phrase": {
+    "es": "es aliado de {value}",
+    "en": "it is allied with {value}"
+   },
+   "negated": {
+    "es": "no es aliado de {value}",
+    "en": "it is not allied with {value}"
+   }
+  },
+  {
+   "name": "vassal_of",
+   "role": "condition",
+   "scopes": [
+    "country"
+   ],
+   "category": "diplomacy",
+   "label": {
+    "es": "Vasallo de",
+    "en": "Vassal of"
+   },
+   "value": {
+    "type": "ref",
+    "kind": "tag"
+   },
+   "phrase": {
+    "es": "es vasallo de {value}",
+    "en": "it is a vassal of {value}"
+   },
+   "negated": {
+    "es": "no es vasallo de {value}",
+    "en": "it is not a vassal of {value}"
+   }
+  },
+  {
+   "name": "substate_of",
+   "role": "condition",
+   "scopes": [
+    "country"
+   ],
+   "category": "diplomacy",
+   "label": {
+    "es": "Subestado de",
+    "en": "Substate of"
+   },
+   "value": {
+    "type": "ref",
+    "kind": "tag"
+   },
+   "phrase": {
+    "es": "es subestado de {value}",
+    "en": "it is a substate of {value}"
+   },
+   "negated": {
+    "es": "no es subestado de {value}",
+    "en": "it is not a substate of {value}"
+   }
+  },
+  {
+   "name": "truce_with",
+   "role": "condition",
+   "scopes": [
+    "country"
+   ],
+   "category": "diplomacy",
+   "label": {
+    "es": "En tregua con",
+    "en": "Truce with"
+   },
+   "value": {
+    "type": "ref",
+    "kind": "tag"
+   },
+   "phrase": {
+    "es": "tiene una tregua con {value}",
+    "en": "it has a truce with {value}"
+   },
+   "negated": {
+    "es": "no tiene tregua con {value}",
+    "en": "it has no truce with {value}"
+   }
+  },
+  {
+   "name": "neighbour",
+   "role": "condition",
+   "scopes": [
+    "country"
+   ],
+   "category": "diplomacy",
+   "label": {
+    "es": "Vecino de",
+    "en": "Neighbour of"
+   },
+   "value": {
+    "type": "ref",
+    "kind": "tag"
+   },
+   "phrase": {
+    "es": "es vecino de {value}",
+    "en": "it borders {value}"
+   },
+   "negated": {
+    "es": "no es vecino de {value}",
+    "en": "it does not border {value}"
+   }
+  },
+  {
+   "name": "is_vassal",
+   "role": "condition",
+   "scopes": [
+    "country"
+   ],
+   "category": "diplomacy",
+   "label": {
+    "es": "Es vasallo",
+    "en": "Is a vassal"
+   },
+   "value": {
+    "type": "bool"
+   },
+   "phrase": {
+    "es": "es vasallo de alguien",
+    "en": "it is a vassal"
+   },
+   "negated": {
+    "es": "no es vasallo de nadie",
+    "en": "it is not a vassal"
+   }
+  },
+  {
+   "name": "is_independant",
+   "role": "condition",
+   "scopes": [
+    "country"
+   ],
+   "category": "diplomacy",
+   "label": {
+    "es": "Independiente",
+    "en": "Independent"
+   },
+   "value": {
+    "type": "bool"
+   },
+   "phrase": {
+    "es": "es independiente",
+    "en": "it is independent"
+   },
+   "negated": {
+    "es": "no es independiente",
+    "en": "it is not independent"
+   }
+  },
+  {
+   "name": "relation",
+   "role": "condition",
+   "scopes": [
+    "country"
+   ],
+   "category": "diplomacy",
+   "label": {
+    "es": "Relaciones con",
+    "en": "Relations with"
+   },
+   "block": {
+    "who": {
+     "type": "ref",
+     "kind": "tag"
+    },
+    "value": {
+     "type": "int"
+    }
+   },
+   "phrase": {
+    "es": "sus relaciones con {who} son {value} o más",
+    "en": "its relations with {who} are {value} or more"
+   },
+   "negated": {
+    "es": "sus relaciones con {who} son menores que {value}",
+    "en": "its relations with {who} are below {value}"
+   }
+  },
+  {
+   "name": "diplomatic_influence",
+   "role": "condition",
+   "scopes": [
+    "country"
+   ],
+   "category": "diplomacy",
+   "label": {
+    "es": "Influencia diplomática en",
+    "en": "Diplomatic influence in"
+   },
+   "block": {
+    "who": {
+     "type": "ref",
+     "kind": "tag"
+    },
+    "value": {
+     "type": "int"
+    }
+   },
+   "phrase": {
+    "es": "tiene {value} de influencia o más en {who}",
+    "en": "it has {value} or more influence in {who}"
+   },
+   "negated": {
+    "es": "tiene menos de {value} de influencia en {who}",
+    "en": "it has less than {value} influence in {who}"
+   }
+  },
+  {
+   "name": "badboy",
+   "role": "condition",
+   "scopes": [
+    "country"
+   ],
+   "category": "diplomacy",
+   "label": {
+    "es": "Infamia",
+    "en": "Infamy"
+   },
+   "value": {
+    "type": "float"
+   },
+   "phrase": {
+    "es": "su infamia es {value} o más",
+    "en": "its infamy is {value} or more"
+   },
+   "negated": {
+    "es": "su infamia es menor que {value}",
+    "en": "its infamy is below {value}"
+   }
+  },
+  {
+   "name": "rank",
+   "role": "condition",
+   "scopes": [
+    "country"
+   ],
+   "category": "country",
+   "label": {
+    "es": "Puesto en el ranking",
+    "en": "Rank"
+   },
+   "value": {
+    "type": "int"
+   },
+   "phrase": {
+    "es": "está entre los {value} primeros",
+    "en": "it is among the top {value}"
+   },
+   "negated": {
+    "es": "no está entre los {value} primeros",
+    "en": "it is not among the top {value}"
+   }
+  },
+  {
+   "name": "industrial_score",
+   "role": "condition",
+   "scopes": [
+    "country"
+   ],
+   "category": "economy",
+   "label": {
+    "es": "Puntuación industrial",
+    "en": "Industrial score"
+   },
+   "value": {
+    "type": "word"
+   },
+   "phrase": {
+    "es": "su puntuación industrial es al menos {value}",
+    "en": "its industrial score is at least {value}"
+   },
+   "negated": {
+    "es": "su puntuación industrial es menor que {value}",
+    "en": "its industrial score is below {value}"
+   }
+  },
+  {
+   "name": "military_score",
+   "role": "condition",
+   "scopes": [
+    "country"
+   ],
+   "category": "military",
+   "label": {
+    "es": "Puntuación militar",
+    "en": "Military score"
+   },
+   "value": {
+    "type": "word"
+   },
+   "phrase": {
+    "es": "su puntuación militar es al menos {value}",
+    "en": "its military score is at least {value}"
+   },
+   "negated": {
+    "es": "su puntuación militar es menor que {value}",
+    "en": "its military score is below {value}"
+   }
+  },
+  {
+   "name": "colonial_nation",
+   "role": "condition",
+   "scopes": [
+    "country"
+   ],
+   "category": "country",
+   "label": {
+    "es": "Potencia colonial",
+    "en": "Colonial nation"
+   },
+   "value": {
+    "type": "bool"
+   },
+   "phrase": {
+    "es": "tiene colonias",
+    "en": "it has colonies"
+   },
+   "negated": {
+    "es": "no tiene colonias",
+    "en": "it has no colonies"
+   }
+  },
+  {
+   "name": "ai",
+   "role": "condition",
+   "scopes": [
+    "country"
+   ],
+   "category": "country",
+   "label": {
+    "es": "Controlado por la IA",
+    "en": "AI controlled"
+   },
+   "value": {
+    "type": "bool"
+   },
+   "phrase": {
+    "es": "lo juega la IA",
+    "en": "it is AI controlled"
+   },
+   "negated": {
+    "es": "lo juega una persona",
+    "en": "it is played by a human"
+   }
+  },
+  {
+   "name": "constructing_cb_type",
+   "role": "condition",
+   "scopes": [
+    "country"
+   ],
+   "category": "military",
+   "label": {
+    "es": "Fabricando un CB",
+    "en": "Fabricating a CB"
+   },
+   "value": {
+    "type": "ref",
+    "kind": "cb"
+   },
+   "phrase": {
+    "es": "está fabricando un CB {value}",
+    "en": "it is fabricating a {value} CB"
+   },
+   "negated": {
+    "es": "no está fabricando un CB {value}",
+    "en": "it is not fabricating a {value} CB"
+   }
+  },
+  {
+   "name": "constructing_cb_progress",
+   "role": "condition",
+   "scopes": [
+    "country"
+   ],
+   "category": "military",
+   "label": {
+    "es": "Progreso del CB",
+    "en": "CB progress"
+   },
+   "value": {
+    "type": "float"
+   },
+   "phrase": {
+    "es": "el CB lleva {value} o más de progreso",
+    "en": "the CB is {value} or more along"
+   },
+   "negated": {
+    "es": "el CB lleva menos de {value} de progreso",
+    "en": "the CB is less than {value} along"
+   }
+  },
+  {
+   "name": "num_of_ports",
+   "role": "condition",
+   "scopes": [
+    "country"
+   ],
+   "category": "military",
+   "label": {
+    "es": "Número de puertos",
+    "en": "Number of ports"
+   },
+   "value": {
+    "type": "int"
+   },
+   "phrase": {
+    "es": "tiene {value} puertos o más",
+    "en": "it has {value} ports or more"
+   },
+   "negated": {
+    "es": "tiene menos de {value} puertos",
+    "en": "it has fewer than {value} ports"
+   }
+  },
+  {
+   "name": "total_num_of_ports",
+   "role": "condition",
+   "scopes": [
+    "country"
+   ],
+   "category": "military",
+   "label": {
+    "es": "Puertos en total",
+    "en": "Total ports"
+   },
+   "value": {
+    "type": "int"
+   },
+   "phrase": {
+    "es": "tiene {value} puertos o más en total",
+    "en": "it has {value} ports or more in total"
+   },
+   "negated": {
+    "es": "tiene menos de {value} puertos en total",
+    "en": "it has fewer than {value} ports in total"
+   }
+  },
+  {
+   "name": "num_of_revolts",
+   "role": "condition",
+   "scopes": [
+    "country"
+   ],
+   "category": "military",
+   "label": {
+    "es": "Revueltas activas",
+    "en": "Active revolts"
+   },
+   "value": {
+    "type": "int"
+   },
+   "phrase": {
+    "es": "tiene {value} revueltas o más",
+    "en": "it has {value} revolts or more"
+   },
+   "negated": {
+    "es": "tiene menos de {value} revueltas",
+    "en": "it has fewer than {value} revolts"
+   }
+  },
+  {
+   "name": "capital",
+   "role": "condition",
+   "scopes": [
+    "country"
+   ],
+   "category": "country",
+   "label": {
+    "es": "Capital",
+    "en": "Capital"
+   },
+   "value": {
+    "type": "ref",
+    "kind": "province"
+   },
+   "phrase": {
+    "es": "su capital es {value}",
+    "en": "its capital is {value}"
+   },
+   "negated": {
+    "es": "su capital no es {value}",
+    "en": "its capital is not {value}"
+   }
+  },
+  {
+   "name": "tech_school",
+   "role": "condition",
+   "scopes": [
+    "country"
+   ],
+   "category": "technology",
+   "label": {
+    "es": "Escuela tecnológica",
+    "en": "Tech school"
+   },
+   "value": {
+    "type": "ref",
+    "kind": "tech_school"
+   },
+   "phrase": {
+    "es": "su escuela es {value}",
+    "en": "its school is {value}"
+   },
+   "negated": {
+    "es": "su escuela no es {value}",
+    "en": "its school is not {value}"
+   }
+  },
+  {
+   "name": "involved_in_crisis",
+   "role": "condition",
+   "scopes": [
+    "country"
+   ],
+   "category": "diplomacy",
+   "label": {
+    "es": "En la crisis",
+    "en": "In the crisis"
+   },
+   "value": {
+    "type": "bool"
+   },
+   "phrase": {
+    "es": "está metido en la crisis",
+    "en": "it is involved in the crisis"
+   },
+   "negated": {
+    "es": "no está metido en la crisis",
+    "en": "it is not involved in the crisis"
+   }
+  },
+  {
+   "name": "crisis_exist",
+   "role": "condition",
+   "scopes": [
+    "any"
+   ],
+   "category": "diplomacy",
+   "label": {
+    "es": "Hay crisis",
+    "en": "Crisis exists"
+   },
+   "value": {
+    "type": "bool"
+   },
+   "phrase": {
+    "es": "hay una crisis",
+    "en": "there is a crisis"
+   },
+   "negated": {
+    "es": "no hay crisis",
+    "en": "there is no crisis"
+   }
+  },
+  {
+   "name": "is_claim_crisis",
+   "role": "condition",
+   "scopes": [
+    "any"
+   ],
+   "category": "diplomacy",
+   "label": {
+    "es": "Crisis de reclamación",
+    "en": "Claim crisis"
+   },
+   "value": {
+    "type": "bool"
+   },
+   "phrase": {
+    "es": "la crisis es por una reclamación",
+    "en": "the crisis is a claim crisis"
+   },
+   "negated": {
+    "es": "la crisis no es por una reclamación",
+    "en": "the crisis is not a claim crisis"
+   }
+  },
+  {
+   "name": "is_liberation_crisis",
+   "role": "condition",
+   "scopes": [
+    "any"
+   ],
+   "category": "diplomacy",
+   "label": {
+    "es": "Crisis de liberación",
+    "en": "Liberation crisis"
+   },
+   "value": {
+    "type": "bool"
+   },
+   "phrase": {
+    "es": "la crisis es de liberación",
+    "en": "the crisis is a liberation crisis"
+   },
+   "negated": {
+    "es": "la crisis no es de liberación",
+    "en": "the crisis is not a liberation crisis"
+   }
+  },
+  {
+   "name": "has_national_minority",
+   "role": "condition",
+   "scopes": [
+    "country"
+   ],
+   "category": "population",
+   "label": {
+    "es": "Minorías nacionales",
+    "en": "National minorities"
+   },
+   "value": {
+    "type": "bool"
+   },
+   "phrase": {
+    "es": "tiene minorías nacionales",
+    "en": "it has national minorities"
+   },
+   "negated": {
+    "es": "no tiene minorías nacionales",
+    "en": "it has no national minorities"
+   }
+  },
+  {
+   "name": "is_cultural_union",
+   "role": "condition",
+   "scopes": [
+    "country"
+   ],
+   "category": "country",
+   "label": {
+    "es": "Unión cultural",
+    "en": "Cultural union"
+   },
+   "value": {
+    "type": "bool"
+   },
+   "phrase": {
+    "es": "es la unión cultural de su grupo",
+    "en": "it is a cultural union"
+   },
+   "negated": {
+    "es": "no es una unión cultural",
+    "en": "it is not a cultural union"
+   }
+  },
+  {
+   "name": "is_mobilised",
+   "role": "condition",
+   "scopes": [
+    "country"
+   ],
+   "category": "military",
+   "label": {
+    "es": "Movilizado",
+    "en": "Mobilised"
+   },
+   "value": {
+    "type": "bool"
+   },
+   "phrase": {
+    "es": "está movilizado",
+    "en": "it is mobilised"
+   },
+   "negated": {
+    "es": "no está movilizado",
+    "en": "it is not mobilised"
+   }
+  },
+  {
+   "name": "great_wars_enabled",
+   "role": "condition",
+   "scopes": [
+    "any"
+   ],
+   "category": "military",
+   "label": {
+    "es": "Grandes guerras",
+    "en": "Great wars"
+   },
+   "value": {
+    "type": "bool"
+   },
+   "phrase": {
+    "es": "las grandes guerras están activas",
+    "en": "great wars are enabled"
+   },
+   "negated": {
+    "es": "las grandes guerras no están activas",
+    "en": "great wars are not enabled"
+   }
+  },
+  {
+   "name": "world_wars_enabled",
+   "role": "condition",
+   "scopes": [
+    "any"
+   ],
+   "category": "military",
+   "label": {
+    "es": "Guerras mundiales",
+    "en": "World wars"
+   },
+   "value": {
+    "type": "bool"
+   },
+   "phrase": {
+    "es": "las guerras mundiales están activas",
+    "en": "world wars are enabled"
+   },
+   "negated": {
+    "es": "las guerras mundiales no están activas",
+    "en": "world wars are not enabled"
+   }
+  },
+  {
+   "name": "money",
+   "role": "condition",
+   "scopes": [
+    "country"
+   ],
+   "category": "economy",
+   "label": {
+    "es": "Dinero en caja",
+    "en": "Money"
+   },
+   "value": {
+    "type": "float"
+   },
+   "phrase": {
+    "es": "tiene {value} libras o más",
+    "en": "it has {value} pounds or more"
+   },
+   "negated": {
+    "es": "tiene menos de {value} libras",
+    "en": "it has less than {value} pounds"
+   }
+  },
+  {
+   "name": "administration_spending",
+   "role": "condition",
+   "scopes": [
+    "country"
+   ],
+   "category": "economy",
+   "label": {
+    "es": "Gasto en administración",
+    "en": "administration spending"
+   },
+   "value": {
+    "type": "float"
+   },
+   "phrase": {
+    "es": "el gasto en administración es {value} o más",
+    "en": "administration spending is {value} or more"
+   },
+   "negated": {
+    "es": "el gasto en administración es menor que {value}",
+    "en": "administration spending is below {value}"
+   }
+  },
+  {
+   "name": "education_spending",
+   "role": "condition",
+   "scopes": [
+    "country"
+   ],
+   "category": "economy",
+   "label": {
+    "es": "Gasto en educación",
+    "en": "education spending"
+   },
+   "value": {
+    "type": "float"
+   },
+   "phrase": {
+    "es": "el gasto en educación es {value} o más",
+    "en": "education spending is {value} or more"
+   },
+   "negated": {
+    "es": "el gasto en educación es menor que {value}",
+    "en": "education spending is below {value}"
+   }
+  },
+  {
+   "name": "military_spending",
+   "role": "condition",
+   "scopes": [
+    "country"
+   ],
+   "category": "economy",
+   "label": {
+    "es": "Gasto en ejército",
+    "en": "military spending"
+   },
+   "value": {
+    "type": "float"
+   },
+   "phrase": {
+    "es": "el gasto en ejército es {value} o más",
+    "en": "military spending is {value} or more"
+   },
+   "negated": {
+    "es": "el gasto en ejército es menor que {value}",
+    "en": "military spending is below {value}"
+   }
+  },
+  {
+   "name": "social_spending",
+   "role": "condition",
+   "scopes": [
+    "country"
+   ],
+   "category": "economy",
+   "label": {
+    "es": "Gasto en asuntos sociales",
+    "en": "social spending"
+   },
+   "value": {
+    "type": "float"
+   },
+   "phrase": {
+    "es": "el gasto en asuntos sociales es {value} o más",
+    "en": "social spending is {value} or more"
+   },
+   "negated": {
+    "es": "el gasto en asuntos sociales es menor que {value}",
+    "en": "social spending is below {value}"
+   }
+  },
+  {
+   "name": "is_canal_enabled",
+   "role": "condition",
+   "scopes": [
+    "any"
+   ],
+   "category": "province",
+   "label": {
+    "es": "Canal abierto",
+    "en": "Canal enabled"
+   },
+   "value": {
+    "type": "int"
+   },
+   "phrase": {
+    "es": "el canal {value} está abierto",
+    "en": "canal {value} is open"
+   },
+   "negated": {
+    "es": "el canal {value} está cerrado",
+    "en": "canal {value} is closed"
+   }
+  },
+  {
+   "name": "owned_by",
+   "role": "condition",
+   "scopes": [
+    "province"
+   ],
+   "category": "province",
+   "label": {
+    "es": "Pertenece a",
+    "en": "Owned by"
+   },
+   "value": {
+    "type": "ref",
+    "kind": "tag"
+   },
+   "phrase": {
+    "es": "la provincia es de {value}",
+    "en": "the province belongs to {value}"
+   },
+   "negated": {
+    "es": "la provincia no es de {value}",
+    "en": "the province does not belong to {value}"
+   }
+  },
+  {
+   "name": "controlled_by",
+   "role": "condition",
+   "scopes": [
+    "province"
+   ],
+   "category": "province",
+   "label": {
+    "es": "Controlada por",
+    "en": "Controlled by"
+   },
+   "value": {
+    "type": "ref",
+    "kind": "tag"
+   },
+   "phrase": {
+    "es": "la provincia la controla {value}",
+    "en": "the province is controlled by {value}"
+   },
+   "negated": {
+    "es": "la provincia no la controla {value}",
+    "en": "the province is not controlled by {value}"
+   }
+  },
+  {
+   "name": "is_core",
+   "role": "condition",
+   "scopes": [
+    "any"
+   ],
+   "category": "province",
+   "label": {
+    "es": "Es núcleo",
+    "en": "Is a core"
+   },
+   "value": {
+    "type": "word"
+   },
+   "phrase": {
+    "es": "es núcleo de {value}",
+    "en": "it is a core of {value}"
+   },
+   "negated": {
+    "es": "no es núcleo de {value}",
+    "en": "it is not a core of {value}"
+   }
+  },
+  {
+   "name": "province_id",
+   "role": "condition",
+   "scopes": [
+    "province"
+   ],
+   "category": "province",
+   "label": {
+    "es": "Es la provincia",
+    "en": "Is the province"
+   },
+   "value": {
+    "type": "ref",
+    "kind": "province"
+   },
+   "phrase": {
+    "es": "es la provincia {value}",
+    "en": "it is province {value}"
+   },
+   "negated": {
+    "es": "no es la provincia {value}",
+    "en": "it is not province {value}"
+   }
+  },
+  {
+   "name": "continent",
+   "role": "condition",
+   "scopes": [
+    "province",
+    "country",
+    "state"
+   ],
+   "category": "province",
+   "label": {
+    "es": "Continente",
+    "en": "Continent"
+   },
+   "value": {
+    "type": "ref",
+    "kind": "continent"
+   },
+   "phrase": {
+    "es": "está en {value}",
+    "en": "it is in {value}"
+   },
+   "negated": {
+    "es": "no está en {value}",
+    "en": "it is not in {value}"
+   }
+  },
+  {
+   "name": "region",
+   "role": "condition",
+   "scopes": [
+    "province",
+    "state"
+   ],
+   "category": "province",
+   "label": {
+    "es": "Región",
+    "en": "Region"
+   },
+   "value": {
+    "type": "ref",
+    "kind": "region"
+   },
+   "phrase": {
+    "es": "está en la región {value}",
+    "en": "it is in region {value}"
+   },
+   "negated": {
+    "es": "no está en la región {value}",
+    "en": "it is not in region {value}"
+   }
+  },
+  {
+   "name": "is_colonial",
+   "role": "condition",
+   "scopes": [
+    "province",
+    "state"
+   ],
+   "category": "province",
+   "label": {
+    "es": "Colonial",
+    "en": "Colonial"
+   },
+   "value": {
+    "type": "bool"
+   },
+   "phrase": {
+    "es": "es colonial",
+    "en": "it is colonial"
+   },
+   "negated": {
+    "es": "no es colonial",
+    "en": "it is not colonial"
+   }
+  },
+  {
+   "name": "is_coastal",
+   "role": "condition",
+   "scopes": [
+    "province"
+   ],
+   "category": "province",
+   "label": {
+    "es": "Costera",
+    "en": "Coastal"
+   },
+   "value": {
+    "type": "bool"
+   },
+   "phrase": {
+    "es": "es costera",
+    "en": "it is coastal"
+   },
+   "negated": {
+    "es": "no es costera",
+    "en": "it is not coastal"
+   }
+  },
+  {
+   "name": "is_capital",
+   "role": "condition",
+   "scopes": [
+    "province"
+   ],
+   "category": "province",
+   "label": {
+    "es": "Es capital",
+    "en": "Is capital"
+   },
+   "value": {
+    "type": "bool"
+   },
+   "phrase": {
+    "es": "es la capital",
+    "en": "it is the capital"
+   },
+   "negated": {
+    "es": "no es la capital",
+    "en": "it is not the capital"
+   }
+  },
+  {
+   "name": "empty",
+   "role": "condition",
+   "scopes": [
+    "province"
+   ],
+   "category": "province",
+   "label": {
+    "es": "Deshabitada",
+    "en": "Uninhabited"
+   },
+   "value": {
+    "type": "bool"
+   },
+   "phrase": {
+    "es": "está deshabitada",
+    "en": "it is uninhabited"
+   },
+   "negated": {
+    "es": "está habitada",
+    "en": "it is inhabited"
+   }
+  },
+  {
+   "name": "trade_goods",
+   "role": "condition",
+   "scopes": [
+    "province"
+   ],
+   "category": "economy",
+   "label": {
+    "es": "Produce el bien",
+    "en": "Trade goods"
+   },
+   "value": {
+    "type": "ref",
+    "kind": "goods"
+   },
+   "phrase": {
+    "es": "su bien es {value}",
+    "en": "its trade good is {value}"
+   },
+   "negated": {
+    "es": "su bien no es {value}",
+    "en": "its trade good is not {value}"
+   }
+  },
+  {
+   "name": "produces",
+   "role": "condition",
+   "scopes": [
+    "any"
+   ],
+   "category": "economy",
+   "label": {
+    "es": "Fabrica",
+    "en": "Produces"
+   },
+   "value": {
+    "type": "ref",
+    "kind": "goods"
+   },
+   "phrase": {
+    "es": "produce {value}",
+    "en": "it produces {value}"
+   },
+   "negated": {
+    "es": "no produce {value}",
+    "en": "it does not produce {value}"
+   }
+  },
+  {
+   "name": "life_rating",
+   "role": "condition",
+   "scopes": [
+    "province"
+   ],
+   "category": "province",
+   "label": {
+    "es": "Habitabilidad",
+    "en": "Life rating"
+   },
+   "value": {
+    "type": "int"
+   },
+   "phrase": {
+    "es": "su habitabilidad es {value} o más",
+    "en": "its life rating is {value} or more"
+   },
+   "negated": {
+    "es": "su habitabilidad es menor que {value}",
+    "en": "its life rating is below {value}"
+   }
+  },
+  {
+   "name": "has_recent_imigration",
+   "role": "condition",
+   "scopes": [
+    "province"
+   ],
+   "category": "population",
+   "label": {
+    "es": "Inmigración reciente",
+    "en": "Recent immigration"
+   },
+   "value": {
+    "type": "int"
+   },
+   "phrase": {
+    "es": "ha recibido inmigrantes en los últimos {value} meses",
+    "en": "it received immigrants in the last {value} months"
+   },
+   "negated": {
+    "es": "no ha recibido inmigrantes en los últimos {value} meses",
+    "en": "it received no immigrants in the last {value} months"
+   }
+  },
+  {
+   "name": "units_in_province",
+   "role": "condition",
+   "scopes": [
+    "province"
+   ],
+   "category": "military",
+   "label": {
+    "es": "Unidades en la provincia",
+    "en": "Units in province"
+   },
+   "value": {
+    "type": "int"
+   },
+   "phrase": {
+    "es": "hay {value} unidades o más",
+    "en": "there are {value} units or more"
+   },
+   "negated": {
+    "es": "hay menos de {value} unidades",
+    "en": "there are fewer than {value} units"
+   }
+  },
+  {
+   "name": "has_building",
+   "role": "condition",
+   "scopes": [
+    "any"
+   ],
+   "category": "economy",
+   "label": {
+    "es": "Tiene el edificio",
+    "en": "Has building"
+   },
+   "value": {
+    "type": "ref",
+    "kind": "building"
+   },
+   "phrase": {
+    "es": "tiene {value}",
+    "en": "it has {value}"
+   },
+   "negated": {
+    "es": "no tiene {value}",
+    "en": "it does not have {value}"
+   }
+  },
+  {
+   "name": "has_flashpoint",
+   "role": "condition",
+   "scopes": [
+    "province",
+    "state"
+   ],
+   "category": "diplomacy",
+   "label": {
+    "es": "Foco de crisis",
+    "en": "Flashpoint"
+   },
+   "value": {
+    "type": "bool"
+   },
+   "phrase": {
+    "es": "es un foco de crisis",
+    "en": "it is a flashpoint"
+   },
+   "negated": {
+    "es": "no es un foco de crisis",
+    "en": "it is not a flashpoint"
+   }
+  },
+  {
+   "name": "flashpoint_tension",
+   "role": "condition",
+   "scopes": [
+    "province",
+    "state"
+   ],
+   "category": "diplomacy",
+   "label": {
+    "es": "Tensión",
+    "en": "Tension"
+   },
+   "value": {
+    "type": "float"
+   },
+   "phrase": {
+    "es": "la tensión es {value} o más",
+    "en": "tension is {value} or more"
+   },
+   "negated": {
+    "es": "la tensión es menor que {value}",
+    "en": "tension is below {value}"
+   }
+  },
+  {
+   "name": "has_crime",
+   "role": "condition",
+   "scopes": [
+    "province"
+   ],
+   "category": "province",
+   "label": {
+    "es": "Delincuencia",
+    "en": "Crime"
+   },
+   "value": {
+    "type": "bool"
+   },
+   "phrase": {
+    "es": "tiene delincuencia",
+    "en": "it has crime"
+   },
+   "negated": {
+    "es": "no tiene delincuencia",
+    "en": "it has no crime"
+   }
+  },
+  {
+   "name": "blockade",
+   "role": "condition",
+   "scopes": [
+    "any"
+   ],
+   "category": "military",
+   "label": {
+    "es": "Bloqueo",
+    "en": "Blockade"
+   },
+   "value": {
+    "type": "bool"
+   },
+   "phrase": {
+    "es": "está bloqueada",
+    "en": "it is blockaded"
+   },
+   "negated": {
+    "es": "no está bloqueada",
+    "en": "it is not blockaded"
+   }
+  },
+  {
+   "name": "terrain",
+   "role": "condition",
+   "scopes": [
+    "province"
+   ],
+   "category": "province",
+   "label": {
+    "es": "Terreno",
+    "en": "Terrain"
+   },
+   "value": {
+    "type": "ref",
+    "kind": "terrain"
+   },
+   "phrase": {
+    "es": "su terreno es {value}",
+    "en": "its terrain is {value}"
+   },
+   "negated": {
+    "es": "su terreno no es {value}",
+    "en": "its terrain is not {value}"
+   }
+  },
+  {
+   "name": "year",
+   "role": "condition",
+   "scopes": [
+    "any"
+   ],
+   "category": "time",
+   "label": {
+    "es": "Año",
+    "en": "Year"
+   },
+   "value": {
+    "type": "int"
+   },
+   "phrase": {
+    "es": "es {value} o después",
+    "en": "it is {value} or later"
+   },
+   "negated": {
+    "es": "es antes de {value}",
+    "en": "it is before {value}"
+   },
+   "help": {
+    "es": "Se cumple desde el 1 de enero de ese año.",
+    "en": "True from January 1st of that year."
+   }
+  },
+  {
+   "name": "month",
+   "role": "condition",
+   "scopes": [
+    "any"
+   ],
+   "category": "time",
+   "label": {
+    "es": "Mes",
+    "en": "Month"
+   },
+   "value": {
+    "type": "int"
+   },
+   "phrase": {
+    "es": "es el mes {value} o después",
+    "en": "it is month {value} or later"
+   },
+   "negated": {
+    "es": "es antes del mes {value}",
+    "en": "it is before month {value}"
+   },
+   "help": {
+    "es": "Los meses van de 0 (enero) a 11 (diciembre).",
+    "en": "Months go from 0 (January) to 11 (December)."
+   }
+  },
+  {
+   "family": "technology",
+   "key_kind": "technology",
+   "role": "condition",
+   "scopes": [
+    "country"
+   ],
+   "value": {
+    "type": "int"
+   },
+   "category": "technology",
+   "label": {
+    "es": "Tecnología {key}",
+    "en": "Technology {key}"
+   },
+   "phrase": {
+    "es": "ha investigado {key}",
+    "en": "it has researched {key}"
+   },
+   "negated": {
+    "es": "no ha investigado {key}",
+    "en": "it has not researched {key}"
+   }
+  },
+  {
+   "family": "invention",
+   "key_kind": "invention",
+   "role": "condition",
+   "scopes": [
+    "country"
+   ],
+   "value": {
+    "type": "word"
+   },
+   "category": "technology",
+   "label": {
+    "es": "Invento {key}",
+    "en": "Invention {key}"
+   },
+   "phrase": {
+    "es": "ha descubierto {key}",
+    "en": "it has discovered {key}"
+   },
+   "negated": {
+    "es": "no ha descubierto {key}",
+    "en": "it has not discovered {key}"
+   }
+  },
+  {
+   "family": "issue_group",
+   "key_kind": "issue_group",
+   "role": "condition",
+   "scopes": [
+    "country"
+   ],
+   "value": {
+    "type": "ref",
+    "kind": "issue_option"
+   },
+   "category": "politics",
+   "label": {
+    "es": "Reforma: {key}",
+    "en": "Reform: {key}"
+   },
+   "phrase": {
+    "es": "{key} es {value}",
+    "en": "{key} is {value}"
+   },
+   "negated": {
+    "es": "{key} no es {value}",
+    "en": "{key} is not {value}"
+   }
+  },
+  {
+   "family": "ideology_support",
+   "key_kind": "ideology",
+   "role": "condition",
+   "scopes": [
+    "any"
+   ],
+   "value": {
+    "type": "float"
+   },
+   "category": "politics",
+   "label": {
+    "es": "Apoyo a {key}",
+    "en": "Support for {key}"
+   },
+   "phrase": {
+    "es": "el apoyo a {key} es {value} o más",
+    "en": "support for {key} is {value} or more"
+   },
+   "negated": {
+    "es": "el apoyo a {key} es menor que {value}",
+    "en": "support for {key} is below {value}"
+   }
+  },
+  {
+   "family": "issue_support",
+   "key_kind": "issue_option",
+   "role": "condition",
+   "scopes": [
+    "any"
+   ],
+   "value": {
+    "type": "float"
+   },
+   "category": "politics",
+   "label": {
+    "es": "Apoyo a {key}",
+    "en": "Support for {key}"
+   },
+   "phrase": {
+    "es": "el apoyo a {key} es {value} o más",
+    "en": "support for {key} is {value} or more"
+   },
+   "negated": {
+    "es": "el apoyo a {key} es menor que {value}",
+    "en": "support for {key} is below {value}"
+   }
+  }
+ ]
+}

@@ -6,10 +6,20 @@
   "pickers.goods.amount": "Amount",
   "pickers.goods.good": "Good",
   "pickers.goods.remove": "Remove",
+  "pickers.issue.keep": "(unchanged)",
+  "pickers.list.add": "Add",
+  "pickers.list.remove": "Remove",
+  "pickers.list.up": "Move up",
   "pickers.names.count": "{count} names",
   "pickers.names.dedupe": "Remove duplicates",
   "pickers.names.not_cp1252": "The game cannot show: {names}",
   "pickers.sprite.of": "of {count}",
   "pickers.sprite.placeholder": "frame",
-  "pickers.symbol.placeholder": "Search by id or name…"
+  "pickers.symbol.placeholder": "Search by id or name…",
+  "pickers.tech.apply": "Apply template",
+  "pickers.tech.count": "{n} checked",
+  "pickers.tech.template.civilized": "Civilized (start year)",
+  "pickers.tech.template.like": "Like another country",
+  "pickers.tech.template.uncivilized": "Uncivilized (none)",
+  "pickers.tech.title": "Technologies"
 }

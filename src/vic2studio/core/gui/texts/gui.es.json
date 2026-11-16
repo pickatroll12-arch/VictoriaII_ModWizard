@@ -1,0 +1,14 @@
+{
+ "undo.new_sprite": "Nuevo sprite {name}",
+ "undo.import_picture": "Importar la imagen {name} en {folder}",
+ "undo.create_sprite": "Crear el sprite {ident}",
+ "undo.gui_move": "Mover {element}",
+ "undo.gui_resize": "Cambiar el tamaño de {element}",
+ "undo.gui_hide": "Ocultar {element}",
+ "undo.gui_sprite": "Cambiar el sprite de {element}",
+ "gui.sprite_error.bad_name": "«{name}» no vale como nombre de sprite: usa letras, números y _, sin empezar por un número.",
+ "gui.sprite_error.taken": "Ya hay un sprite que se llama «{name}».",
+ "gui.sprite_error.bad_frames": "La imagen mide {width} píxeles de ancho: no se puede partir en {frames} fotogramas iguales.",
+ "gui.sprite_error.bad_image": "La imagen está vacía.",
+ "gui.sprite_error.bad_kind": "Tipo de sprite desconocido: {kind}."
+}

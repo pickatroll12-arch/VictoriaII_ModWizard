@@ -13,7 +13,20 @@ from __future__ import annotations
 from .companions import ActivateUnit, AppendToList, MappingTable, UnitNamesSlot
 from .entity import EntitySchema
 from .fields import MISSING, OPEN_CATALOG, Children, DynamicKeys, Field, Group, Opaque, Script, Section, field_text_key
-from .layouts import GroupedIn, NestedIn, OnePerFile, RepeatedKey, SingleFile
+from .layouts import (
+    GroupedIn,
+    KeyedAcross,
+    KeyedFiles,
+    NestedIn,
+    OnePerFile,
+    PairedKeys,
+    RepeatedKey,
+    SingleFile,
+    Table,
+    GuiElements,
+    TypedEntries,
+    WholeFile,
+)
 from .registry import registry
 
 
@@ -59,9 +72,29 @@ def _layout_text(schema: EntitySchema, t: _Texts) -> tuple[str, str]:
     if isinstance(layout, GroupedIn):
         return layout.path, t(f"docgen.layout.grouped_in_{min(layout.level, 1)}")
     if isinstance(layout, NestedIn):
+        if layout.container:
+            return layout.glob, t("docgen.layout.nested_in_container", container=layout.container)
         return layout.glob, t("docgen.layout.nested_in")
     if isinstance(layout, SingleFile):
         return layout.path, t("docgen.layout.single_file")
+    # Disposiciones del mapa (iteración 5).
+    if isinstance(layout, KeyedFiles):
+        return f"{layout.folder}/*/{layout.new_name}", t("docgen.layout.keyed_files")
+    if isinstance(layout, KeyedAcross):
+        return layout.glob, t("docgen.layout.keyed_across")
+    if isinstance(layout, PairedKeys):
+        return layout.path, t("docgen.layout.paired_keys")
+    if isinstance(layout, WholeFile):
+        return layout.path, t("docgen.layout.whole_file")
+    if isinstance(layout, Table):
+        return layout.path, t("docgen.layout.table", columns=";".join(layout.columns))
+    if isinstance(layout, TypedEntries):           # eventos (iteración 7), sprites (iteración 8)
+        if layout.container:
+            return layout.glob, t("docgen.layout.typed_entries_in", keys=" / ".join(layout.keys),
+                                  container=layout.container)
+        return layout.glob, t("docgen.layout.typed_entries", keys=" / ".join(layout.keys))
+    if isinstance(layout, GuiElements):            # elementos de los .gui (iteración 8)
+        return layout.glob, t("docgen.layout.gui_elements", keys=" / ".join(layout.keys))
     return "?", type(layout).__name__
 
 
@@ -69,9 +102,27 @@ def _ident_text(schema: EntitySchema, t: _Texts) -> str:
     mode = schema.ident.mode
     if mode == "field":
         return t("docgen.ident.field", field=schema.ident.value)
+    if isinstance(schema.layout, KeyedFiles):
+        return t("docgen.ident.file_key")
+    if isinstance(schema.layout, KeyedAcross):
+        return t("docgen.ident.folder_key")
+    if isinstance(schema.layout, WholeFile):
+        return t("docgen.ident.fixed", ident=schema.layout.ident)
+    if isinstance(schema.layout, Table):
+        return t("docgen.ident.row")
+    if isinstance(schema.layout, GuiElements):
+        return t("docgen.ident.gui_path")
     if mode == "file" or isinstance(schema.layout, OnePerFile):
         return t("docgen.ident.file")
     return t("docgen.ident.key")
+
+
+def _editable_text(schema: EntitySchema, t: _Texts) -> str:
+    if not schema.editable:
+        return t("docgen.editable.no")
+    if isinstance(schema.layout, GuiElements):
+        return t("docgen.editable.edit_only")
+    return t("docgen.editable.yes")
 
 
 def _default_text(field: Field, t: _Texts) -> str:
@@ -87,6 +138,12 @@ def _description(kind: str, key: str, t: _Texts) -> str:
     label = t(base)
     help_text = t.optional(f"{base}.help")
     return f"{label}. {help_text}" if help_text else label
+
+
+def _group_text(kind: str, key: str, t: _Texts) -> str:
+    """La etiqueta de un bloque repetido o de pesos (``option``, ``mean_time_to_happen``); su clave si no tiene."""
+    base = field_text_key(kind, key)
+    return _description(kind, key, t) if t.optional(base) else key
 
 
 def _rows(schema: EntitySchema, items, t: _Texts, lines: list[str]) -> None:
@@ -113,7 +170,7 @@ def _rows(schema: EntitySchema, items, t: _Texts, lines: list[str]) -> None:
                                   value=value.describe(t.lang) if value is not None else "…")
             lines.append(f"| `{item.key}` | {_cell(what)} | {t('docgen.none')} | "
                          f"{t('docgen.yes') if item.required else t('docgen.no')} | "
-                         f"{_cell(t(f'schema.{kind}.dynamic.{item.dynamic.name}') if item.dynamic else item.key)} |")
+                         f"{_cell(t(f'schema.{kind}.dynamic.{item.dynamic.name}') if item.dynamic else _group_text(kind, item.key, t))} |")
         elif isinstance(item, Script):
             lines.append(f"| `{item.key}` | {_cell(t('schema.type.script'))} | {t('docgen.none')} | "
                          f"{t('docgen.yes') if item.required else t('docgen.no')} | "
@@ -150,12 +207,22 @@ def _example(schema: EntitySchema) -> str | None:
 
     if not schema.editable or schema.template is None:
         return None
+    from ..project.model import EVENT_ID_START
+    from .record import _find_field
+    from .types import Int
+
     ident = f"my_{schema.kind}"
+    if schema.ident.mode == "field":
+        id_field = _find_field(schema.fields, schema.ident.value)
+        if id_field is not None and isinstance(id_field.type, Int):
+            ident = str(EVENT_ID_START)          # un id numérico (``id = 200000000`` de un evento)
     block = build_block(schema, ident, {}, None)
     document = Document()
     from .layouts import RepeatedKey as _Repeated
 
     key = schema.layout.key if isinstance(schema.layout, _Repeated) else ident
+    if isinstance(schema.layout, TypedEntries):
+        key = schema.layout.keys[0]
     document.append(key, block)
     return format_canonical(document, indent="\t", newline="\n").rstrip("\n")
 
@@ -172,7 +239,7 @@ def _render(schema: EntitySchema, t: _Texts) -> str:
     path, layout = _layout_text(schema, t)
     lines += [f"- **{t('docgen.files')}:** `{path}`", f"- **{t('docgen.layout')}:** {layout}",
               f"- **{t('docgen.ident')}:** {_ident_text(schema, t)}",
-              f"- **{t('docgen.editable')}:** {t('docgen.editable.yes') if schema.editable else t('docgen.editable.no')}"]
+              f"- **{t('docgen.editable')}:** {_editable_text(schema, t)}"]
     if schema.hall and schema.section and schema.editable:
         lines.append(f"- **{t('docgen.section_in_app')}:** `{schema.hall}:{schema.section}`")
     lines += ["", f"## {t('docgen.fields')}", "",

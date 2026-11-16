@@ -316,7 +316,7 @@ def _definition_steps(ctx: ValidationContext, problem: Problem) -> list[ExplainS
 
 
 @explainer("province_history_duplicate", "country_history_duplicate", "event_id_duplicate", "decision_duplicate",
-           "tag_taken")
+           "tag_taken", "culture_name_duplicate")
 def _duplicates(problem: Problem, ctx: ValidationContext) -> Explanation:
     return _explanation(problem, _definition_steps(ctx, problem))
 
@@ -417,3 +417,57 @@ def _replace_path(problem: Problem, ctx: ValidationContext) -> Explanation:
         entry = ctx.snapshot.entries[key][-1]
         steps.append(ExplainStep(LAYER_REPLACE_PATH, entry.rel, None, entry.rel.name, VERDICT_HIDDEN))
     return _explanation(problem, steps, hidden=len(hidden))
+
+
+# --- cierre de la iteración 4: unidades, gobiernos y bookmarks -----------------------------------------------
+
+GFX_FOLDER = "interface/*.gfx"
+FLAGS_PATTERN = "gfx/flags/<TAG>_{flag_type}.tga"
+POPS_PATTERN = "history/pops/<≤ {date}>/"
+
+
+def _use_and_missing(problem: Problem, ctx: ValidationContext, missing: str, layer: str = LAYER_GAME) -> Explanation:
+    """La línea del problema (gana: el juego la lee) y lo que no encuentra (falta), que no es un archivo concreto."""
+    steps = [_step_at(ctx, problem.rel, problem.line, VERDICT_WINS)] if problem.rel is not None else []
+    steps.append(ExplainStep(layer, None, None, missing, VERDICT_MISSING))
+    return _explanation(problem, steps)
+
+
+@explainer("sprite_missing")
+def _sprite_missing(problem: Problem, ctx: ValidationContext) -> Explanation:
+    return _use_and_missing(problem, ctx, GFX_FOLDER)
+
+
+@explainer("government_flagtype_unknown")
+def _flagtype_unknown(problem: Problem, ctx: ValidationContext) -> Explanation:
+    return _use_and_missing(problem, ctx, FLAGS_PATTERN.format(flag_type=problem.args.get("flag_type", "")))
+
+
+@explainer("bookmark_without_pops")
+def _bookmark_without_pops(problem: Problem, ctx: ValidationContext) -> Explanation:
+    """Solo lo que se sabe: la fecha del bookmark y que no hay carpeta de esa fecha o anterior. Las posteriores no
+    se listan con veredicto, porque qué carpeta carga el juego es [verificar en juego]."""
+    return _use_and_missing(problem, ctx, POPS_PATTERN.format(date=problem.args.get("date", "")))
+
+
+@explainer("unit_port_level_too_high")
+def _port_level(problem: Problem, ctx: ValidationContext) -> Explanation:
+    """La línea de la unidad (pierde: pide más de lo que hay) y la del edificio que pone el tope (gana)."""
+    steps = [_step_at(ctx, problem.rel, problem.line, VERDICT_LOSES)] if problem.rel is not None else []
+    building = ctx.index.get(m.KIND_BUILDING, str(problem.args.get("building", "")))
+    if building is not None:
+        steps.append(_step_at(ctx, building.rel, building.line, VERDICT_WINS))
+    return _explanation(problem, steps)
+
+
+@explainer("bookmark_camera_outside_map")
+def _camera_outside(problem: Problem, ctx: ValidationContext) -> Explanation:
+    """La línea de la cámara (pierde) y el BMP de provincias que da el tamaño (gana)."""
+    from .rules.provinces import provinces_bmp_rel
+
+    steps = [_step_at(ctx, problem.rel, problem.line, VERDICT_LOSES)] if problem.rel is not None else []
+    bmp = provinces_bmp_rel(ctx.rules)
+    entry = ctx.entry(bmp)
+    if entry is not None or ctx.unsaved(bmp):
+        steps.append(_step_at(ctx, entry.rel if entry is not None else bmp, None, VERDICT_WINS))
+    return _explanation(problem, steps)

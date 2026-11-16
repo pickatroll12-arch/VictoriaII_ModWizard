@@ -1,0 +1,5 @@
+{
+  "schema.region_sea.title": "Sea regions",
+  "schema.region_sea.name": "Sea region",
+  "schema.region_sea.doc": "Sea regions in map/region_sea.txt, shaped like the land ones. The game does not require a sea province to be in one."
+}

@@ -34,6 +34,7 @@ from .entity import (
 from .fields import (
     MISSING,
     REMAINING_BLOCKS,
+    REST,
     Children,
     Condition,
     DynamicKeys,
@@ -42,7 +43,9 @@ from .fields import (
     Group,
     Opaque,
     Script,
+    ScriptKind,
     Scope,
+    ScopeByEntry,
     Section,
     SetOps,
     Values,
@@ -56,6 +59,7 @@ from .layouts import (
     FileLayout,
     GroupedIn,
     KeyedAcross,
+    KeyedFiles,
     NestedIn,
     OnePerFile,
     PairedKeys,
@@ -64,6 +68,8 @@ from .layouts import (
     SingleFile,
     Table,
     TypedEntries,
+    GuiElements,
+    WholeFile,
 )
 from .placement import SchemaOrder, insertion_index, registry_index
 from .recipes import (
@@ -88,6 +94,7 @@ from .record import (
     RecordRef,
 )
 from .registry import SchemaRegistry, registry
+from .rename import LocRename, RenameBlockedError, RenameFile, RenamePlan, RenameUse
 from .types import (
     Bool,
     Color,
@@ -120,6 +127,11 @@ __all__ = [
     "LocSpec",
     "EntityInUseError",
     "InvalidIdentError",
+    "RenameBlockedError",
+    "RenamePlan",
+    "RenameFile",
+    "RenameUse",
+    "LocRename",
     "registry",
     "SchemaRegistry",
     "CheckContext",
@@ -159,6 +171,9 @@ __all__ = [
     "When",
     "SetOps",
     "Scope",
+    "ScopeByEntry",
+    "ScriptKind",
+    "REST",
     "REMAINING_BLOCKS",
     # entidad (§10.3)
     "IdSpec",
@@ -177,7 +192,10 @@ __all__ = [
     "Registry",
     "NestedIn",
     "TypedEntries",
+    "GuiElements",
     "KeyedAcross",
+    "KeyedFiles",
+    "WholeFile",
     "Table",
     "Descriptor",
     # historia y colocación (§10.6, §10.7)

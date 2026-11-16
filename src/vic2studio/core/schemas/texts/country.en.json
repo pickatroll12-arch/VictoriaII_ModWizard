@@ -1,0 +1,19 @@
+{
+  "schema.country.title": "Country files",
+  "schema.country.name": "Country file",
+  "schema.country.doc": "common/countries/<File>.txt: map colour, graphical culture, parties and unit names. The id is the file name, as countries.txt writes it.",
+  "schema.country.section.identity": "Identity",
+  "schema.country.section.parties": "Parties",
+  "schema.country.field.color": "Map colour",
+  "schema.country.field.graphical_culture": "Graphical culture",
+  "schema.country.group.party": "Party",
+  "schema.country.field.name": "Name",
+  "schema.country.field.start_date": "From",
+  "schema.country.field.end_date": "Until",
+  "schema.country.field.ideology": "Ideology",
+  "schema.country.field.economic_policy": "Economic policy",
+  "schema.country.field.trade_policy": "Trade policy",
+  "schema.country.field.religious_policy": "Religious policy",
+  "schema.country.field.citizenship_policy": "Citizenship",
+  "schema.country.field.war_policy": "War policy"
+}

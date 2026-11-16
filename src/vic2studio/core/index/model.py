@@ -82,6 +82,11 @@ KIND_FILE = "file"                       # solo en referencias: un archivo por s
                                          # minúsculas con «/»
 KIND_TECH_FOLDER = "tech_folder"         # common/technology.txt → folders; attrs: areas
 KIND_POP_BLOCK = "pop_block"             # history/pops/<fecha>/*.txt; name = "<fecha>:<provincia>" (H10)
+# Cierre de la iteración 4: actores 3D de interface/*.gfx (``objectTypes`` → ``EMFXActorType``; attrs: type), para
+# ``sprite_missing`` (wizard §14.4). Sin el prefijo ``KIND_`` a propósito: los ``KIND_*`` son los tipos con
+# etiqueta en Ctrl+K (``kind.<tipo>``, en ``ui/``) y este no la tiene todavía, así que el buscador no lo ofrece
+# si no se le pide (``index.NOT_SEARCHED``).
+ACTOR_KIND = "actor"
 
 # Rol de las referencias de ``default.map: sea_starts`` (kind ``province``): las provincias de mar.
 ROLE_SEA_STARTS = "sea_starts"

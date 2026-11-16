@@ -21,19 +21,19 @@ from vic2studio.ui.widgets import RoadmapStrip  # noqa: E402
 # Iteración en que llega cada sección planificada según docs/diseno/wizard.md §22 (iteración 2 en curso).
 # Iteración 4: las secciones de entidades (Culturas, Gobiernos, Fechas de inicio, Casus belli, Unidades terrestres y
 # navales, y Modificadores, que llega con el esquema event_modifier) ya existen: salen del registro de esquemas.
-PLAN = {
-    "map:world": 5, "map:regions": 5, "map:climates": 5, "map:straits": 5, "map:forge": 9,
-    "nations:countries": 6,
-    "war:wars": 6, "war:diplomacy": 6,
-    "events:events": 7, "events:decisions": 7,
-    "interface:windows": 8, "interface:sprites": 8, "interface:images": 8,
-}
+# Iteración 9a: el taller de mapas (map:forge) era la última sección planificada; ya no queda ninguna.
+PLAN: dict[str, int] = {}
 # Lo que ya existe: lo de la iteración 2 y, desde la 3, Validación, Todos los textos y Pendientes de traducir; desde
 # la 4, las secciones que generan los esquemas.
 READY = {"project:home", "project:descriptor", "project:files", "project:validation", "project:pending",
          "localisation:all", "localisation:pending", "localisation:csv",
          "nations:cultures", "nations:governments", "war:bookmarks", "war:cb", "war:land", "war:naval",
-         "events:modifiers"}
+         "events:modifiers",
+         "map:world", "map:regions", "map:climates", "map:straits",   # iteración 5
+         "nations:countries", "war:wars", "war:diplomacy",             # iteración 6
+         "events:events", "events:decisions",                         # iteración 7
+         "interface:windows", "interface:sprites", "interface:images",  # iteración 8
+         "map:forge"}                                                  # iteración 9a
 
 
 class ColumnsTests(unittest.TestCase):
@@ -53,9 +53,9 @@ class ColumnsTests(unittest.TestCase):
 
 
 class PlanTests(unittest.TestCase):
-    def test_plan_has_ten_milestones_and_iteration_5_is_current(self):
+    def test_plan_has_ten_milestones_and_iteration_9_is_current(self):
         self.assertEqual(len(ROADMAP_KEYS), 10)
-        self.assertEqual(CURRENT_ITERATION, 5)
+        self.assertEqual(CURRENT_ITERATION, 9)
 
     def test_every_section_is_ready_or_planned_with_its_iteration(self):
         found = {}
@@ -89,6 +89,23 @@ class RoadmapPageTests(unittest.TestCase):
         scroll.verticalScrollBar().setValue(scroll.verticalScrollBar().maximum())
         _qt.process_events()
         return page
+
+    def test_planned_card_still_works_for_a_future_section(self):
+        """Ya no quedan secciones planificadas, pero la tarjeta sigue sirviendo para la próxima que se anuncie."""
+        from vic2studio.ui.halls.registry import SectionSpec
+
+        hall = next(h for h, _ in discover_halls() if h.key == "map")
+        spec = SectionSpec("future", "map", 9, "section.map.forge", "anvil", iteration=10,
+                           planned_keys=("section.map.forge.intro", "section.map.forge.f1"))
+        for language in ("es", "en"):
+            set_language(language)
+            with self.subTest(language=language):
+                page = PlannedSectionPage(hall, spec)
+                self.assertEqual(page.iteration, 10)
+                self.assertIn("10", page.ribbon.text())
+                self.assertIn("10", page.arrival.text())
+                self.assertIn(tr(hall.title_key), page.header.subtitle.text())
+                _qt.dispose(page)
 
     def test_planned_sections_announce_the_iteration_of_the_plan(self):
         for language in ("es", "en"):

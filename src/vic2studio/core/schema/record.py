@@ -6,10 +6,11 @@ vista sobre el ``Block`` real de un documento abierto: lee y escribe con la API
 del CST (§4.1) sin copiar datos, y toda mutación pasa por ``ws.touch``, que
 exige una transacción abierta por quien llama (igual que editar a mano). Leer
 (``get``, ``dynamic``, ``unknown``, ``issues``, ``loc_keys``) no escribe nada
-(I4). ``Entities`` es el servicio: lista, abre, crea, duplica, borra y restaura
-registros. ``create``/``duplicate``/``delete``/``restore_vanilla`` abren su propia
-transacción (archivo + compañeros + claves de localización): un ``ws.undo()`` lo
-deshace todo (I5).
+(I4). ``Entities`` es el servicio: lista, abre, crea, duplica, renombra, mueve de
+grupo, borra y restaura registros. ``create``/``duplicate``/``rename``/
+``move_to_group``/``delete``/``restore_vanilla`` abren su propia transacción
+(archivo + compañeros + claves de localización): un ``ws.undo()`` lo deshace todo
+(I5). El renombrado seguro (§15) está en ``rename.py``.
 
 La vista efectiva (I7): ``list`` sale del índice con **todos** los documentos
 abiertos del layout encima (los sin guardar y los ya guardados que el índice
@@ -30,10 +31,20 @@ from ..clausewitz.nodes import Block, Entry, Scalar
 from ..vfs.model import LayerKind
 from ..vfs.paths import VPath
 from .entity import EntitySchema, LocSpec
-from .fields import MISSING, OPEN_CATALOG, Children, DynamicKeys, Field, Group, Opaque, Script, Section
-from .layouts import GroupedIn, OnePerFile, entry_path, follow_path, parent_block
+from .fields import MISSING, OPEN_CATALOG, REST, Children, DynamicKeys, Field, Group, Opaque, Script, Section
+from .layouts import (
+    GroupedIn,
+    GuiElements,
+    OnePerFile,
+    Registry,
+    TypedEntries,
+    entry_path,
+    follow_path,
+    parent_block,
+)
 from .placement import SchemaOrder, dynamic_insert_index, first_dated_index, insertion_index
 from .registry import registry
+from .types import Int
 from .validate import CheckContext, issue as make_issue
 
 if TYPE_CHECKING:
@@ -68,16 +79,45 @@ class EntitySummary:
     parent: str | None = None
 
 
+def bookmark_dates(index) -> list:
+    """Fechas de los bookmarks del índice (``attrs["date"]``), ordenadas y sin repetir; vacía sin índice."""
+    from ..clausewitz.nodes import ClausewitzDate
+
+    found = set()
+    if index is None:
+        return []
+    try:
+        symbols = index.symbols("bookmark")
+    except Exception:  # noqa: BLE001 - un índice falso puede no tener el tipo
+        return []
+    for symbol in symbols:
+        text = (getattr(symbol, "attrs", None) or {}).get("date")
+        if isinstance(text, ClausewitzDate):
+            found.add(text)
+            continue
+        try:
+            found.add(ClausewitzDate.parse(str(text)))
+        except (TypeError, ValueError):
+            continue
+    return sorted(found)
+
+
 class InvalidIdentError(ValueError):
-    """``create``/``duplicate`` con un id inválido (``.code``: ``empty``, ``bad_chars``,
-    ``reserved``, ``out_of_range``…) o que ya existe (``.code``: ``taken``). No se cambia nada:
-    ni documentos, ni deshacer, ni archivos."""
+    """``create``/``duplicate``/``rename`` con un id inválido (``.code``: ``empty``, ``bad_chars``,
+    ``reserved``, ``out_of_range``…), que ya existe (``taken``) o que es el que ya tiene
+    (``unchanged``, al renombrar). No se cambia nada: ni documentos, ni deshacer, ni archivos.
+    ``message(lang)`` da el motivo traducido (``schema.ident.<código>``)."""
 
     def __init__(self, code: str, ident: str = "", **params) -> None:
         self.code = code
         self.ident = ident
         self.params = params
         super().__init__(f"{code}: {ident}" if ident else code)
+
+    def message(self, lang: str = "en") -> str:
+        from ..texts import text
+
+        return text(f"schema.ident.{self.code}", lang, ident=self.ident, **self.params)
 
 
 class EntityInUseError(ValueError):
@@ -110,6 +150,8 @@ def ident_problem(schema: EntitySchema, ident: str) -> str | None:
         return None if _SNAKE_RE.fullmatch(ident) else "bad_chars"
     if rule.mode == "word":
         return None if _WORD_RE.fullmatch(ident) else "bad_chars"
+    if rule.mode == "int_range":
+        return None if ident.isdigit() else "bad_chars"
     # tag e int_range llegan con los esquemas que los usan (countries, events…).
     return None
 
@@ -144,10 +186,12 @@ class Record:
     handle: DocHandle
     block: Block
     origin: LayerKind | None = None           # capa de la que se leyó (juego, mod, nuevo)
+    _group_view: bool = False                 # True en las vistas de grupo (``group``, ``groups``)
 
     def __init__(self, schema: EntitySchema, ref: RecordRef, handle: DocHandle, block: Block,
                  origin: LayerKind | None = None, *, ws: Workspace = None, index=None,
-                 entry: Entry | None = None, document: Block | None = None) -> None:
+                 entry: Entry | None = None, document: Block | None = None,
+                 entity_key: str | None = None) -> None:
         self.schema = schema
         self.ref = ref
         self.handle = handle
@@ -157,6 +201,10 @@ class Record:
         self._index = index                    # catálogos de los DynamicKeys (B2)
         self._entry = entry                    # la entrada dueña en el documento (borrar)
         self._document = document              # el documento del bloque (None: el del handle)
+        # La clave de la entrada dueña de la entidad (``country_event``); las vistas de grupo la heredan.
+        self._group_view = False               # True en las vistas de grupo (``group``, ``groups``)
+        self._entity_key = entity_key if entity_key is not None else (
+            entry.key.text if entry is not None and entry.key is not None else None)
 
     # --- esquema efectivo ---------------------------------------------------------------
 
@@ -223,12 +271,20 @@ class Record:
         return tuple(fields)
 
     def _field_of(self, key: str) -> Field | None:
-        return self._index_schema()[0].get(key)
+        fields = self._index_schema()[0]
+        found = fields.get(key)
+        if found is None and self.schema.ignore_case:
+            lowered = key.lower()
+            found = next((field for name, field in fields.items() if name.lower() == lowered), None)
+        return found
+
+    def _ignore_case(self, field: Field | None = None) -> bool:
+        """Sin mayúsculas si lo pide el campo o el esquema entero (``.gui``/``.gfx``, H23)."""
+        return self.schema.ignore_case or (field is not None and field.ignore_case)
 
     def _find_entry(self, key: str) -> Entry | None:
         field = self._field_of(key)
-        return self.block.find(key, ignore_case=field.ignore_case) if field is not None \
-            else self.block.find(key)
+        return self.block.find(key, ignore_case=self._ignore_case(field))
 
     def _rebind(self, handle) -> None:
         """Pasa a ``handle`` siguiendo el mismo bloque por su posición (misma forma de árbol)."""
@@ -279,8 +335,7 @@ class Record:
     def get_all(self, key: str) -> list:
         """Todos los valores de una clave repetible, en orden."""
         field = self._field_of(key)
-        entries = self.block.find_all(key, ignore_case=field.ignore_case) if field is not None \
-            else self.block.find_all(key)
+        entries = self.block.find_all(key, ignore_case=self._ignore_case(field))
         if field is not None:
             values = []
             for entry in entries:
@@ -340,17 +395,24 @@ class Record:
 
     def group(self, key: str, index: int = 0) -> Record:
         """Vista del bloque anidado ``key`` (la repetición ``index``)."""
-        entries = self.block.find_all(key)
+        entries = self.block.find_all(key, ignore_case=self._ignore_case())
         if index >= len(entries) or not isinstance(entries[index].value, Block):
             raise KeyError(f"no hay grupo {key!r} #{index}")
-        return Record(self.schema, self.ref, self.handle, entries[index].value, self.origin,
-                      ws=self._ws, index=self._index, entry=entries[index], document=self._document)
+        view = Record(self.schema, self.ref, self.handle, entries[index].value, self.origin,
+                      ws=self._ws, index=self._index, entry=entries[index], document=self._document,
+                      entity_key=self.entity_key)
+        view._group_view = True
+        return view
 
     def groups(self, key: str) -> list[Record]:
         """Vistas de todas las repeticiones del grupo ``key``."""
-        return [Record(self.schema, self.ref, self.handle, entry.value, self.origin, ws=self._ws,
-                       index=self._index, entry=entry, document=self._document)
-                for entry in self.block.find_all(key) if isinstance(entry.value, Block)]
+        views = [Record(self.schema, self.ref, self.handle, entry.value, self.origin, ws=self._ws,
+                        index=self._index, entry=entry, document=self._document, entity_key=self.entity_key)
+                 for entry in self.block.find_all(key, ignore_case=self._ignore_case())
+                 if isinstance(entry.value, Block)]
+        for view in views:
+            view._group_view = True
+        return views
 
     def add_group(self, key: str, values: dict) -> Record:
         """Añade una repetición del grupo ``key`` con ``values``; devuelve su vista."""
@@ -359,8 +421,10 @@ class Record:
         for sub_key, value in values.items():
             block.append(sub_key, coerce_value(value))
         entry = self.block.append(key, block)
-        return Record(self.schema, self.ref, self.handle, block, self.origin, ws=self._ws,
-                      index=self._index, entry=entry)
+        view = Record(self.schema, self.ref, self.handle, block, self.origin, ws=self._ws,
+                      index=self._index, entry=entry, entity_key=self.entity_key)
+        view._group_view = True
+        return view
 
     # --- claves dinámicas ---------------------------------------------------------------
 
@@ -488,13 +552,88 @@ class Record:
                                 index=self._index, entry=entry, document=self._document))
         return found
 
-    def script(self, key: str):
-        """Árbol de guion de ``key`` (lo edita ``core.script``, iteración 7)."""
-        raise NotImplementedError
+    @property
+    def entity_key(self) -> str | None:
+        """Clave de la entrada dueña de la **entidad** (``country_event``, ``province_event``), también en
+        las vistas de sus grupos (``record.group("option", 1).entity_key``); None si el registro es la raíz
+        de un documento. La usan ``ScopeByEntry`` y las vistas de un ``TypedEntries``."""
+        return self._entity_key
 
-    def at(self, date):  # ClausewitzDate | None
-        """Vista de historia en la fecha ``date`` (§10.6, iteración 5)."""
-        raise NotImplementedError
+    def _group_spec(self) -> Group | None:
+        """El ``Group`` del esquema que describe esta vista de grupo (por la clave de su entrada); None en
+        la vista de la entidad."""
+        if not self._group_view or self._entry is None or self._entry.key is None:
+            return None
+        return _find_group(self._effective_fields(), self._entry.key.text)
+
+    def _is_group_view(self) -> bool:
+        return self._group_view
+
+    def _script_spec(self, key: str) -> tuple[Script, tuple[str, ...]]:
+        """``(Script, claves que no son guion)`` del campo ``key`` en esta vista."""
+        group = self._group_spec() if self._is_group_view() else None
+        items = group.fields if group is not None else self._effective_fields()
+        found = _find_script(items, key, deep=group is None)
+        if found is None:
+            raise KeyError(f"{self.ref.kind} no declara el guion {key!r}")
+        skip: tuple[str, ...] = ()
+        if key == REST and group is not None:
+            skip = tuple(_declared_keys(group.fields, exclude=REST))
+        return found, skip
+
+    def script(self, key: str, *, create: bool = False):
+        """``ScriptTree`` del campo ``Script`` ``key`` (wizard §10.5, §12.2); None si el bloque no existe.
+
+        ``key`` es la clave del bloque (``record.script("trigger")``) o ``REST`` en la vista de un grupo:
+        ``record.group("option", 1).script(REST)`` da el árbol de los efectos de la segunda opción, sin las
+        claves que el grupo declara como campos (``ScriptTree(skip=…)``). El tipo de guion y el ámbito
+        inicial salen del campo (``Script.kind``, ``Script.scope_for(self.entity_key)``) y el catálogo es
+        ``ScriptCatalog.load().with_symbols(índice)``.
+
+        Leer no escribe (I4). Las mutaciones del árbol pasan por ``ws.touch`` como las del registro: exigen
+        una transacción abierta por quien llama y fallan en un documento de solo texto (D17).
+        ``create=True`` añade antes el bloque vacío que falta, en su sitio según el esquema (es una
+        mutación). ``KeyError`` si el esquema no declara ``key`` como ``Script``.
+        """
+        from ..script.catalog import ScriptCatalog
+        from ..script.tree import ScriptTree
+
+        spec, skip = self._script_spec(key)
+        if key == REST:
+            block = self.block
+        else:
+            entry = self.block.find(key, ignore_case=True)
+            if entry is None or not isinstance(entry.value, Block):
+                if not create:
+                    return None
+                self._touch()
+                entry = self._insert_in_order(key, Block())
+            block = entry.value
+        catalog = ScriptCatalog.load().with_symbols(self._index)
+        return ScriptTree(block, spec.kind, spec.scope_for(self.entity_key), catalog, skip=skip,
+                          touch=self._touch if self._ws is not None else None)
+
+    def _insert_in_order(self, key: str, value) -> Entry:
+        """Inserta ``key`` antes de la primera entrada que el esquema pone detrás (orden canónico, §10.7)."""
+        group = self._group_spec() if self._is_group_view() else None
+        order = list(_declared_keys(group.fields if group is not None else self._effective_fields()))
+        lowered = [k.lower() for k in order]
+        if key.lower() in lowered:
+            position = lowered.index(key.lower())
+            for entry in self.block.entries:
+                if entry.key is not None and entry.key.text.lower() in lowered \
+                        and lowered.index(entry.key.text.lower()) > position:
+                    return self.block.insert_before(entry, key, value)
+        return self.block.append(key, value)
+
+    def at(self, date, bookmarks=None):  # ClausewitzDate | None, Sequence[ClausewitzDate] | None
+        """``HistoryView`` de este registro en ``date`` (§10.6, iteración 5). ``bookmarks``: las fechas de
+        inicio; None = las de los símbolos ``bookmark`` del índice del registro (``attrs["date"]``)."""
+        from .history import HistoryView
+
+        if bookmarks is None:
+            bookmarks = bookmark_dates(getattr(self, "_index", None))
+        return HistoryView(self, date, bookmarks)
 
     def unknown(self) -> list[Entry]:
         """Entradas que el esquema no declara: se conservan (I6) y salen en «Otros campos».
@@ -505,11 +644,14 @@ class Record:
         """
         fields, groups, dynamics = self._index_schema()
         found: list[Entry] = []
+        fold = self.schema.ignore_case
         covered_root = set(fields) | set(groups) | self._opaque_keys()
+        if fold:
+            covered_root = {key.lower() for key in covered_root}
         children = _children_spec(self._effective_fields())
         root_specs = [spec for spec, container in dynamics.values() if container is None]
         for entry in self.block.entries:
-            if entry.key is None or entry.key.text in covered_root:
+            if entry.key is None or (entry.key.text.lower() if fold else entry.key.text) in covered_root:
                 continue
             if children is not None and isinstance(entry.value, Block):
                 continue
@@ -520,14 +662,15 @@ class Record:
                 continue
             found.append(entry)
         for key, group in groups.items():
-            entry = self.block.find(key)
+            entry = self.block.find(key, ignore_case=fold)
             if entry is None or not isinstance(entry.value, Block):
                 continue
-            covered = frozenset(field.key for field in group.fields if isinstance(field, Field))
+            covered = frozenset(field.key.lower() if fold else field.key
+                                for field in group.fields if isinstance(field, Field))
             dynamic_spec = next((spec for name, (spec, container) in dynamics.items()
                                  if container == key), None)
             for sub in entry.value.entries:
-                if sub.key is None or sub.key.text in covered:
+                if sub.key is None or (sub.key.text.lower() if fold else sub.key.text) in covered:
                     continue
                 if dynamic_spec is not None and self._in_catalog(dynamic_spec, self._catalog(dynamic_spec),
                                                                  sub.key.text):
@@ -543,7 +686,7 @@ class Record:
         fields, _, _ = self._index_schema()
         problems: list[Problem] = []
         for key, field in fields.items():
-            entries = self.block.find_all(key, ignore_case=field.ignore_case)
+            entries = self.block.find_all(key, ignore_case=self._ignore_case(field))
             if len(entries) > 1 and not field.repeat:
                 problems.append(make_issue("duplicate_field", self, field=(key,), key=key))
             for entry in entries:
@@ -571,7 +714,80 @@ class Record:
 
     def loc_keys(self) -> list[tuple[LocSpec, str]]:
         """Claves de localización de este registro: ``(LocSpec, clave ya formateada)``."""
-        return [(spec, spec.template.replace("{id}", self.ref.ident)) for spec in self.schema.loc]
+        found: list[tuple[LocSpec, str]] = []
+        for spec in self.schema.loc:
+            if spec.field:
+                found.extend((spec, key) for key in field_loc_keys(self.block, spec.field))
+            else:
+                found.append((spec, spec.template.replace("{id}", self.ref.ident)))
+        return found
+
+
+def _find_group(items, key: str) -> Group | None:
+    """El primer ``Group`` con clave ``key`` en ``items`` (también dentro de secciones y otros grupos)."""
+    for item in items:
+        if isinstance(item, Section):
+            found = _find_group(item.items, key)
+        elif isinstance(item, Group):
+            if item.key.lower() == key.lower():
+                return item
+            found = _find_group(item.fields, key)
+        else:
+            found = None
+        if found is not None:
+            return found
+    return None
+
+
+def _find_script(items, key: str, *, deep: bool = True) -> Script | None:
+    """El ``Script`` ``key`` de ``items`` (por secciones; sin entrar en grupos salvo ``deep=False``)."""
+    for item in items:
+        if isinstance(item, Section):
+            found = _find_script(item.items, key, deep=deep)
+            if found is not None:
+                return found
+        elif isinstance(item, Script) and item.key.lower() == key.lower():
+            return item
+    return None
+
+
+def _declared_keys(items, *, exclude: str | None = None):
+    """Claves que declaran ``items`` en su orden (campos, grupos y guiones), sin ``exclude``."""
+    for item in items:
+        if isinstance(item, Section):
+            yield from _declared_keys(item.items, exclude=exclude)
+        elif isinstance(item, (Field, Group, Script, Opaque)):
+            key = item.key
+            if key != exclude and key != REST:
+                yield key
+                for alias in getattr(item, "aliases", ()) or ():
+                    yield alias
+
+
+def is_loc_key(text) -> bool:
+    """True si ``text`` parece una clave de localización (sin espacios): un título en prosa no lo es."""
+    return isinstance(text, str) and bool(text) and not any(ch.isspace() for ch in text)
+
+
+def field_loc_keys(block: Block, path: tuple[str, ...]) -> list[str]:
+    """Las claves guardadas en el campo ``path`` de ``block`` (``("title",)``, ``("option", "name")``),
+    una por repetición del grupo; los textos en prosa no cuentan."""
+    blocks = [block]
+    for part in path[:-1]:
+        blocks = [entry.value for current in blocks for entry in current.find_all(part)
+                  if isinstance(entry.value, Block)]
+    keys = []
+    for current in blocks:
+        entry = current.find(path[-1], ignore_case=True)
+        if entry is not None and isinstance(entry.value, Scalar) and is_loc_key(entry.value.text):
+            keys.append(entry.value.text)
+    return keys
+
+
+def option_letter(position: int) -> str:
+    """A, B, C… para la repetición ``position`` (0, 1, 2…) de un grupo: ``EVTOPT{letter}{id}``."""
+    letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+    return letters[position] if position < len(letters) else f"{letters[position // 26 - 1]}{letters[position % 26]}"
 
 
 def coerce_value(value) -> Scalar | Block:
@@ -579,6 +795,18 @@ def coerce_value(value) -> Scalar | Block:
     from ..clausewitz.nodes import coerce_value as cst_coerce
 
     return cst_coerce(value)
+
+
+def _find_field(items, key: str) -> Field | None:
+    """El ``Field`` ``key`` de primer nivel (dentro de secciones), o None."""
+    for item in items:
+        if isinstance(item, Section):
+            found = _find_field(item.items, key)
+            if found is not None:
+                return found
+        elif isinstance(item, Field) and item.key == key:
+            return item
+    return None
 
 
 def build_block(schema: EntitySchema, ident: str, values: dict, index=None) -> Block:
@@ -590,6 +818,9 @@ def build_block(schema: EntitySchema, ident: str, values: dict, index=None) -> B
     merged.update(values)
     if schema.ident.mode == "field":
         merged[schema.ident.value] = ident
+        id_field = _find_field(schema.fields, schema.ident.value)
+        if id_field is not None and isinstance(id_field.type, Int) and isinstance(ident, str) and ident.isdigit():
+            merged[schema.ident.value] = int(ident)          # ``id = 200000000`` de un evento: entero
     block = Block()
 
     def emit(items) -> None:
@@ -609,6 +840,11 @@ def build_block(schema: EntitySchema, ident: str, values: dict, index=None) -> B
                         block.append(key, value_type.write(item_value, None))
             elif isinstance(item, Group):
                 payload = merged.get(item.key)
+                if isinstance(payload, (list, tuple)) and item.repeat:
+                    for one in payload:
+                        if isinstance(one, dict):
+                            block.append(item.key, _group_block(item, one))
+                    continue
                 if isinstance(payload, dict):
                     inner = Block()
                     for sub_key, item_value in payload.items():
@@ -628,6 +864,12 @@ def build_block(schema: EntitySchema, ident: str, values: dict, index=None) -> B
                         inner.append(sub_key, value_type.write(item_value, None))
                     if inner.entries or item.required:
                         block.append(item.key, inner)
+            elif isinstance(item, Script):
+                payload = merged.get(item.key)
+                if isinstance(payload, Block):
+                    block.append(item.key, payload)
+                elif isinstance(payload, dict) and not payload:      # bloque de guion vacío de la plantilla
+                    block.append(item.key, Block())
             elif isinstance(item, Section):
                 emit(item.items)
 
@@ -638,6 +880,15 @@ def build_block(schema: EntitySchema, ident: str, values: dict, index=None) -> B
         if case in variant.cases:
             emit(variant.cases[case])
     return block
+
+
+def _group_block(group: Group, payload: dict) -> Block:
+    """El bloque de una repetición de ``group`` con los valores de ``payload`` (campos simples)."""
+    inner = Block()
+    for sub in group.fields:
+        if isinstance(sub, Field) and payload.get(sub.key) is not None and payload.get(sub.key) is not MISSING:
+            inner.append(sub.key, sub.type.write(payload[sub.key], None))
+    return inner
 
 
 def _own_roles(schema: EntitySchema) -> frozenset[str]:
@@ -655,8 +906,8 @@ class Entities:
     que pueden ser lo recién guardado y aún no releído por el índice) se enumeran con el layout y ganan
     sobre el índice; el resto sale del índice. Así lo creado y no guardado sale, lo borrado no, un
     ``undo`` lo devuelve y tras guardar sigue saliendo aunque el índice vaya por detrás.
-    ``create``, ``duplicate``, ``delete`` y ``restore_vanilla`` abren su propia transacción
-    (``undo.create_<kind>`` y compañía), I5.
+    ``create``, ``duplicate``, ``rename``, ``move_to_group``, ``delete`` y ``restore_vanilla`` abren su
+    propia transacción (``undo.create_<kind>`` y compañía), I5.
     """
 
     def __init__(self, ws: Workspace, index, loc: LocSync) -> None:
@@ -714,8 +965,10 @@ class Entities:
 
     def _indexed(self, schema: EntitySchema) -> bool:
         index = self.index
-        if index is None:
-            return False
+        if index is None or isinstance(schema.layout, Registry):
+            return False   # los símbolos ``tag`` del registro son líneas escalares, no registros que abrir
+        if isinstance(schema.layout, GuiElements):
+            return False   # el índice nombra las ventanas por su nombre; aquí el id es la ruta del elemento
         try:
             return self._provides(schema) in index.kinds()
         except Exception:  # noqa: BLE001 - un índice falso puede no saberlo
@@ -832,6 +1085,48 @@ class Entities:
                               ws=self.ws, index=self.index, entry=entry, document=document)
         raise KeyError(f"{ref.kind}:{ref.ident} no está en {rel}")
 
+    def id_allocator(self, family: str = "event"):
+        """``EventIdAllocator`` del proyecto: el índice más los ids de los documentos abiertos del esquema
+        que usa ``family`` (lo creado sin reindexar)."""
+        from ..script.idalloc import EventIdAllocator
+
+        pending: set[int] = set()
+        for schema in registry.all_schemas():
+            if schema.ident_rule.mode == "int_range" and schema.ident_rule.value == family:
+                for handle in self._open_handles(schema):
+                    document, _ = self._effective_document(handle)
+                    if document is None:
+                        continue
+                    for ident, _, _ in schema.layout.entries(document, handle.rel):
+                        if ident.isdigit():
+                            pending.add(int(ident))
+        settings = getattr(self.ws, "settings", None)
+        return EventIdAllocator(self.index, settings, pending=pending)
+
+    def _check_new_ident(self, schema: EntitySchema, ident: str) -> None:
+        """``InvalidIdentError`` si ``ident`` no vale para un registro nuevo de ``schema``."""
+        problem = ident_problem(schema, ident)
+        if problem is not None:
+            raise InvalidIdentError(problem, ident)
+        rule = schema.ident_rule
+        # Solo los ids de evento tienen rango del proyecto (``ProjectSettings.id_ranges``); las provincias usan
+        # ``INT_RANGE("province")`` para la forma (un número) y su id es el de ``definition.csv``.
+        if rule.mode == "int_range" and (rule.value or "event") == "event":
+            allocator = self.id_allocator("event")
+            problem = allocator.problem(ident)
+            if problem is not None:
+                params = {}
+                try:
+                    params["next_free"] = allocator.next_free()
+                except ValueError:
+                    pass
+                collision = allocator.collision(int(ident)) if ident.isdigit() else None
+                if collision is not None:
+                    params.update(rel=str(collision.rel), layer=collision.layer.value)
+                raise InvalidIdentError(problem, ident, **params)
+        if self._ident_exists(schema, ident):
+            raise InvalidIdentError("taken", ident)
+
     def parent(self, ref: RecordRef) -> str | None:
         """Grupo del registro en un ``GroupedIn`` de nivel 1 (la cultura → su grupo); None si no tiene."""
         record = self.open(ref)
@@ -853,7 +1148,9 @@ class Entities:
     def origin_of(self, ref: RecordRef) -> str:
         """Cinta de origen de §13.5: ``"game"`` (se copiará al guardar), ``"mod"``, ``"mod_over_game"``
         (el mod sustituye al juego) o ``"new"``."""
-        record = self.open(ref)
+        return self._origin(self.open(ref))
+
+    def _origin(self, record: Record) -> str:
         handle = record.handle
         if record._document is not None:
             return "game"
@@ -879,7 +1176,7 @@ class Entities:
         return container
 
     def create(self, kind: str, ident: str, values: dict | None = None, *,
-               texts: Mapping[str, Mapping[str, str]] | None = None) -> RecordRef:
+               texts: Mapping[str, Mapping[str, str]] | None = None, target_rel=None) -> RecordRef:
         """Crea un registro en una transacción (archivo + compañeros + claves de localización).
 
         Un id inválido o ya existente lanza ``InvalidIdentError`` sin cambiar nada. ``texts``:
@@ -888,18 +1185,24 @@ class Entities:
         """
         schema = self._schema(kind)
         self._require_editable(schema)
-        problem = ident_problem(schema, ident)
-        if problem is not None:
-            raise InvalidIdentError(problem, ident)
-        if self._ident_exists(schema, ident):
-            raise InvalidIdentError("taken", ident)
+        self._check_new_ident(schema, ident)
         values = dict(values or {})
+        layout = schema.layout
+        entry_key = None
+        if isinstance(layout, TypedEntries):
+            entry_key = layout.entry_key(values)
+            values.pop(layout.type_field, None)
         try:
-            rel, path = schema.layout.target_for_new(self._ctx(), ident, values)
+            rel, path = layout.target_for_new(self._ctx(), ident, values)
         except ValueError:
             raise InvalidIdentError("no_group", ident) from None
+        if target_rel is not None:
+            rel = VPath.of(target_rel)
+            if not self._layout_touches(schema, rel):
+                raise InvalidIdentError("bad_target", ident, rel=str(rel))
         existing = self.ws.peek(rel)
-        if path.parts:
+        ensure = getattr(layout, "ensure_container", None)
+        if path.parts and ensure is None:
             probe = existing if existing is not None and not existing.deleted else None
             document = probe.model.document if probe is not None else self._read_only_document(rel)
             if document is None or path.resolve(document) is None:
@@ -909,11 +1212,18 @@ class Entities:
             handle = self.ws.open(rel, create=True)
             self.ws.touch(handle)   # la transacción captura el estado previo (I5)
             document = handle.model.document
-            entry = schema.layout.insert(document, self._container(schema, document, path), ident, block)
+            if ensure is not None:
+                container = ensure(document)
+            else:
+                container = self._container(schema, document, path)
+            if entry_key is not None:
+                entry = layout.insert(document, container, ident, block, entry_key)
+            else:
+                entry = layout.insert(document, container, ident, block)
             record = Record(schema, RecordRef(kind, ident, rel), handle, block,
                             None if handle.origin is None else handle.origin.layer.kind,
                             ws=self.ws, index=self.index, entry=entry)
-            self._ensure_loc(schema, ident, texts)
+            self._ensure_loc(schema, ident, texts, block)
             from .companions import EditContext
 
             for companion in schema.companions:
@@ -1009,6 +1319,185 @@ class Entities:
                     continue
                 self.loc.delete(spec.template.replace("{id}", ref.ident))
 
+    # --- renombrar (§15) ----------------------------------------------------------------
+
+    def _ident_taken(self, schema: EntitySchema, ident: str) -> bool:
+        """Como ``_ident_exists`` y, además, True si otro archivo define un símbolo del mismo tipo con ese
+        nombre (un modificador de ``static_modifiers.txt``): los usos de los dos se confundirían."""
+        if self._ident_exists(schema, ident):
+            return True
+        if self.index is None:
+            return False
+        try:
+            lookup = getattr(self.index, "effective", None) or self.index.lookup
+            symbols = lookup(self._provides(schema), ident)
+        except Exception:  # noqa: BLE001 - un índice falso puede no saberlo
+            return False
+        return any(not self._layout_touches(schema, symbol.rel) for symbol in symbols or ())
+
+    def _rename_error(self, record: Record, new_ident: str, found) -> Exception | None:
+        """Por qué no se puede renombrar ``record`` a ``new_ident`` (la excepción, sin lanzarla), o None."""
+        from .rename import (BLOCKED_GAME_FILE, BLOCKED_GUI_ELEMENT, BLOCKED_READ_ONLY_FILE, BLOCKED_UNRESOLVED_USES,
+                             RenameBlockedError)
+
+        schema = record.schema
+        if not schema.editable:
+            return ReadOnlySchemaError(f"{schema.kind} es de solo lectura")
+        problem = ident_problem(schema, new_ident)
+        if problem is not None:
+            return InvalidIdentError(problem, new_ident)
+        if new_ident == record.ref.ident:
+            return InvalidIdentError("unchanged", new_ident)
+        layout = schema.layout
+        if not getattr(layout, "renamable", True):
+            return RenameBlockedError(BLOCKED_GUI_ELEMENT, rel=str(record.handle.rel))
+        if isinstance(layout, OnePerFile) and (found.moved is None or layout._ident(found.moved[1]) != new_ident):
+            return InvalidIdentError("bad_chars", new_ident)   # el archivo nuevo no sería de esta entidad
+        if self._ident_taken(schema, new_ident):
+            return InvalidIdentError("taken", new_ident)
+        if isinstance(layout, OnePerFile):
+            # El archivo cambia de nombre con el id. Si el juego base tiene el viejo, el mod no puede ocultarlo
+            # (sin vaciarlo, que es otra edición): la entidad vieja seguiría existiendo. Se bloquea, como el borrado.
+            if self._origin(record) not in ("mod", "new"):
+                return RenameBlockedError(BLOCKED_GAME_FILE, rel=str(record.handle.rel))
+            target = found.moved[1]
+            handle = self.ws.peek(target)
+            below = next((entry for entry in self.ws.vfs.stack(target)
+                          if entry.layer.kind is not LayerKind.MOD
+                          and not self.ws.vfs.hidden_by_replace_path(entry)), None)
+            if below is not None or (handle is not None and not handle.deleted) \
+                    or (handle is None and self.ws.vfs.resolve(target) is not None):
+                return InvalidIdentError("taken", new_ident)
+        if found.read_only:
+            return RenameBlockedError(BLOCKED_READ_ONLY_FILE, rel=str(next(iter(found.read_only.values()))))
+        if found.unresolved:
+            return RenameBlockedError(BLOCKED_UNRESOLVED_USES, uses=tuple(found.unresolved))
+        return None
+
+    def rename_plan(self, ref: RecordRef, new_ident: str):
+        """Lo que haría ``rename(ref, new_ident)``, sin cambiar nada (I4): un ``RenamePlan`` con los usos por
+        archivo, las claves de localización que cambian, los archivos que se copiarán del juego y, en
+        ``error``, el motivo por el que se rechazaría (None si se puede). Sirve también con un id aún
+        inválido (mientras se escribe): los usos no dependen del id nuevo."""
+        from . import rename as engine
+
+        record = self.open(ref)
+        found = engine.scan(self, record, new_ident)
+        return engine.plan_of(found, record.ref, self._rename_error(record, new_ident, found))
+
+    def rename(self, ref: RecordRef, new_ident: str) -> RecordRef:
+        """Renombrado seguro (§15): cambia el id en la definición, en todos sus usos (``index.refs_to`` y
+        lo abierto sin guardar), en lo que mantienen los compañeros (``on_rename``) y en las claves de
+        localización que siguen la plantilla del esquema (las ``shared`` no). Una transacción
+        ``undo.rename_<kind>``: un deshacer lo devuelve todo (I5). Solo cambia el token del id en cada sitio
+        (I3); los archivos del juego que toca se copian al mod al guardar.
+
+        Un id inválido, igual al actual o ya ocupado lanza ``InvalidIdentError``; lo que dejaría el
+        renombrado a medias, ``RenameBlockedError`` (ver ``rename.py``). En los dos casos no cambia nada.
+        Una unidad (``OnePerFile``) cambia además de archivo: ``units/<id>.txt``. Devuelve la referencia
+        nueva."""
+        from . import rename as engine
+        from .companions import EditContext
+
+        record = self.open(ref)
+        schema = record.schema
+        found = engine.scan(self, record, new_ident)
+        error = self._rename_error(record, new_ident, found)
+        if error is not None:
+            raise error
+        old = record.ref.ident
+        rel = record.handle.rel
+        with self.ws.transaction(f"undo.rename_{ref.kind}", kind=ref.kind, ident=old, new=new_ident):
+            engine.apply_sites(self.ws, found)
+            if found.moved is not None:
+                rel = self._move_document(*found.moved)
+            renamed = self.open(RecordRef(ref.kind, new_ident, rel))
+            ctx = EditContext(self.ws, self.index, self.loc)
+            for companion in schema.companions:
+                companion.on_rename(ctx, renamed, old, new_ident)
+            self._rename_loc(found.loc)
+        return RecordRef(ref.kind, new_ident, rel)
+
+    def _move_document(self, old_rel: VPath, new_rel: VPath) -> VPath:
+        """El documento de ``old_rel`` pasa a ``new_rel`` con su texto actual (en la transacción de quien
+        llama): el viejo va a la papelera al guardar y el nuevo se crea con los mismos bytes."""
+        from ..project.codecs import codec_for
+
+        handle = self.ws.open(old_rel)
+        kind = handle.kind
+        model, _ = codec_for(kind).load(codec_for(kind).snapshot(handle.model), new_rel)
+        self.ws.delete(old_rel)
+        return self.ws.create(new_rel, kind, model).rel
+
+    def _rename_loc(self, changes) -> None:
+        """Aplica los ``LocRename`` de un renombrado: mueve las filas del mod o copia las del juego."""
+        from ..csvloc.model import LANGUAGE_CODES
+        from .rename import LOC_COPY, LOC_RENAME
+
+        for change, area in changes:
+            if change.action == LOC_RENAME:
+                self.loc.rename(change.old, change.new)
+            elif change.action == LOC_COPY:
+                # Los 13 idiomas de la fila: copiar una clave del juego no pierde sus otras traducciones.
+                texts = {lang: self.loc.text(change.old, lang) for lang in LANGUAGE_CODES}
+                self.loc.ensure({change.new: {lang: text for lang, text in texts.items() if text}}, area=area)
+
+    # --- grupos (§14.13) ----------------------------------------------------------------
+
+    def group_kind(self, kind: str) -> str | None:
+        """El ``kind`` de los grupos de un esquema ``GroupedIn`` de nivel 1 (``culture`` →
+        ``culture_group``): el esquema de nivel 0 del mismo archivo. None si ``kind`` no va en grupos."""
+        layout = self._schema(kind).layout
+        if not isinstance(layout, GroupedIn) or layout.level == 0:
+            return None
+        for schema in registry.all_schemas():
+            other = schema.layout
+            if isinstance(other, GroupedIn) and other.level == 0 \
+                    and VPath.of(other.path).key == VPath.of(layout.path).key:
+                return schema.kind
+        return None
+
+    def groups(self, kind: str) -> list[str]:
+        """Grupos donde puede ir un registro de ``kind`` (``GroupedIn`` de nivel 1), en orden de archivo y
+        también los vacíos, en la vista efectiva (I7). Lista vacía si ``kind`` no va en grupos."""
+        layout = self._schema(kind).layout
+        if not isinstance(layout, GroupedIn) or layout.level == 0:
+            return []
+        rel = VPath.of(layout.path)
+        handle = self.ws.peek(rel)
+        if handle is not None and handle.deleted:
+            document = self._underlying(rel)
+        else:
+            document = self._read_only_document(rel)
+        return [] if document is None else [name for name, _, _ in layout.groups(document)]
+
+    def move_to_group(self, ref: RecordRef, group: str) -> RecordRef:
+        """Mueve un registro de un ``GroupedIn`` de nivel 1 (una cultura) al final de ``group``, en una
+        transacción ``undo.move_<kind>``. El bloque se quita y se añade con su texto intacto: comentarios,
+        sangría y formato (§14.13, I3); el resto del archivo no cambia.
+
+        ``InvalidIdentError("no_group")`` si el grupo no existe; ``ValueError`` si el esquema no va en
+        grupos. Si ya está en ``group`` no hace nada (ni transacción ni paso de deshacer)."""
+        schema = self._schema(ref.kind)
+        self._require_editable(schema)
+        layout = schema.layout
+        if not isinstance(layout, GroupedIn) or layout.level == 0:
+            raise ValueError(f"{ref.kind} no va en grupos")
+        record = self.open(ref)
+        document = record._document if record._document is not None else record.handle.model.document
+        if not any(name == group for name, _, _ in layout.groups(document)):
+            raise InvalidIdentError("no_group", group)
+        if self._parent(schema, document, ref.ident) == group:
+            return record.ref
+        with self.ws.transaction(f"undo.move_{ref.kind}", kind=ref.kind, ident=ref.ident, group=group):
+            record._touch()   # si se veía el archivo del juego bajo una lápida, lo revive
+            document = record.handle.model.document
+            source = parent_block(document, record._entry)
+            target = next(block for name, block, _ in layout.groups(document) if name == group)
+            source.move(record._entry, to=target)
+            self._reread(record.handle)
+        return RecordRef(ref.kind, ref.ident, record.handle.rel)
+
     def _vanilla_entry(self, record: Record):
         """``(documento del juego, entrada del registro en él)`` si el registro se ve desde el mod o con
         cambios y el juego (o una dependencia) tiene su versión; None si no."""
@@ -1072,17 +1561,23 @@ class Entities:
 
     # --- localización -------------------------------------------------------------------
 
-    def _loc_pairs(self, schema: EntitySchema, ident: str) -> dict[str, str]:
-        """Clave de localización → área, agrupada por ``LocSpec``."""
+    def _loc_pairs(self, schema: EntitySchema, ident: str, block: Block | None = None) -> dict[str, str]:
+        """Clave de localización → área, agrupada por ``LocSpec``. Con ``LocSpec.field`` la clave es el valor
+        del campo en ``block`` (una por repetición; los textos en prosa no cuentan)."""
         pairs: dict[str, str] = {}
         for spec in schema.loc:
+            if spec.field:
+                if block is not None:
+                    for key in field_loc_keys(block, spec.field):
+                        pairs[key] = spec.area
+                continue
             pairs[spec.template.replace("{id}", ident)] = spec.area
         return pairs
 
     def _ensure_loc(self, schema: EntitySchema, ident: str,
-                    texts: Mapping[str, Mapping[str, str]] | None) -> None:
+                    texts: Mapping[str, Mapping[str, str]] | None, block: Block | None = None) -> None:
         by_area: dict[str, dict] = {}
-        for key, area in self._loc_pairs(schema, ident).items():
+        for key, area in self._loc_pairs(schema, ident, block).items():
             by_area.setdefault(area, {})[key] = dict((texts or {}).get(key, {}) or {})
         for area, keys in by_area.items():
             self.loc.ensure(keys, area=area)

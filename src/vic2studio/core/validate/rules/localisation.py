@@ -168,8 +168,8 @@ def used_names(index) -> set[str]:
     """Claves que algo usa: referencias explícitas y nombres de símbolos con sus sufijos derivados."""
     used = {ref.name for ref in index.refs(m.KIND_LOC_KEY)}
     for kind in index.kinds():
-        if kind in (m.KIND_LOC_KEY, m.KIND_IMAGE, m.KIND_POP_BLOCK):
-            continue
+        if kind in (m.KIND_LOC_KEY, m.KIND_IMAGE, m.KIND_POP_BLOCK, m.ACTOR_KIND):
+            continue                 # sin textos: una clave que se llame como un actor de .gfx no queda «usada»
         for symbol in index.symbols(kind):
             names = [symbol.name]
             if kind in (m.KIND_PROVINCE, m.KIND_SEA_PROVINCE):

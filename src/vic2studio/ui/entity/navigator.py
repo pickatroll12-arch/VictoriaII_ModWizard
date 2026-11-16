@@ -67,6 +67,9 @@ class EntityNavigator(QWidget):
     duplicate_requested = Signal(object)
     delete_requested = Signal(object)
     restore_requested = Signal(object)
+    rename_requested = Signal(object)
+    move_requested = Signal(object)
+    new_group_requested = Signal()
 
     def __init__(self, session, schema, view: str | None = None, parent: QWidget | None = None):
         super().__init__(parent)
@@ -108,6 +111,25 @@ class EntityNavigator(QWidget):
         for button in (self.new_button, self.duplicate_button, self.delete_button, self.restore_button):
             buttons.addWidget(button)
         outer.addLayout(buttons)
+        more = QHBoxLayout()
+        more.setSpacing(4)
+        self.rename_button = QPushButton()
+        self.rename_button.setObjectName("entityRename")
+        self.rename_button.clicked.connect(lambda: self._emit_for(self.rename_requested))
+        more.addWidget(self.rename_button)
+        self.move_button = QPushButton()
+        self.move_button.setObjectName("entityMove")
+        self.move_button.clicked.connect(lambda: self._emit_for(self.move_requested))
+        more.addWidget(self.move_button)
+        self.new_group_button = QPushButton()
+        self.new_group_button.setObjectName("entityNewGroup")
+        self.new_group_button.clicked.connect(self.new_group_requested)
+        more.addWidget(self.new_group_button)
+        more.addStretch(1)
+        outer.addLayout(more)
+        if not self.grouped:      # solo se ocultan: enseñar un botón aún sin padre lo abriría como ventana
+            self.move_button.hide()
+            self.new_group_button.hide()
         self._summaries = []
         translator().languageChanged.connect(self._on_language_changed)
         self.retranslate()
@@ -126,6 +148,12 @@ class EntityNavigator(QWidget):
         self.delete_button.setText(tr("entity.delete"))
         self.restore_button.setText(tr("entity.restore"))
         self.restore_button.setToolTip(tr("entity.restore_tooltip"))
+        self.rename_button.setText(tr("entity.rename"))
+        self.rename_button.setToolTip(tr("entity.rename_tooltip"))
+        self.move_button.setText(tr("entity.move"))
+        self.move_button.setToolTip(tr("entity.move_tooltip"))
+        self.new_group_button.setText(tr("entity.new_group_button"))
+        self.new_group_button.setToolTip(tr("entity.new_group_tooltip"))
         root = self.tree.invisibleRootItem()
         for item in self._items(root):
             origin = item.data(1, _REF_ROLE)
@@ -148,6 +176,16 @@ class EntityNavigator(QWidget):
         with QSignalBlocker(self.tree):
             self.tree.clear()
             groups: dict[str, QTreeWidgetItem] = {}
+            if self.grouped and entities is not None:
+                # También los grupos vacíos (uno recién creado): salen en su orden de archivo.
+                group_kind = self._group_kind()
+                group_rels = {s.ref.ident: s.rel for s in entities.list(group_kind)} if group_kind != self.schema.kind \
+                    else {}
+                for name in entities.groups(self.schema.kind):
+                    parent = QTreeWidgetItem(self.tree, [name, ""])
+                    parent.setData(0, _REF_ROLE, RecordRef(group_kind, name, group_rels.get(name)))
+                    parent.setExpanded(False)
+                    groups[name] = parent
             for summary in self._summaries:
                 parent = self.tree.invisibleRootItem()
                 if self.grouped and summary.parent:
@@ -242,6 +280,9 @@ class EntityNavigator(QWidget):
         self.new_button.setEnabled(writable)
         self.duplicate_button.setEnabled(writable and own)
         self.delete_button.setEnabled(writable and own)
+        self.rename_button.setEnabled(writable and ref is not None)
+        self.move_button.setEnabled(writable and own)
+        self.new_group_button.setEnabled(writable)
         entities = getattr(self.session, "entities", None)
         can_restore = False
         if writable and own and entities is not None:

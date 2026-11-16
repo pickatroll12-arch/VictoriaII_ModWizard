@@ -1,0 +1,10 @@
+{
+  "schema.terrain.title": "Terrains",
+  "schema.terrain.name": "Terrain",
+  "schema.terrain.doc": "Terrain categories in map/terrain.txt (the «categories» block). Read only: they feed the terrain map mode and the terrain picker.",
+  "schema.terrain.section.general": "Appearance",
+  "schema.terrain.section.effects": "Effects",
+  "schema.terrain.field.color": "Colour on the map",
+  "schema.terrain.field.is_water": "Is water",
+  "schema.terrain.dynamic.effects": "Terrain effects"
+}

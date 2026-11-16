@@ -1,0 +1,22 @@
+{
+  "schema.default_map.title": "Ajustes del mapa",
+  "schema.default_map.name": "Ajustes del mapa",
+  "schema.default_map.doc": "map/default.map: el número máximo de provincias, la lista de provincias de mar (sea_starts) y los nombres de los archivos del mapa. Es un único registro.",
+  "schema.default_map.section.provinces": "Provincias",
+  "schema.default_map.section.files": "Archivos del mapa",
+  "schema.default_map.field.max_provinces": "Máximo de provincias",
+  "schema.default_map.field.max_provinces.help": "Un id de provincia vale si es mayor que 0 y menor que este número.",
+  "schema.default_map.field.sea_starts": "Provincias de mar",
+  "schema.default_map.field.definitions": "Tabla de provincias",
+  "schema.default_map.field.provinces": "Imagen de provincias",
+  "schema.default_map.field.positions": "Posiciones",
+  "schema.default_map.field.terrain": "Imagen de terreno",
+  "schema.default_map.field.rivers": "Imagen de ríos",
+  "schema.default_map.field.terrain_definition": "Definición de terrenos",
+  "schema.default_map.field.tree_definition": "Definición de árboles",
+  "schema.default_map.field.continent": "Archivo de continentes",
+  "schema.default_map.field.adjacencies": "Archivo de estrechos",
+  "schema.default_map.field.region": "Archivo de regiones",
+  "schema.default_map.field.region_sea": "Archivo de regiones de mar",
+  "schema.default_map.field.province_flag_sprite": "Sprite de banderas de provincia"
+}

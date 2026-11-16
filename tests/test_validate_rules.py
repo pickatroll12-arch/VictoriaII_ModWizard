@@ -39,6 +39,10 @@ def validate(game, *, codes=None, replace_paths=(), baseline=False, overrides=No
     return Validator(ctx, baseline=base).validate(codes=codes)
 
 
+# Un actor inventado con la forma de los de interface/*.gfx (``objectTypes`` → ``EMFXActorType``).
+ACTORS_GFX = ('objectTypes = {\r\n\tEMFXActorType = {\r\n\t\tname = "GenericInfantry"\r\n'
+              '\t\tactorfile = "gfx/anims/mg_infantry.xac"\r\n\t}\r\n}\r\n')
+
 # código → (archivos del mod, argumentos que deben aparecer en algún problema de ese código, archivo del problema)
 CASES = {
     "unclosed_block": ({"decisions/broken.txt": "political_decisions = {\r\n\td = { }\r\n"},
@@ -155,6 +159,85 @@ CASES = {
                                + "new_cb = {\r\n\tmonths = 1\r\n}\r\n"}, {"cb": "new_cb"}, "common/cb_types.txt"),
     "peace_order_unknown": ({"common/cb_types.txt": GAME_FILES["common/cb_types.txt"].replace("annex", "ghost_cb")},
                             {"cb": "ghost_cb"}, "common/cb_types.txt"),
+    # Cierre de la iteración 4 (el detalle de cada una, en test_validate_it4_y1).
+    "sprite_missing": ({"interface/tst_actors.gfx": ACTORS_GFX,
+                        "units/lancer.txt": "lancer = {\r\n\ttype = land\r\n\tsprite = Lancer\r\n}\r\n"},
+                       {"unit": "lancer", "sprite": "Lancer", "attr": "sprite"}, "units/lancer.txt"),
+    "unit_port_level_too_high": (
+        {"common/buildings.txt": GAME_FILES["common/buildings.txt"]
+         + "naval_base = {\r\n\ttype = naval_base\r\n\tmax_level = 4\r\n}\r\n",
+         "units/galleon.txt": "galleon = {\r\n\ttype = naval\r\n\tmin_port_level = 5\r\n}\r\n"},
+        {"unit": "galleon", "level": 5, "max": 4, "building": "naval_base"}, "units/galleon.txt"),
+    "government_flagtype_unknown": (
+        {"common/governments.txt": GAME_FILES["common/governments.txt"]
+         + "junta = {\r\n\tconservative = yes\r\n\tflagType = theocracy\r\n}\r\n"},
+        {"government": "junta", "flag_type": "theocracy"}, "common/governments.txt"),
+    "culture_name_duplicate": (
+        {"common/cultures.txt": GAME_FILES["common/cultures.txt"]
+         + "east_folk = {\r\n\tleader = european\r\n\talander = {\r\n\t\tcolor = { 1 2 3 }\r\n\t}\r\n}\r\n"},
+        {"culture": "alander", "group": "east_folk", "first_group": "north_folk"}, "common/cultures.txt"),
+    "bookmark_without_pops": (
+        {"common/bookmarks.txt": GAME_FILES["common/bookmarks.txt"]
+         + 'bookmark = {\r\n\tname = "MG_EARLY"\r\n\tdate = 1820.1.1\r\n}\r\n'},
+        {"bookmark": "MG_EARLY", "date": "1820.1.1"}, "common/bookmarks.txt"),
+    "bookmark_camera_outside_map": (
+        {"common/bookmarks.txt": GAME_FILES["common/bookmarks.txt"]
+         + 'bookmark = {\r\n\tname = "MG_FAR"\r\n\tdate = 1836.1.1\r\n\tcameraX = 500\r\n\tcameraY = 10\r\n}\r\n'},
+        {"bookmark": "MG_FAR", "x": "500", "y": "10", "width": 64, "height": 32}, "common/bookmarks.txt"),
+    # Iteración 6: países, órdenes de batalla y guerras (el detalle, en test_validate_it6).
+    "ruling_party_inactive": (
+        {ALAND: GAME_FILES[ALAND].replace("end_date = 2000.1.1", "end_date = 1835.1.1"),
+         AAA: history("ruling_party = AAA_conservative\n")},
+        {"tag": "AAA", "party": "AAA_conservative", "end": "1835.1.1"}, AAA),
+    "capital_not_owned": ({}, {"tag": "BBB", "province": "3", "owner": "CCC"}, "history/countries/BBB - Borland.txt"),
+    "flag_missing": ({}, {"tag": "BBB", "file": "gfx/flags/BBB.tga"}, COUNTRIES),
+    "flag_format": ({}, {"tag": "AAA", "reason": "short"}, "gfx/flags/AAA.tga"),
+    "country_colors_missing": ({"common/country_colors.txt": "AAA = {\r\n\tcolor1 = { 1 2 3 }\r\n}\r\n"},
+                               {"tag": "BBB"}, COUNTRIES),
+    "map_color_duplicate": (
+        {"common/countries/Borland.txt": GAME_FILES["common/countries/Borland.txt"].replace("40 50 60", "10 20 30")},
+        {"color": "10 20 30"}, "common/countries/Borland.txt"),
+    "army_location_sea": ({"history/units/AAA_oob.txt": 'army = {\r\n\tname = "Sea Army"\r\n\tlocation = 9\r\n}\r\n'},
+                          {"army": "Sea Army", "province": "9"}, "history/units/AAA_oob.txt"),
+    "navy_location_inland": (
+        {"history/units/AAA_oob.txt": 'navy = {\r\n\tname = "Lake Fleet"\r\n\tlocation = 6\r\n}\r\n'},
+        {"navy": "Lake Fleet", "province": "6"}, "history/units/AAA_oob.txt"),
+    "regiment_type_mismatch": (
+        {"history/units/AAA_oob.txt": 'army = {\r\n\tname = "Mixed"\r\n\tlocation = 1\r\n'
+                                      '\tregiment = {\r\n\t\tname = "Boat"\r\n\t\ttype = frigate\r\n'
+                                      '\t\thome = 1\r\n\t}\r\n}\r\n'},
+        {"unit": "Boat", "type": "frigate", "expected": "land", "actual": "naval"}, "history/units/AAA_oob.txt"),
+    "wargoal_actor_not_in_war": (
+        {"history/wars/Odd War.txt": "1836.1.1 = {\r\n\tadd_attacker = AAA\r\n\tadd_defender = BBB\r\n"
+                                     "\twar_goal = {\r\n\t\tcasus_belli = conquer_land\r\n\t\tactor = CCC\r\n"
+                                     "\t\treceiver = BBB\r\n\t}\r\n}\r\n"},
+        {"tag": "CCC", "role": "actor"}, "history/wars/Odd War.txt"),
+    "wargoal_state_required": ({}, {"war": "Old War", "cb": "conquer_land"}, "history/wars/Old War.txt"),
+    "war_dates_order": (
+        {"history/wars/Back War.txt": "1836.1.1 = {\r\n\tadd_attacker = AAA\r\n\tadd_defender = BBB\r\n}\r\n"
+                                      "1835.1.1 = {\r\n\trem_attacker = AAA\r\n}\r\n"},
+        {"tag": "AAA", "date": "1835.1.1"}, "history/wars/Back War.txt"),
+    "war_inactive_at_bookmarks": (
+        {"history/wars/Ancient War.txt": "1700.1.1 = {\r\n\tadd_attacker = AAA\r\n\tadd_defender = BBB\r\n}\r\n"
+                                         "1701.1.1 = {\r\n\trem_attacker = AAA\r\n\trem_defender = BBB\r\n}\r\n"},
+        {"war": "Ancient War", "start": "1700.1.1", "end": "1701.1.1"}, "history/wars/Ancient War.txt"),
+    # Interfaz (iteración 8): sprites y ventanas inventados sobre el minijuego.
+    "texture_missing": ({"interface/mg_lost.gfx": 'spriteTypes = {\r\n\tspriteType = {\r\n\t\tname = "GFX_mg_lost"\r\n'
+                                                  '\t\ttexturefile = "gfx/interface/mg_lost.dds"\r\n\t}\r\n}\r\n'},
+                        {"sprite": "GFX_mg_lost"}, "interface/mg_lost.gfx"),
+    "sprite_duplicate": ({"interface/zz_twice.gfx": 'spriteTypes = {\r\n\tspriteType = {\r\n\t\tname = "GFX_mg_icon"\r\n'
+                                                    '\t\ttexturefile = "gfx/interface/mg_icon.dds"\r\n\t}\r\n}\r\n'},
+                         {}, None),
+    "gui_sprite_missing": ({"interface/mg_nowhere.gui": 'guiTypes = {\r\n\twindowType = {\r\n\t\tname = "mg_nw"\r\n'
+                                                        '\t\ticonType = {\r\n\t\t\tname = "mg_nw_icon"\r\n'
+                                                        '\t\t\tspriteType = "GFX_mg_nowhere"\r\n\t\t}\r\n\t}\r\n}\r\n'},
+                           {"sprite": "GFX_mg_nowhere"}, "interface/mg_nowhere.gui"),
+    "gui_orientation_unknown": ({"interface/mg_orient.gui": 'guiTypes = {\r\n\twindowType = {\r\n\t\tname = "mg_or"\r\n'
+                                                            '\t\torientation = "UPPERL_LEFT"\r\n\t}\r\n}\r\n'},
+                                {"orientation": "UPPERL_LEFT"}, "interface/mg_orient.gui"),
+    "gui_named_element_removed": ({"interface/minigame.gui": 'guiTypes = {\r\n\twindowType = {\r\n'
+                                                             '\t\tname = "mg_window"\r\n\t}\r\n}\r\n'},
+                                  {"element": "mg_window/mg_icon"}, "interface/minigame.gui"),
 }
 
 
@@ -219,6 +302,12 @@ _COVERED_ELSEWHERE = {
     "descriptor_user_dir_empty", "replace_path_empty", "replace_path_hides_referenced",
     # heredado del minijuego: ExpectedCleanTests
     "bmp_color_unmapped",
+    # coherencia del mapa (iteración 5): un caso por código en test_map_coherence
+    "bmp_size_mismatch", "definition_bad_number", "province_without_pixels", "province_fragmented",
+    "max_provinces_too_small", "sea_start_unknown", "sea_start_duplicate", "region_empty", "region_not_contiguous",
+    "climate_layout", "positions_missing", "missing_history", "province_file_name", "adjacency_unknown_province",
+    "adjacency_bad_type", "adjacency_through_not_sea", "terrain_sea_mismatch", "definition_duplicate_color",
+    "definition_duplicate_id", "definition_bad_row",
 }
 
 
@@ -388,9 +477,24 @@ class ExpectedCleanTests(unittest.TestCase):
             ("peace_order_unknown", "common/cb_types.txt"),
             ("country_history_missing", "common/countries.txt"),
             ("government_election_without_duration", "common/governments.txt"),
+            # «monarchy» y «communist»: el minijuego solo trae gfx/flags/AAA.tga, sin banderas con tipo.
+            ("government_flagtype_unknown", "common/governments.txt"),
             ("event_ref_missing", "events/minigame_more.txt"),
             ("loc_key_missing", "map/definition.csv"),
             ("bmp_color_unmapped", "map/provinces.bmp"),
+            # iteración 5: «50.» en la fila 5 y el estado BBB_4, cuyas provincias 5 y 6 no tocan a la 4.
+            ("definition_bad_number", "map/definition.csv"),
+            ("region_not_contiguous", "map/region.txt"),
+            # la provincia de tierra sin historia del minijuego y «2  Llanura.txt», con el nombre sin guion
+            # (la forma de 1337 y 3246 en vanilla).
+            ("missing_history", "history/provinces"),
+            ("province_file_name", "history/provinces/south/2  Llanura.txt"),
+            # iteración 6: BBB y CCC sin bandera, la de AAA es un TGA de mentira, la capital de BBB (3) es de CCC
+            # y el CB conquer_land de «Old War» pide un estado que su objetivo no da.
+            ("flag_missing", "common/countries.txt"),
+            ("flag_format", "gfx/flags/AAA.tga"),
+            ("capital_not_owned", "history/countries/BBB - Borland.txt"),
+            ("wargoal_state_required", "history/wars/Old War.txt"),
         })
         self.assertTrue(all(p.inherited for p in report.problems))
         self.assertTrue(report.baseline_ready)

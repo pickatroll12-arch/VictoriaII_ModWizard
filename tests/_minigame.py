@@ -307,6 +307,12 @@ RULES_FILES: dict[str, str | bytes] = {
     "history/wars/Old War.txt": _crlf('name = "Old War"\n1830.1.1 = {\n\tadd_attacker = AAA\n\tadd_defender = BBB\n'
                                       "\twar_goal = {\n\t\tcasus_belli = conquer_land\n\t\tactor = AAA\n"
                                       "\t\treceiver = BBB\n\t}\n}\n"),
+    # Colores de uniforme de todos los TAG (sin ellos, country_colors_missing informaría en el minijuego limpio).
+    "common/country_colors.txt": _crlf("AAA = {\n\tcolor1 = { 10 20 30 }\n\tcolor2 = { 200 200 200 }\n"
+                                       "\tcolor3 = { 0 0 0 }\n}\nBBB = {\n\tcolor1 = { 40 50 60 }\n}\n"
+                                       "CCC = {\n\tcolor1 = { 70 80 90 }\n}\nD01 = {\n\tcolor1 = { 100 110 120 }\n}\n"),
+    "history/units/BBB_oob.txt": _crlf('army = {\n\tname = "Borland Guard"\n\tlocation = 1\n'
+                                       '\tregiment = { name = "1st Guard" type = infantry home = 1 }\n}\n'),
     "history/diplomacy/Alliances.txt": _crlf('alliance = {\n\tfirst = AAA\n\tsecond = CCC\n\tstart_date = "1830.1.1"\n'
                                              '\tend_date = "1900.1.1"\n}\n'),
     # El evento 1003 lanza el 1999, que no existe (como el 11108 de vanilla: event_ref_missing heredado).
@@ -394,15 +400,17 @@ class MiniGame:
 
 def build_minigame(root: Path | None = None, *, mod: bool = True, mod_name: str = "TestMod",
                    mod_copies: Iterable[str] = (), mod_files: Mapping[str, bytes | str] | None = None,
-                   game_files: Mapping[str, bytes | str] | None = None) -> MiniGame:
+                   game_files: Mapping[str, bytes | str] | None = None, drop: Iterable[str] = ()) -> MiniGame:
     """Juego y mod en ``root`` (una carpeta temporal propia si es None; ``cleanup`` la borra).
 
     ``mod=False``: mod vacío. ``mod_copies``: archivos del juego que el mod trae
     copiados tal cual (un mod copia completa, como VSM). ``mod_files`` y
-    ``game_files`` añaden o sustituyen archivos.
+    ``game_files`` añaden o sustituyen archivos; ``drop`` quita archivos del juego (iteración 5).
     """
     game = dict(GAME_FILES)
     game.update(game_files or {})
+    for rel in drop:
+        game.pop(rel, None)
     files: dict[str, bytes | str] = dict(MOD_FILES) if mod else {}
     for rel in mod_copies:
         files[rel] = game[rel]
@@ -444,6 +452,33 @@ SCHEMA_GAME_FILES: dict[str, str] = {
                                         "\tlocal_supply = -0.5\n}\n"),
     # Un tipo de modificador de otro archivo con el mismo «kind» del índice: no es un modificador de evento.
     "common/static_modifiers.txt": _crlf("mg_static = {\n\tprestige = 1\n}\n"),
+    # Un elemento de cada tipo de .gui (inventados): para que cada esquema de la sala Interfaz tenga un registro.
+    "interface/mg_elements.gui": _crlf(
+        "guiTypes = {\n"
+        "\twindowType = {\n\t\tname = \"mg_all\"\n\t\tposition = { x = 0 y = 0 }\n\t\tsize = { x = 300 y = 200 }\n"
+        "\t\tguiButtonType = {\n\t\t\tname = \"mg_all_button\"\n\t\t\tposition = { x = 10 y = 10 }\n"
+        "\t\t\tquadTextureSprite = \"GFX_mg_button\"\n\t\t\tbuttonText = \"OK\"\n\t\t}\n"
+        "\t\tinstantTextBoxType = {\n\t\t\tname = \"mg_all_itext\"\n\t\t\tposition = { x = 10 y = 40 }\n"
+        "\t\t\tfont = \"vic_18\"\n\t\t\ttext = \"MG\"\n\t\t\tmaxWidth = 100\n\t\t}\n"
+        "\t\ttextBoxType = {\n\t\t\tname = \"mg_all_text\"\n\t\t\tposition = { x = 10 y = 60 }\n"
+        "\t\t\tfont = \"vic_18\"\n\t\t\tmaxWidth = 100\n\t\t}\n"
+        "\t\tcheckboxType = {\n\t\t\tname = \"mg_all_check\"\n\t\t\tposition = { x = 10 y = 80 }\n"
+        "\t\t\tquadTextureSprite = \"GFX_mg_button\"\n\t\t}\n"
+        "\t\tlistboxType = {\n\t\t\tname = \"mg_all_list\"\n\t\t\tposition = { x = 10 y = 100 }\n"
+        "\t\t\tsize = { x = 100 y = 50 }\n\t\t\tspacing = 2\n\t\t}\n"
+        "\t\tscrollbarType = {\n\t\t\tname = \"mg_all_scroll\"\n\t\t\tposition = { x = 120 y = 100 }\n"
+        "\t\t\tsize = { x = 100 y = 16 }\n\t\t\thorizontal = 1\n\t\t\tmaxvalue = 10\n\t\t}\n"
+        "\t\tOverlappingElementsBoxType = {\n\t\t\tname = \"mg_all_overlap\"\n\t\t\tposition = { x = 10 y = 160 }\n"
+        "\t\t\tsize = { x = 100 y = 20 }\n\t\t\tspacing = 1\n\t\t}\n"
+        "\t\teditBoxType = {\n\t\t\tname = \"mg_all_edit\"\n\t\t\tposition = { x = 120 y = 130 }\n"
+        "\t\t\tsize = { x = 100 y = 20 }\n\t\t\tfont = \"vic_18\"\n\t\t}\n"
+        "\t\tshieldtype = {\n\t\t\tname = \"mg_all_shield\"\n\t\t\tposition = { x = 250 y = 10 }\n"
+        "\t\t\tspriteType = \"GFX_mg_icon\"\n\t\t}\n"
+        "\t}\n"
+        "\teu3dialogtype = {\n\t\tname = \"mg_all_dialog\"\n\t\tposition = { x = 0 y = 0 }\n"
+        "\t\tsize = { x = 200 y = 100 }\n\t}\n"
+        "\tpositionType = {\n\t\tname = \"mg_all_pos\"\n\t\tposition = { x = 5 y = 5 }\n\t}\n"
+        "}\n"),
 }
 
 # Un país con nombres de barcos (``unit_names``): para el compañero UnitNamesSlot.
@@ -457,3 +492,485 @@ unit_names = {
 	}
 }
 """)
+
+
+# --- ampliación de la iteración 5: el mapa completo (wizard §19.1) -------------------------------------------------
+# Como SCHEMA_GAME_FILES, no entra en GAME_FILES (otras pruebas cuentan sus archivos, sus símbolos y sus
+# problemas): las pruebas del mapa lo piden con ``build_map_minigame()``. Todo inventado y generado por código; lo
+# único «real» es la forma (los nombres de las claves y de las columnas). Coordenadas del juego: ``y`` es la fila de
+# la imagen leída de arriba abajo y el norte está en las ``y`` altas (H1): en la vista, las provincias 5–8 quedan
+# encima de las 1–4.
+
+MAP_BOOKMARK_DATES = ("1836.1.1", "1861.1.1")       # las de common/bookmarks.txt (GAME_FILES)
+
+# default.map con todas sus claves y un sea_start repetido (el 10, dos veces seguidas: como el de vanilla, decisión 4
+# del contrato de la iteración 5). ``SEA_STARTS`` es la lista tal cual, con el duplicado y en su orden.
+SEA_STARTS = (9, 10, 10, 11, 12)
+DEFAULT_MAP = _crlf(
+    "max_provinces = 13\nsea_starts = {\n\t" + " ".join(map(str, SEA_STARTS)) + "\n}\n"
+    'definitions = "definition.csv"\nprovinces = "provinces.bmp"\npositions = "positions.txt"\n'
+    'terrain = "terrain.bmp"\nrivers = "rivers.bmp"\nterrain_definition = "terrain.txt"\n'
+    'tree_definition = "trees.txt"\ncontinent = "continent.txt"\nadjacencies = "adjacencies.csv"\n'
+    'region = "region.txt"\nregion_sea = "region_sea.txt"\nprovince_flag_sprite = "province_flag_sprites"\n\n'
+    "border_heights = {\n\t40\n\t60\n\t80\n}\nterrain_sheet_heights = {\n\t50\n}\ntree = 35\n"
+    "border_cutoff = 90.0\n")
+
+# Índices de terrain.bmp: los de tierra apuntan a una categoría de terrain.txt; el mar usa el 254.
+TERRAIN_PLAINS, TERRAIN_HILLS, TERRAIN_PEAKS, TERRAIN_SHORE, TERRAIN_OCEAN = 0, 1, 2, 4, 254
+# Categoría mayoritaria de cada provincia según terrain.bmp (la 5 lleva además ``terrain = hills`` en su historia).
+TERRAIN_OF = {1: "plains", 2: "plains", 3: "plains", 4: "hills", 5: "plains", 6: "hills", 7: "plains",
+              8: "mountain", 9: "ocean", 10: "ocean", 11: "ocean", 12: "ocean"}
+TERRAIN_TXT = _crlf(
+    "terrain = 8\ncategories = {\n"
+    "\tocean = {\n\t\tis_water = yes\n\t\tmovement_cost = 1.0\n\t\tcolor = { 0 0 255 }\n\t}\n"
+    "\tplains = {\n\t\tmovement_cost = 1.0\n\t\tfarm_rgo_size = 0.1\n\t\tcolor = { 0 255 0 }\n\t}\n"
+    "\thills = {\n\t\tmovement_cost = 1.2\n\t\tdefence = 1\n\t\tcolor = { 120 120 0 }\n\t}\n"
+    "\tmountain = {\n\t\tmovement_cost = 1.5\n\t\tdefence = 2\n\t\tcolor = { 90 90 90 }\n\t}\n}\n\n"
+    f"mg_plains = {{\n\ttype = plains\n\tcolor = {{ {TERRAIN_PLAINS} }}\n\tpriority = 3\n}}\n"
+    f"mg_hills = {{\n\ttype = hills\n\tcolor = {{ {TERRAIN_HILLS} }}\n\tpriority = 2\n}}\n"
+    f"mg_peaks = {{\n\ttype = mountain\n\tcolor = {{ {TERRAIN_PEAKS} }}\n\tpriority = 1\n\thas_texture = no\n}}\n"
+    # Una entrada con varios índices (en vanilla hay una con 191).
+    f"mg_shore = {{\n\ttype = plains\n\tcolor = {{ 3 {TERRAIN_SHORE} 5 }}\n\tpriority = 4\n}}\n"
+    f"mg_ocean = {{\n\ttype = ocean\n\tcolor = {{ {TERRAIN_OCEAN} }}\n\tpriority = 0\n}}\n")
+
+# Índices de rivers.bmp: 0 nacimiento, 1 confluencia, 2–4 anchos; 255 tierra sin río y 254 mar.
+RIVER_SOURCE, RIVER_JOIN, RIVER_NARROW, RIVER_WIDE, RIVER_SEA, RIVER_NONE = 0, 1, 2, 3, 254, 255
+# El río nace en la provincia 5, baja por la fila 20 hasta la 8 y recibe un afluente de la 7 (4-conexo).
+RIVER_MAIN = tuple((x, 20) for x in range(4, 40))
+RIVER_BRANCH = tuple((24, y) for y in range(28, 20, -1))
+
+
+def terrain_index_at(x: int, y: int) -> int:
+    """Índice de ``terrain.bmp`` en el píxel. La 6 es de colinas por mayoría (60 de sus 160 px son llanura) y la 3
+    tiene una franja de costa (30 px con el índice 4, también llanura); el color sin provincia cuenta como llanura."""
+    province = province_at(x, y)
+    if province is None:
+        return TERRAIN_PLAINS
+    if province in SEA:
+        return TERRAIN_OCEAN
+    if province == 6:
+        return TERRAIN_PLAINS if y >= 26 else TERRAIN_HILLS
+    if province == 3 and y < 3:
+        return TERRAIN_SHORE
+    return {"plains": TERRAIN_PLAINS, "hills": TERRAIN_HILLS, "mountain": TERRAIN_PEAKS}[TERRAIN_OF[province]]
+
+
+def river_index_at(x: int, y: int) -> int:
+    """Índice de ``rivers.bmp`` en el píxel."""
+    if (x, y) == RIVER_MAIN[0] or (x, y) == RIVER_BRANCH[0]:
+        return RIVER_SOURCE
+    if (x, y) == (RIVER_BRANCH[-1][0], RIVER_MAIN[0][1]):
+        return RIVER_JOIN
+    if (x, y) in RIVER_MAIN:
+        return RIVER_WIDE if x > RIVER_BRANCH[0][0] else RIVER_NARROW
+    if (x, y) in RIVER_BRANCH:
+        return RIVER_NARROW
+    province = province_at(x, y)
+    return RIVER_SEA if province in SEA else RIVER_NONE
+
+
+def indexed_bmp(index_at) -> bytes:
+    """BMP de 8 bits con paleta de 256 colores (cabecera de 1 078 B, como los del juego), 64×32, de abajo arriba y
+    con 2 bytes de cola tras los píxeles (también como los del juego). La paleta es inventada."""
+    width, height = MAP_SIZE
+    stride = (width + 3) & ~3
+    palette = b"".join(bytes(((i * 7) % 256, (i * 3 + 40) % 256, 255 - i, 0)) for i in range(256))
+    rows = []
+    for y in range(height - 1, -1, -1):
+        row = bytes(index_at(x, y) for x in range(width))
+        rows.append(row + b"\0" * (stride - len(row)))
+    pixels = b"".join(rows)
+    offset = 54 + len(palette)
+    header = (b"BM" + (offset + len(pixels)).to_bytes(4, "little") + b"\0\0\0\0" + offset.to_bytes(4, "little")
+              + (40).to_bytes(4, "little") + width.to_bytes(4, "little") + height.to_bytes(4, "little")
+              + (1).to_bytes(2, "little") + (8).to_bytes(2, "little") + b"\0" * 4 + len(pixels).to_bytes(4, "little")
+              + (2835).to_bytes(4, "little") * 2 + b"\0" * 8)
+    return header + palette + pixels + b"\0\0"
+
+
+def province_pixels(province: int) -> list[tuple[int, int]]:
+    """Píxeles ``(x, y)`` de una provincia en coordenadas del juego."""
+    width, height = MAP_SIZE
+    return [(x, y) for y in range(height) for x in range(width) if province_at(x, y) == province]
+
+
+def province_centroid(province: int) -> tuple[float, float]:
+    """Centroide ``(x, y)`` exacto (media de los centros de sus píxeles, en coordenadas del juego)."""
+    pixels = province_pixels(province)
+    return (sum(x for x, _ in pixels) / len(pixels), sum(y for _, y in pixels) / len(pixels))
+
+
+# Vecinos por lado (4-conexos). El mapa es cíclico en horizontal: con ``wrap_x`` la columna 63 toca la 0.
+NEIGHBORS = {
+    1: {2, 5}, 2: {1, 3, 6}, 3: {2, 4, 7}, 4: {3, 8, 9, 10}, 5: {1, 6}, 6: {2, 5, 7}, 7: {3, 6, 8},
+    8: {4, 7, 11, 12}, 9: {4, 10}, 10: {4, 9, 11}, 11: {8, 10, 12}, 12: {8, 11},
+}
+NEIGHBORS_WRAP_X = {**NEIGHBORS, 1: {2, 5, 9, 10}, 5: {1, 6, 11, 12}, 9: {1, 4, 10}, 10: {1, 4, 9, 11},
+                    11: {5, 8, 10, 12}, 12: {5, 8, 11}}
+
+# Punto ``unit`` de cada provincia en positions.txt (dentro de ella, cerca del centroide). La 11 tiene el bloque
+# vacío y la 12 solo datos del rótulo, como pasa en vanilla.
+UNIT_POINTS = {p: (int(province_centroid(p)[0]), int(province_centroid(p)[1])) for p in range(1, 11)}
+
+
+def _positions_txt() -> str:
+    blocks = []
+    for province in sorted(PROVINCE_COLORS):
+        if province == 11:
+            blocks.append(f"{province} = {{\n}}\n")
+            continue
+        if province == 12:
+            blocks.append(f"{province} = {{\n\ttext_position = {{\n\t\tx = 52.000\n\t\ty = 28.000\n\t}}\n"
+                          "\ttext_rotation = 0.100\n\ttext_scale = 1.200\n}\n")
+            continue
+        x, y = UNIT_POINTS[province]
+        lines = [f"{province} = {{", f"\tunit = {{\n\t\tx = {x}.000\n\t\ty = {y}.000\n\t}}",
+                 f"\ttext_position = {{\n\t\tx = {x}.500\n\t\ty = {y + 2}.000\n\t}}", "\ttext_scale = 1.000"]
+        if province in LAND:
+            lines.append(f"\tbuilding_position = {{\n\t\tfort = {{\n\t\t\tx = {x + 1}.000\n\t\t\ty = {y - 2}.000\n"
+                         f"\t\t}}\n\t\trailroad = {{\n\t\t\tx = {x - 1}.000\n\t\t\ty = {y - 1}.000\n\t\t}}\n\t}}")
+            lines.append(f"\tfactory = {{\n\t\tx = {x + 2}.000\n\t\ty = {y + 1}.000\n\t}}")
+            lines.append(f"\tbuilding_construction = {{\n\t\tx = {x - 2}.000\n\t\ty = {y + 1}.000\n\t}}")
+            lines.append(f"\tmilitary_construction = {{\n\t\tx = {x}.000\n\t\ty = {y - 3}.000\n\t}}")
+        if province in (4, 8):          # las dos costeras: base naval con su giro
+            lines.append("\tbuilding_rotation = {\n\t\tnaval_base = 1.570\n\t}")
+        if province == 1:
+            lines.append(f"\tcity = {{\n\t\tx = {x + 1}.000\n\t\ty = {y + 1}.000\n\t}}")
+        lines.append("}")
+        blocks.append("\n".join(lines) + "\n")
+    return _crlf("".join(blocks))
+
+
+# adjacencies.csv: cabecera comentada, un estrecho (1–4 por el mar 9, vecinos de él solo con el mapa cíclico), un
+# paso infranqueable, un canal, una fila comentada, un comentario de sección y una línea en blanco.
+STRAIT = (1, 4, 9)
+IMPASSABLE = (2, 6)
+CANAL = (4, 8, 10, 1)                 # desde, hasta, a través de, número de canal
+ADJACENCIES_CSV = _crlf(
+    "#From;To;Type;Through;Data;Comment\n"
+    f"{STRAIT[0]};{STRAIT[1]};sea;{STRAIT[2]};0;Estrecho del Norte\n"
+    "#5;8;sea;12;0;Estrecho del Sur (desactivado)\n"
+    "\n"
+    "# Pasos cerrados\n"
+    f"{IMPASSABLE[0]};{IMPASSABLE[1]};impassable;0;0;Cordillera central\n"
+    f"{CANAL[0]};{CANAL[1]};canal;{CANAL[2]};{CANAL[3]};Canal del Este\n")
+
+
+def _pop(pop_type: str, culture: str, religion: str, size: int, *extra: str) -> str:
+    lines = [f"\t{pop_type} = {{", f"\t\tculture = {culture}", f"\t\treligion = {religion}", f"\t\tsize = {size}",
+             *(f"\t\t{line}" for line in extra), "\t}"]
+    return "\n".join(lines) + "\n"
+
+
+def _pops(*blocks: tuple[int, str]) -> str:
+    return _crlf("".join(f"{province} = {{\n{body}}}\n" for province, body in blocks))
+
+
+MAP_GAME_FILES: dict[str, str | bytes] = {
+    "map/default.map": DEFAULT_MAP,
+    "map/terrain.txt": TERRAIN_TXT,
+    "map/terrain.bmp": indexed_bmp(terrain_index_at),
+    "map/rivers.bmp": indexed_bmp(river_index_at),
+    "map/trees.txt": _crlf("# Arbolado del minijuego (inventado; el Studio no lo lee)\nterrain = 8\n"),
+    "map/positions.txt": _positions_txt(),
+    "map/adjacencies.csv": ADJACENCIES_CSV,
+    # Historias de las provincias 4–8 (las de 1–3 están en GAME_FILES). Fechas de inicio: 1836.1.1 y 1861.1.1.
+    # La 4 tiene un bloque dentro del intervalo del segundo bookmark, (1836.1.1, 1861.1.1]: editar en 1861.1.1
+    # escribe en él y no crea otro (criterio 5).
+    "history/provinces/north/4 - Colina.txt": _crlf(
+        "owner = AAA\ncontroller = AAA\nadd_core = AAA\nadd_core = BBB\ntrade_goods = grain\nlife_rating = 30\n"
+        "naval_base = 1\n\n1850.6.1 = {\n\towner = BBB\n\tcontroller = BBB\n}\n"),
+    # Dos bloques con la misma fecha (137 archivos de vanilla los tienen), uno posterior al último bookmark y una
+    # anulación de terreno.
+    "history/provinces/south/5 - Quinta.txt": _crlf(
+        "owner = BBB\ncontroller = BBB\nadd_core = BBB\ntrade_goods = grain\nlife_rating = 35\nrailroad = 1\n"
+        "terrain = hills\n\n1845.3.1 = { railroad = 2 }\n1845.3.1 = { add_core = CCC }\n"
+        "1870.1.1 = {\n\tfort = 1\n\tremove_core = CCC\n}\n"),
+    # Solo LF (325 historias de vanilla) y un bloque party_loyalty.
+    "history/provinces/south/6 - Bosque.txt": (
+        "owner = BBB\ncontroller = BBB\nadd_core = BBB\ntrade_goods = grain\nlife_rating = 20\n"
+        "party_loyalty = {\n\tideology = conservative\n\tloyalty_value = 10\n}\n"),
+    "history/provinces/east/7 - Vado.txt": _crlf(
+        "owner = CCC\ncontroller = CCC\nadd_core = CCC\ntrade_goods = fish\nlife_rating = 25\ncolonial = 1\n"
+        "is_slave = yes\n"),
+    # Un bloque justo en la fecha del segundo bookmark: cuenta en 1861.1.1 (el intervalo es cerrado por la derecha).
+    "history/provinces/east/8 - Cumbre.txt": _crlf(
+        "owner = CCC\ncontroller = CCC\nadd_core = CCC\ntrade_goods = fish\nlife_rating = 15\nfort = 1\n"
+        "naval_base = 1\n\n1861.1.1 = {\n\tcontroller = AAA\n}\n"),
+    # POPs del resto de provincias de tierra (las de 1 y 2 están en GAME_FILES, con la 1 repetida en 1836.1.1).
+    # Un mismo tipo de POP repetido en una provincia (7 713 veces en vanilla) y los campos opcionales.
+    "history/pops/1836.1.1/South.txt": _pops(
+        (3, _pop("farmers", "corlander", "moonfaith", 900)),
+        (4, _pop("farmers", "alander", "sunfaith", 700) + _pop("farmers", "borlander", "sunfaith", 300)
+            + _pop("soldiers", "alander", "sunfaith", 50)),
+        (5, _pop("farmers", "borlander", "sunfaith", 1500, "militancy = 2.5")),
+        (6, _pop("farmers", "borlander", "moonfaith", 400)),
+        (7, _pop("farmers", "corlander", "moonfaith", 600, "rebel_type = free_rebels")),
+        (8, _pop("soldiers", "dominer", "moonfaith", 80))),
+    # En la segunda fecha, la 7 aparece dos veces en el mismo archivo (como la 2482 de vanilla) y faltan la 3 y la 8.
+    "history/pops/1861.1.1/South.txt": _pops(
+        (4, _pop("farmers", "borlander", "sunfaith", 1100)),
+        (7, _pop("farmers", "corlander", "moonfaith", 650)),
+        (5, _pop("farmers", "borlander", "sunfaith", 1700)),
+        (6, _pop("farmers", "borlander", "moonfaith", 450)),
+        (7, _pop("soldiers", "corlander", "moonfaith", 40))),
+    "localisation/minigame_map.csv": _loc([
+        ("AAA_1", "Aland Lowlands", "Tierras Bajas de Alandia"), ("BBB_4", "Borland Hills", "Colinas de Borlandia"),
+        ("CCC_7", "Corland Heights", "Altos de Corlandia"), ("west_land", "Westland", "Poniente"),
+        ("east_land", "Eastland", "Levante"), ("mild_climate", "Mild", "Suave"), ("harsh_climate", "Harsh", "Duro"),
+        ("ocean", "Ocean", "Océano"), ("plains", "Plains", "Llanura"), ("hills", "Hills", "Colinas"),
+        ("mountain", "Mountain", "Montaña"),
+    ]),
+}
+
+# El id 3 está en dos carpetas (GAME_FILES, H9): con ``clean=True`` se quita la copia de west/ para tener un mapa
+# sin errores de coherencia (criterio 8). Los avisos conocidos se quedan: el color sin fila, el «50.», el sea_start
+# repetido, PROV12 sin texto y el nombre irregular de la provincia 2.
+MAP_CLEAN_DROPS = ("history/provinces/west/3 - Costa.txt",)
+
+# Dueño vigente de cada provincia de tierra en las dos fechas de inicio (lo que debe dar ProvinceFacts).
+OWNERS = {"1836.1.1": {1: "AAA", 2: "BBB", 3: "CCC", 4: "AAA", 5: "BBB", 6: "BBB", 7: "CCC", 8: "CCC"},
+          "1861.1.1": {1: "AAA", 2: "BBB", 3: "CCC", 4: "BBB", 5: "BBB", 6: "BBB", 7: "CCC", 8: "CCC"}}
+# Bloques de POP por (fecha, provincia): archivo y cuántos bloques tiene en él (2 = repetido).
+POP_BLOCKS = {
+    "1836.1.1": {1: ("North.txt", 2), 2: ("North.txt", 1), 3: ("South.txt", 1), 4: ("South.txt", 1),
+                 5: ("South.txt", 1), 6: ("South.txt", 1), 7: ("South.txt", 1), 8: ("South.txt", 1)},
+    "1861.1.1": {1: ("North.txt", 1), 4: ("South.txt", 1), 5: ("South.txt", 1), 6: ("South.txt", 1),
+                 7: ("South.txt", 2)},
+}
+# Población total por provincia en cada fecha (suma de ``size`` de todos sus bloques, también los repetidos).
+POPULATION = {
+    "1836.1.1": {1: 1100, 2: 800, 3: 900, 4: 1050, 5: 1500, 6: 400, 7: 600, 8: 80},
+    "1861.1.1": {1: 1200, 4: 1100, 5: 1700, 6: 450, 7: 690},
+}
+
+
+def build_map_minigame(root: Path | None = None, *, clean: bool = False,
+                       game_files: Mapping[str, bytes | str] | None = None, drop: Iterable[str] = (),
+                       **kwargs) -> MiniGame:
+    """El minijuego con el mapa completo de la iteración 5 (``GAME_FILES`` + ``MAP_GAME_FILES``).
+
+    ``clean=True`` quita ``MAP_CLEAN_DROPS`` (la historia duplicada). ``game_files`` añade o sustituye encima y
+    ``drop`` quita archivos; el resto de argumentos, como en ``build_minigame``."""
+    files: dict[str, bytes | str] = dict(MAP_GAME_FILES)
+    files.update(game_files or {})
+    return build_minigame(root, game_files=files, drop=(*(MAP_CLEAN_DROPS if clean else ()), *drop), **kwargs)
+
+
+# --- ampliación de la iteración 7: eventos y decisiones con guion de verdad ------------------------------------
+# No entran en GAME_FILES ni en MOD_FILES (otras pruebas cuentan sus archivos y sus símbolos): las pruebas de la
+# iteración 7 los pasan con ``build_script_minigame()``. Todo inventado, con la forma de los archivos reales:
+# grupos AND/OR/NOT en mayúsculas y minúsculas, ámbitos, un MTTH con dos modificadores, ``ai_chance``,
+# ``ai_will_do``, una clave que ningún catálogo conoce, textos reutilizados entre eventos y un título en prosa.
+
+SCRIPT_EVENT_IDS = (2001, 2002, 2003)
+SCRIPT_DECISIONS = ("mg_build_harbour", "mg_call_council")
+SCRIPT_BROKEN_DECISIONS = "decisions/tst_broken.txt"          # sin la «}» final, como dos archivos del usuario
+SCRIPT_BROKEN_IDS = ("tst_broken_one", "tst_broken_two")
+
+SCRIPT_GAME_FILES: dict[str, str] = {
+    # 2001: país. Dos países, «1842 o después», tres gobiernos y «antes de 1845» (la forma del criterio 5), con
+    # MTTH de 6 meses × 0.75 × 0.95. 2002: provincia, con una condición de país fuera de sitio (criterio 6).
+    # 2003: solo por otro evento, con el título en prosa y la descripción de 2001.
+    "events/mg_flavor.txt": _crlf("""\
+# Eventos del minijuego para el constructor de condiciones.
+country_event = {
+	id = 2001
+	title = "EVTNAME2001"
+	desc = "EVTDESC2001"
+	picture = "mg_harbour"
+
+	trigger = {
+		OR = {
+			tag = AAA
+			tag = BBB
+		}
+		year = 1842 # desde ese año
+		OR = {
+			government = monarchy
+			government = republic
+			government = council
+		}
+		NOT = { year = 1845 }
+		mg_made_up_check = 3
+	}
+
+	mean_time_to_happen = {
+		months = 6
+		modifier = {
+			factor = 0.75
+			prestige = 10
+		}
+		modifier = {
+			factor = 0.95
+			is_greater_power = yes
+		}
+	}
+
+	immediate = { set_country_flag = mg_seen }
+
+	option = {
+		name = "EVTOPTA2001"
+		prestige = 5
+		any_owned = {
+			limit = { owned_by = AAA }
+			add_core = BBB
+		}
+		ai_chance = {
+			factor = 70
+			modifier = {
+				factor = 0
+				NOT = { tag = AAA }
+			}
+		}
+	}
+	option = {
+		name = "EVTOPTB2001"
+		BBB = { relation = { who = AAA value = 50 } }
+		country_event = { id = 2003 days = 3 }
+	}
+}
+
+province_event = {
+	id = 2002
+	title = "EVTNAME2002"
+	desc = "EVTDESC2002"
+	fire_only_once = yes
+
+	trigger = {
+		prestige = 5
+		owner = { tag = AAA }
+		not = { owned_by = CCC }
+	}
+
+	mean_time_to_happen = { months = 24 }
+
+	option = {
+		name = "EVTOPTA2002"
+		owner = { prestige = 1.5 }
+		3 = { add_core = AAA }
+	}
+}
+
+country_event = {
+	id = 2003
+	title = "A plain title"
+	desc = "EVTDESC2001"
+	is_triggered_only = yes
+
+	option = {
+		name = "EVTOPTA2001"
+		musket_drill = 1
+	}
+}
+"""),
+    "decisions/mg_decisions.txt": _crlf("""\
+political_decisions = {
+	mg_build_harbour = {
+		potential = {
+			tag = AAA
+			NOT = { has_country_flag = mg_harbour_built }
+		}
+		allow = {
+			prestige = 10
+			musket_drill = 1
+		}
+		effect = {
+			prestige = -5
+			set_country_flag = mg_harbour_built
+			capital_scope = { add_core = AAA }
+		}
+		ai_will_do = {
+			factor = 1
+			modifier = {
+				factor = 0
+				year = 1850
+			}
+		}
+	}
+
+	mg_call_council = {
+		picture = mg_build_harbour
+		alert = no
+		potential = { }
+		allow = { government = monarchy }
+		effect = { government = council }
+	}
+}
+"""),
+    "localisation/mg_script.csv": _loc([
+        ("EVTNAME2001", "The harbour question", "La cuestión del puerto"),
+        ("EVTDESC2001", "Aland and Borland argue about the harbour.", "Aland y Borland discuten por el puerto."),
+        ("EVTOPTA2001", "Build it", "Construirlo"), ("EVTOPTB2001", "Leave it", "Dejarlo"),
+        ("EVTNAME2002", "A quiet province", "Una provincia tranquila"),
+        ("EVTDESC2002", "Nothing happens here.", "Aquí no pasa nada."), ("EVTOPTA2002", "Good", "Bien"),
+        ("mg_build_harbour_title", "Build the harbour", "Construir el puerto"),
+        ("mg_build_harbour_desc", "A harbour for Aland.", "Un puerto para Aland."),
+        ("mg_call_council_title", "Call the council", "Convocar el consejo"),
+        ("mg_call_council_desc", "The council takes over.", "El consejo toma el mando."),
+    ]),
+}
+
+SCRIPT_MOD_FILES: dict[str, str] = {
+    # Falta la llave que cierra ``political_decisions``: un único ``unclosed_block`` en 1:23 (D17).
+    SCRIPT_BROKEN_DECISIONS: _crlf("""\
+political_decisions = {
+	tst_broken_one = {
+		potential = { tag = AAA }
+		allow = { year = 1840 }
+		effect = { prestige = 1 }
+	}
+	tst_broken_two = {
+		potential = { tag = BBB }
+		allow = { prestige = 3 }
+		effect = { prestige = 2 }
+	}
+"""),
+    "localisation/00_TST_script.csv": _loc([
+        ("tst_broken_one_title", "First broken", "Primera rota"), ("tst_broken_one_desc", "One", "Una"),
+        ("tst_broken_two_title", "Second broken", "Segunda rota"), ("tst_broken_two_desc", "Two", "Dos"),
+    ]),
+}
+
+
+def event_picture_tga(width: int = 521, height: int = 203, color: tuple[int, int, int] = (90, 110, 150)) -> bytes:
+    """Un TGA de 24 bits sin comprimir y de un solo color, con el tamaño de las imágenes de evento."""
+    header = bytes([0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, width & 255, width >> 8, height & 255, height >> 8, 24, 0])
+    red, green, blue = color
+    return header + bytes([blue, green, red]) * (width * height)
+
+
+def decision_picture_dds(size: int = 95, color: tuple[int, int, int] = (150, 110, 60)) -> bytes:
+    """Un DDS A8R8G8B8 sin comprimir de un solo color, con el tamaño de las imágenes de decisión."""
+    import numpy as np
+
+    from vic2studio.core.gfx.dds import write_dds
+
+    rgba = np.empty((size, size, 4), dtype=np.uint8)
+    rgba[:, :] = (*color, 255)
+    return write_dds(rgba)
+
+
+def script_pictures() -> dict[str, bytes]:
+    """Las imágenes del evento 2001 y de la decisión ``mg_build_harbour`` (válidas, generadas aquí)."""
+    return {"gfx/pictures/events/mg_harbour.tga": event_picture_tga(),
+            "gfx/pictures/decisions/mg_build_harbour.dds": decision_picture_dds()}
+
+
+def build_script_minigame(root: Path | None = None, *, broken: bool = True, pictures: bool = True,
+                          mod_files: Mapping[str, bytes | str] | None = None,
+                          game_files: Mapping[str, bytes | str] | None = None, **kwargs) -> MiniGame:
+    """El minijuego con los fragmentos de esquemas (``SCHEMA_GAME_FILES``) y los de guion de la iteración 7.
+
+    ``broken=False`` deja fuera el archivo de decisiones sin cerrar; ``pictures=False``, las imágenes. El resto
+    de argumentos son los de ``build_minigame``.
+    """
+    game: dict[str, bytes | str] = dict(SCHEMA_GAME_FILES)
+    game.update(SCRIPT_GAME_FILES)
+    if pictures:
+        game.update(script_pictures())
+    game.update(game_files or {})
+    mod: dict[str, bytes | str] = {rel: data for rel, data in SCRIPT_MOD_FILES.items()
+                                   if broken or rel != SCRIPT_BROKEN_DECISIONS}
+    mod.update(mod_files or {})
+    return build_minigame(root, mod_files=mod, game_files=game, **kwargs)

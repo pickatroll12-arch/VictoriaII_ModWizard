@@ -1,0 +1,1700 @@
+{
+ "format": 1,
+ "entries": [
+  {
+   "name": "prestige",
+   "role": "effect",
+   "scopes": [
+    "country"
+   ],
+   "category": "country",
+   "label": {
+    "es": "Dar prestigio",
+    "en": "Give prestige"
+   },
+   "value": {
+    "type": "float"
+   },
+   "phrase": {
+    "es": "gana {value} de prestigio",
+    "en": "gains {value} prestige"
+   }
+  },
+  {
+   "name": "badboy",
+   "role": "effect",
+   "scopes": [
+    "country"
+   ],
+   "category": "diplomacy",
+   "label": {
+    "es": "Cambiar la infamia",
+    "en": "Change infamy"
+   },
+   "value": {
+    "type": "float"
+   },
+   "phrase": {
+    "es": "su infamia cambia en {value}",
+    "en": "its infamy changes by {value}"
+   }
+  },
+  {
+   "name": "treasury",
+   "role": "effect",
+   "scopes": [
+    "country"
+   ],
+   "category": "economy",
+   "label": {
+    "es": "Dinero al tesoro",
+    "en": "Money to the treasury"
+   },
+   "value": {
+    "type": "float"
+   },
+   "phrase": {
+    "es": "recibe {value} libras",
+    "en": "receives {value} pounds"
+   }
+  },
+  {
+   "name": "money",
+   "role": "effect",
+   "scopes": [
+    "country",
+    "pop"
+   ],
+   "category": "economy",
+   "label": {
+    "es": "Dinero",
+    "en": "Money"
+   },
+   "value": {
+    "type": "float"
+   },
+   "phrase": {
+    "es": "recibe {value} libras",
+    "en": "receives {value} pounds"
+   }
+  },
+  {
+   "name": "war_exhaustion",
+   "role": "effect",
+   "scopes": [
+    "country"
+   ],
+   "category": "military",
+   "label": {
+    "es": "Cambiar el cansancio de guerra",
+    "en": "Change war exhaustion"
+   },
+   "value": {
+    "type": "float"
+   },
+   "phrase": {
+    "es": "su cansancio de guerra cambia en {value}",
+    "en": "its war exhaustion changes by {value}"
+   }
+  },
+  {
+   "name": "plurality",
+   "role": "effect",
+   "scopes": [
+    "country"
+   ],
+   "category": "politics",
+   "label": {
+    "es": "Cambiar la pluralidad",
+    "en": "Change plurality"
+   },
+   "value": {
+    "type": "float"
+   },
+   "phrase": {
+    "es": "la pluralidad cambia en {value}",
+    "en": "plurality changes by {value}"
+   }
+  },
+  {
+   "name": "consciousness",
+   "role": "effect",
+   "scopes": [
+    "any"
+   ],
+   "category": "population",
+   "label": {
+    "es": "Cambiar la conciencia",
+    "en": "Change consciousness"
+   },
+   "value": {
+    "type": "float"
+   },
+   "phrase": {
+    "es": "la conciencia cambia en {value}",
+    "en": "consciousness changes by {value}"
+   }
+  },
+  {
+   "name": "militancy",
+   "role": "effect",
+   "scopes": [
+    "any"
+   ],
+   "category": "population",
+   "label": {
+    "es": "Cambiar la militancia",
+    "en": "Change militancy"
+   },
+   "value": {
+    "type": "float"
+   },
+   "phrase": {
+    "es": "la militancia cambia en {value}",
+    "en": "militancy changes by {value}"
+   }
+  },
+  {
+   "name": "literacy",
+   "role": "effect",
+   "scopes": [
+    "any"
+   ],
+   "category": "population",
+   "label": {
+    "es": "Cambiar la alfabetización",
+    "en": "Change literacy"
+   },
+   "value": {
+    "type": "float"
+   },
+   "phrase": {
+    "es": "la alfabetización cambia en {value}",
+    "en": "literacy changes by {value}"
+   }
+  },
+  {
+   "name": "reduce_pop",
+   "role": "effect",
+   "scopes": [
+    "pop"
+   ],
+   "category": "population",
+   "label": {
+    "es": "Reducir el POP",
+    "en": "Reduce the POP"
+   },
+   "value": {
+    "type": "float"
+   },
+   "phrase": {
+    "es": "el POP queda en {value} de su tamaño",
+    "en": "the POP shrinks to {value} of its size"
+   }
+  },
+  {
+   "name": "years_of_research",
+   "role": "effect",
+   "scopes": [
+    "country"
+   ],
+   "category": "technology",
+   "label": {
+    "es": "Años de investigación",
+    "en": "Years of research"
+   },
+   "value": {
+    "type": "float"
+   },
+   "phrase": {
+    "es": "gana {value} años de investigación",
+    "en": "gains {value} years of research"
+   }
+  },
+  {
+   "name": "diplomatic_influence",
+   "role": "effect",
+   "scopes": [
+    "country"
+   ],
+   "category": "diplomacy",
+   "label": {
+    "es": "Influencia diplomática",
+    "en": "Diplomatic influence"
+   },
+   "block": {
+    "who": {
+     "type": "ref",
+     "kind": "tag"
+    },
+    "value": {
+     "type": "int"
+    }
+   },
+   "phrase": {
+    "es": "gana {value} de influencia en {who}",
+    "en": "gains {value} influence in {who}"
+   }
+  },
+  {
+   "name": "relation",
+   "role": "effect",
+   "scopes": [
+    "country"
+   ],
+   "category": "diplomacy",
+   "label": {
+    "es": "Cambiar relaciones",
+    "en": "Change relations"
+   },
+   "block": {
+    "who": {
+     "type": "ref",
+     "kind": "tag"
+    },
+    "value": {
+     "type": "int"
+    }
+   },
+   "phrase": {
+    "es": "las relaciones con {who} cambian en {value}",
+    "en": "relations with {who} change by {value}"
+   }
+  },
+  {
+   "name": "set_country_flag",
+   "role": "effect",
+   "scopes": [
+    "country"
+   ],
+   "category": "flags",
+   "label": {
+    "es": "Poner marca de país",
+    "en": "Set country flag"
+   },
+   "value": {
+    "type": "word"
+   },
+   "phrase": {
+    "es": "pone la marca «{value}»",
+    "en": "sets the flag «{value}»"
+   }
+  },
+  {
+   "name": "clr_country_flag",
+   "role": "effect",
+   "scopes": [
+    "country"
+   ],
+   "category": "flags",
+   "label": {
+    "es": "Quitar marca de país",
+    "en": "Clear country flag"
+   },
+   "value": {
+    "type": "word"
+   },
+   "phrase": {
+    "es": "quita la marca «{value}»",
+    "en": "clears the flag «{value}»"
+   }
+  },
+  {
+   "name": "set_global_flag",
+   "role": "effect",
+   "scopes": [
+    "any"
+   ],
+   "category": "flags",
+   "label": {
+    "es": "Poner marca global",
+    "en": "Set global flag"
+   },
+   "value": {
+    "type": "word"
+   },
+   "phrase": {
+    "es": "pone la marca global «{value}»",
+    "en": "sets the global flag «{value}»"
+   }
+  },
+  {
+   "name": "clr_global_flag",
+   "role": "effect",
+   "scopes": [
+    "any"
+   ],
+   "category": "flags",
+   "label": {
+    "es": "Quitar marca global",
+    "en": "Clear global flag"
+   },
+   "value": {
+    "type": "word"
+   },
+   "phrase": {
+    "es": "quita la marca global «{value}»",
+    "en": "clears the global flag «{value}»"
+   }
+  },
+  {
+   "name": "set_province_flag",
+   "role": "effect",
+   "scopes": [
+    "province"
+   ],
+   "category": "flags",
+   "label": {
+    "es": "Poner marca de provincia",
+    "en": "Set province flag"
+   },
+   "value": {
+    "type": "word"
+   },
+   "phrase": {
+    "es": "pone en la provincia la marca «{value}»",
+    "en": "sets the province flag «{value}»"
+   }
+  },
+  {
+   "name": "clr_province_flag",
+   "role": "effect",
+   "scopes": [
+    "province"
+   ],
+   "category": "flags",
+   "label": {
+    "es": "Quitar marca de provincia",
+    "en": "Clear province flag"
+   },
+   "value": {
+    "type": "word"
+   },
+   "phrase": {
+    "es": "quita de la provincia la marca «{value}»",
+    "en": "clears the province flag «{value}»"
+   }
+  },
+  {
+   "name": "add_country_modifier",
+   "role": "effect",
+   "scopes": [
+    "country"
+   ],
+   "category": "country",
+   "label": {
+    "es": "Añadir modificador de país",
+    "en": "Add country modifier"
+   },
+   "block": {
+    "name": {
+     "type": "ref",
+     "kind": "modifier"
+    },
+    "duration": {
+     "type": "int",
+     "required": false
+    }
+   },
+   "phrase": {
+    "es": "recibe el modificador {name} durante {duration} días",
+    "en": "gets the modifier {name} for {duration} days"
+   }
+  },
+  {
+   "name": "add_province_modifier",
+   "role": "effect",
+   "scopes": [
+    "province"
+   ],
+   "category": "province",
+   "label": {
+    "es": "Añadir modificador de provincia",
+    "en": "Add province modifier"
+   },
+   "block": {
+    "name": {
+     "type": "ref",
+     "kind": "modifier"
+    },
+    "duration": {
+     "type": "int",
+     "required": false
+    }
+   },
+   "phrase": {
+    "es": "la provincia recibe el modificador {name} durante {duration} días",
+    "en": "the province gets the modifier {name} for {duration} days"
+   }
+  },
+  {
+   "name": "remove_country_modifier",
+   "role": "effect",
+   "scopes": [
+    "country"
+   ],
+   "category": "country",
+   "label": {
+    "es": "Quitar modificador de país",
+    "en": "Remove country modifier"
+   },
+   "value": {
+    "type": "ref",
+    "kind": "modifier"
+   },
+   "phrase": {
+    "es": "pierde el modificador {value}",
+    "en": "loses the modifier {value}"
+   }
+  },
+  {
+   "name": "remove_province_modifier",
+   "role": "effect",
+   "scopes": [
+    "province"
+   ],
+   "category": "province",
+   "label": {
+    "es": "Quitar modificador de provincia",
+    "en": "Remove province modifier"
+   },
+   "value": {
+    "type": "ref",
+    "kind": "modifier"
+   },
+   "phrase": {
+    "es": "la provincia pierde el modificador {value}",
+    "en": "the province loses the modifier {value}"
+   }
+  },
+  {
+   "name": "add_core",
+   "role": "effect",
+   "scopes": [
+    "any"
+   ],
+   "category": "province",
+   "label": {
+    "es": "Añadir núcleo",
+    "en": "Add core"
+   },
+   "value": {
+    "type": "word"
+   },
+   "phrase": {
+    "es": "{value} gana un núcleo",
+    "en": "{value} gets a core"
+   }
+  },
+  {
+   "name": "remove_core",
+   "role": "effect",
+   "scopes": [
+    "any"
+   ],
+   "category": "province",
+   "label": {
+    "es": "Quitar núcleo",
+    "en": "Remove core"
+   },
+   "value": {
+    "type": "word"
+   },
+   "phrase": {
+    "es": "{value} pierde el núcleo",
+    "en": "{value} loses the core"
+   }
+  },
+  {
+   "name": "country_event",
+   "role": "effect",
+   "scopes": [
+    "country"
+   ],
+   "category": "events",
+   "label": {
+    "es": "Lanzar evento de país",
+    "en": "Fire country event"
+   },
+   "value": {
+    "type": "int"
+   },
+   "block": {
+    "id": {
+     "type": "int"
+    },
+    "days": {
+     "type": "int",
+     "required": false
+    }
+   },
+   "phrase": {
+    "es": "ocurre el evento {value}",
+    "en": "event {value} happens"
+   }
+  },
+  {
+   "name": "province_event",
+   "role": "effect",
+   "scopes": [
+    "province"
+   ],
+   "category": "events",
+   "label": {
+    "es": "Lanzar evento de provincia",
+    "en": "Fire province event"
+   },
+   "value": {
+    "type": "int"
+   },
+   "block": {
+    "id": {
+     "type": "int"
+    },
+    "days": {
+     "type": "int",
+     "required": false
+    }
+   },
+   "phrase": {
+    "es": "ocurre el evento de provincia {value}",
+    "en": "province event {value} happens"
+   }
+  },
+  {
+   "name": "dominant_issue",
+   "role": "effect",
+   "scopes": [
+    "pop"
+   ],
+   "category": "politics",
+   "label": {
+    "es": "Empujar una postura",
+    "en": "Push an issue"
+   },
+   "block": {
+    "factor": {
+     "type": "float"
+    },
+    "value": {
+     "type": "ref",
+     "kind": "issue_option"
+    }
+   },
+   "phrase": {
+    "es": "el apoyo a {value} cambia en {factor}",
+    "en": "support for {value} changes by {factor}"
+   }
+  },
+  {
+   "name": "ideology",
+   "role": "effect",
+   "scopes": [
+    "pop"
+   ],
+   "category": "politics",
+   "label": {
+    "es": "Empujar una ideología",
+    "en": "Push an ideology"
+   },
+   "block": {
+    "factor": {
+     "type": "float"
+    },
+    "value": {
+     "type": "ref",
+     "kind": "ideology"
+    }
+   },
+   "phrase": {
+    "es": "el apoyo a {value} cambia en {factor}",
+    "en": "support for {value} changes by {factor}"
+   }
+  },
+  {
+   "name": "scaled_militancy",
+   "role": "effect",
+   "scopes": [
+    "any"
+   ],
+   "category": "population",
+   "label": {
+    "es": "Militancia según apoyo",
+    "en": "Scaled militancy"
+   },
+   "block": {
+    "factor": {
+     "type": "float"
+    },
+    "ideology": {
+     "type": "ref",
+     "kind": "ideology",
+     "required": false
+    },
+    "issue": {
+     "type": "ref",
+     "kind": "issue_option",
+     "required": false
+    }
+   },
+   "phrase": {
+    "es": "la militancia sube {factor} según el apoyo",
+    "en": "militancy rises by {factor} scaled by support"
+   }
+  },
+  {
+   "name": "scaled_consciousness",
+   "role": "effect",
+   "scopes": [
+    "any"
+   ],
+   "category": "population",
+   "label": {
+    "es": "Conciencia según apoyo",
+    "en": "Scaled consciousness"
+   },
+   "block": {
+    "factor": {
+     "type": "float"
+    },
+    "ideology": {
+     "type": "ref",
+     "kind": "ideology",
+     "required": false
+    },
+    "issue": {
+     "type": "ref",
+     "kind": "issue_option",
+     "required": false
+    }
+   },
+   "phrase": {
+    "es": "la conciencia sube {factor} según el apoyo",
+    "en": "consciousness rises by {factor} scaled by support"
+   }
+  },
+  {
+   "name": "political_reform",
+   "role": "effect",
+   "scopes": [
+    "country"
+   ],
+   "category": "politics",
+   "label": {
+    "es": "Aprobar reforma política",
+    "en": "Pass political reform"
+   },
+   "value": {
+    "type": "ref",
+    "kind": "issue_option"
+   },
+   "phrase": {
+    "es": "aprueba la reforma {value}",
+    "en": "passes the reform {value}"
+   }
+  },
+  {
+   "name": "social_reform",
+   "role": "effect",
+   "scopes": [
+    "country"
+   ],
+   "category": "politics",
+   "label": {
+    "es": "Aprobar reforma social",
+    "en": "Pass social reform"
+   },
+   "value": {
+    "type": "ref",
+    "kind": "issue_option"
+   },
+   "phrase": {
+    "es": "aprueba la reforma {value}",
+    "en": "passes the reform {value}"
+   }
+  },
+  {
+   "name": "economic_reform",
+   "role": "effect",
+   "scopes": [
+    "country"
+   ],
+   "category": "politics",
+   "label": {
+    "es": "Aprobar reforma económica",
+    "en": "Pass economic reform"
+   },
+   "value": {
+    "type": "ref",
+    "kind": "issue_option"
+   },
+   "phrase": {
+    "es": "aprueba la reforma {value}",
+    "en": "passes the reform {value}"
+   }
+  },
+  {
+   "name": "upper_house",
+   "role": "effect",
+   "scopes": [
+    "country"
+   ],
+   "category": "politics",
+   "label": {
+    "es": "Cambiar la cámara alta",
+    "en": "Change the upper house"
+   },
+   "block": {
+    "ideology": {
+     "type": "ref",
+     "kind": "ideology"
+    },
+    "value": {
+     "type": "float"
+    }
+   },
+   "phrase": {
+    "es": "{ideology} gana {value} en la cámara alta",
+    "en": "{ideology} gains {value} in the upper house"
+   }
+  },
+  {
+   "name": "casus_belli",
+   "role": "effect",
+   "scopes": [
+    "country"
+   ],
+   "category": "military",
+   "label": {
+    "es": "Dar un casus belli",
+    "en": "Give a casus belli"
+   },
+   "block": {
+    "target": {
+     "type": "ref",
+     "kind": "tag"
+    },
+    "type": {
+     "type": "ref",
+     "kind": "cb"
+    },
+    "months": {
+     "type": "int"
+    }
+   },
+   "phrase": {
+    "es": "gana un CB {type} contra {target} durante {months} meses",
+    "en": "gets a {type} CB against {target} for {months} months"
+   }
+  },
+  {
+   "name": "add_casus_belli",
+   "role": "effect",
+   "scopes": [
+    "country"
+   ],
+   "category": "military",
+   "label": {
+    "es": "Dar un casus belli a otro",
+    "en": "Give a casus belli to another"
+   },
+   "block": {
+    "target": {
+     "type": "ref",
+     "kind": "tag"
+    },
+    "type": {
+     "type": "ref",
+     "kind": "cb"
+    },
+    "months": {
+     "type": "int"
+    }
+   },
+   "phrase": {
+    "es": "{target} gana un CB {type} durante {months} meses",
+    "en": "{target} gets a {type} CB for {months} months"
+   }
+  },
+  {
+   "name": "war",
+   "role": "effect",
+   "scopes": [
+    "country"
+   ],
+   "category": "military",
+   "label": {
+    "es": "Declarar la guerra",
+    "en": "Declare war"
+   },
+   "block": {
+    "target": {
+     "type": "ref",
+     "kind": "tag"
+    },
+    "call_ally": {
+     "type": "bool",
+     "required": false
+    }
+   },
+   "phrase": {
+    "es": "declara la guerra a {target}",
+    "en": "declares war on {target}"
+   }
+  },
+  {
+   "name": "trade_goods",
+   "role": "effect",
+   "scopes": [
+    "province"
+   ],
+   "category": "economy",
+   "label": {
+    "es": "Cambiar el bien de la provincia",
+    "en": "Change trade goods"
+   },
+   "value": {
+    "type": "ref",
+    "kind": "goods"
+   },
+   "phrase": {
+    "es": "la provincia pasa a producir {value}",
+    "en": "the province now produces {value}"
+   }
+  },
+  {
+   "name": "add_accepted_culture",
+   "role": "effect",
+   "scopes": [
+    "country"
+   ],
+   "category": "population",
+   "label": {
+    "es": "Aceptar una cultura",
+    "en": "Accept a culture"
+   },
+   "value": {
+    "type": "ref",
+    "kind": "culture"
+   },
+   "phrase": {
+    "es": "acepta la cultura {value}",
+    "en": "accepts the {value} culture"
+   }
+  },
+  {
+   "name": "remove_accepted_culture",
+   "role": "effect",
+   "scopes": [
+    "country"
+   ],
+   "category": "population",
+   "label": {
+    "es": "Dejar de aceptar una cultura",
+    "en": "Remove accepted culture"
+   },
+   "value": {
+    "type": "ref",
+    "kind": "culture"
+   },
+   "phrase": {
+    "es": "deja de aceptar la cultura {value}",
+    "en": "no longer accepts the {value} culture"
+   }
+  },
+  {
+   "name": "primary_culture",
+   "role": "effect",
+   "scopes": [
+    "country"
+   ],
+   "category": "population",
+   "label": {
+    "es": "Cambiar la cultura principal",
+    "en": "Change primary culture"
+   },
+   "value": {
+    "type": "ref",
+    "kind": "culture"
+   },
+   "phrase": {
+    "es": "su cultura principal pasa a ser {value}",
+    "en": "its primary culture becomes {value}"
+   }
+  },
+  {
+   "name": "change_province_name",
+   "role": "effect",
+   "scopes": [
+    "province"
+   ],
+   "category": "province",
+   "label": {
+    "es": "Renombrar la provincia",
+    "en": "Rename the province"
+   },
+   "value": {
+    "type": "text"
+   },
+   "phrase": {
+    "es": "la provincia pasa a llamarse «{value}»",
+    "en": "the province is renamed «{value}»"
+   }
+  },
+  {
+   "name": "change_region_name",
+   "role": "effect",
+   "scopes": [
+    "province",
+    "state"
+   ],
+   "category": "province",
+   "label": {
+    "es": "Renombrar el estado",
+    "en": "Rename the state"
+   },
+   "value": {
+    "type": "text"
+   },
+   "phrase": {
+    "es": "el estado pasa a llamarse «{value}»",
+    "en": "the state is renamed «{value}»"
+   }
+  },
+  {
+   "name": "government",
+   "role": "effect",
+   "scopes": [
+    "country"
+   ],
+   "category": "politics",
+   "label": {
+    "es": "Cambiar el gobierno",
+    "en": "Change government"
+   },
+   "value": {
+    "type": "ref",
+    "kind": "government"
+   },
+   "phrase": {
+    "es": "su gobierno pasa a ser {value}",
+    "en": "its government becomes {value}"
+   }
+  },
+  {
+   "name": "capital",
+   "role": "effect",
+   "scopes": [
+    "country"
+   ],
+   "category": "country",
+   "label": {
+    "es": "Mover la capital",
+    "en": "Move the capital"
+   },
+   "value": {
+    "type": "ref",
+    "kind": "province"
+   },
+   "phrase": {
+    "es": "su capital pasa a {value}",
+    "en": "its capital moves to {value}"
+   }
+  },
+  {
+   "name": "secede_province",
+   "role": "effect",
+   "scopes": [
+    "province"
+   ],
+   "category": "province",
+   "label": {
+    "es": "Ceder la provincia",
+    "en": "Cede the province"
+   },
+   "value": {
+    "type": "ref",
+    "kind": "tag"
+   },
+   "phrase": {
+    "es": "la provincia pasa a {value}",
+    "en": "the province goes to {value}"
+   }
+  },
+  {
+   "name": "change_tag",
+   "role": "effect",
+   "scopes": [
+    "country"
+   ],
+   "category": "country",
+   "label": {
+    "es": "Convertirse en otro país",
+    "en": "Become another country"
+   },
+   "value": {
+    "type": "ref",
+    "kind": "tag"
+   },
+   "phrase": {
+    "es": "se convierte en {value}",
+    "en": "becomes {value}"
+   }
+  },
+  {
+   "name": "change_tag_no_core_switch",
+   "role": "effect",
+   "scopes": [
+    "country"
+   ],
+   "category": "country",
+   "label": {
+    "es": "Pasar a otro país sin núcleos",
+    "en": "Switch country without cores"
+   },
+   "value": {
+    "type": "ref",
+    "kind": "tag"
+   },
+   "phrase": {
+    "es": "el jugador pasa a {value}",
+    "en": "the player switches to {value}"
+   }
+  },
+  {
+   "name": "inherit",
+   "role": "effect",
+   "scopes": [
+    "country"
+   ],
+   "category": "diplomacy",
+   "label": {
+    "es": "Heredar un país",
+    "en": "Inherit a country"
+   },
+   "value": {
+    "type": "ref",
+    "kind": "tag"
+   },
+   "phrase": {
+    "es": "hereda a {value}",
+    "en": "inherits {value}"
+   }
+  },
+  {
+   "name": "annex_to",
+   "role": "effect",
+   "scopes": [
+    "country"
+   ],
+   "category": "diplomacy",
+   "label": {
+    "es": "Anexionarse a",
+    "en": "Annex to"
+   },
+   "value": {
+    "type": "ref",
+    "kind": "tag"
+   },
+   "phrase": {
+    "es": "se une a {value}",
+    "en": "is annexed by {value}"
+   }
+  },
+  {
+   "name": "release_vassal",
+   "role": "effect",
+   "scopes": [
+    "country"
+   ],
+   "category": "diplomacy",
+   "label": {
+    "es": "Liberar como vasallo",
+    "en": "Release as vassal"
+   },
+   "value": {
+    "type": "ref",
+    "kind": "tag"
+   },
+   "phrase": {
+    "es": "libera a {value} como vasallo",
+    "en": "releases {value} as a vassal"
+   }
+  },
+  {
+   "name": "release",
+   "role": "effect",
+   "scopes": [
+    "country"
+   ],
+   "category": "diplomacy",
+   "label": {
+    "es": "Liberar un país",
+    "en": "Release a country"
+   },
+   "value": {
+    "type": "ref",
+    "kind": "tag"
+   },
+   "phrase": {
+    "es": "libera a {value}",
+    "en": "releases {value}"
+   }
+  },
+  {
+   "name": "leave_alliance",
+   "role": "effect",
+   "scopes": [
+    "country"
+   ],
+   "category": "diplomacy",
+   "label": {
+    "es": "Romper una alianza",
+    "en": "Leave an alliance"
+   },
+   "value": {
+    "type": "ref",
+    "kind": "tag"
+   },
+   "phrase": {
+    "es": "rompe la alianza con {value}",
+    "en": "leaves the alliance with {value}"
+   }
+  },
+  {
+   "name": "create_alliance",
+   "role": "effect",
+   "scopes": [
+    "country"
+   ],
+   "category": "diplomacy",
+   "label": {
+    "es": "Formar una alianza",
+    "en": "Create an alliance"
+   },
+   "value": {
+    "type": "ref",
+    "kind": "tag"
+   },
+   "phrase": {
+    "es": "se alía con {value}",
+    "en": "allies with {value}"
+   }
+  },
+  {
+   "name": "civilized",
+   "role": "effect",
+   "scopes": [
+    "country"
+   ],
+   "category": "country",
+   "label": {
+    "es": "Civilizar",
+    "en": "Civilize"
+   },
+   "value": {
+    "type": "bool"
+   },
+   "phrase": {
+    "es": "pasa a estar civilizado ({value})",
+    "en": "becomes civilized ({value})"
+   }
+  },
+  {
+   "name": "tech_school",
+   "role": "effect",
+   "scopes": [
+    "country"
+   ],
+   "category": "technology",
+   "label": {
+    "es": "Cambiar la escuela tecnológica",
+    "en": "Change tech school"
+   },
+   "value": {
+    "type": "ref",
+    "kind": "tech_school"
+   },
+   "phrase": {
+    "es": "su escuela pasa a ser {value}",
+    "en": "its school becomes {value}"
+   }
+  },
+  {
+   "name": "life_rating",
+   "role": "effect",
+   "scopes": [
+    "province"
+   ],
+   "category": "province",
+   "label": {
+    "es": "Cambiar la habitabilidad",
+    "en": "Change life rating"
+   },
+   "value": {
+    "type": "int"
+   },
+   "phrase": {
+    "es": "la habitabilidad cambia en {value}",
+    "en": "life rating changes by {value}"
+   }
+  },
+  {
+   "name": "infrastructure",
+   "role": "effect",
+   "scopes": [
+    "province"
+   ],
+   "category": "province",
+   "label": {
+    "es": "Cambiar el ferrocarril",
+    "en": "Change railroads"
+   },
+   "value": {
+    "type": "int"
+   },
+   "phrase": {
+    "es": "el ferrocarril cambia en {value}",
+    "en": "railroads change by {value}"
+   }
+  },
+  {
+   "name": "fort",
+   "role": "effect",
+   "scopes": [
+    "province"
+   ],
+   "category": "military",
+   "label": {
+    "es": "Cambiar el fuerte",
+    "en": "Change fort"
+   },
+   "value": {
+    "type": "int"
+   },
+   "phrase": {
+    "es": "el fuerte cambia en {value}",
+    "en": "the fort changes by {value}"
+   }
+  },
+  {
+   "name": "naval_base",
+   "role": "effect",
+   "scopes": [
+    "province"
+   ],
+   "category": "military",
+   "label": {
+    "es": "Cambiar la base naval",
+    "en": "Change naval base"
+   },
+   "value": {
+    "type": "int"
+   },
+   "phrase": {
+    "es": "la base naval cambia en {value}",
+    "en": "the naval base changes by {value}"
+   }
+  },
+  {
+   "name": "enable_ideology",
+   "role": "effect",
+   "scopes": [
+    "any"
+   ],
+   "category": "politics",
+   "label": {
+    "es": "Activar una ideología",
+    "en": "Enable an ideology"
+   },
+   "value": {
+    "type": "ref",
+    "kind": "ideology"
+   },
+   "phrase": {
+    "es": "aparece la ideología {value}",
+    "en": "the {value} ideology appears"
+   }
+  },
+  {
+   "name": "ruling_party_ideology",
+   "role": "effect",
+   "scopes": [
+    "country"
+   ],
+   "category": "politics",
+   "label": {
+    "es": "Poner un partido de la ideología",
+    "en": "Set ruling party ideology"
+   },
+   "value": {
+    "type": "ref",
+    "kind": "ideology"
+   },
+   "phrase": {
+    "es": "pasa a gobernar un partido {value}",
+    "en": "a {value} party takes power"
+   }
+  },
+  {
+   "name": "election",
+   "role": "effect",
+   "scopes": [
+    "country"
+   ],
+   "category": "politics",
+   "label": {
+    "es": "Convocar elecciones",
+    "en": "Call elections"
+   },
+   "value": {
+    "type": "bool"
+   },
+   "phrase": {
+    "es": "convoca elecciones",
+    "en": "calls an election"
+   }
+  },
+  {
+   "name": "add_crisis_temperature",
+   "role": "effect",
+   "scopes": [
+    "any"
+   ],
+   "category": "diplomacy",
+   "label": {
+    "es": "Calentar la crisis",
+    "en": "Raise crisis temperature"
+   },
+   "value": {
+    "type": "float"
+   },
+   "phrase": {
+    "es": "la crisis se calienta {value}",
+    "en": "the crisis heats up by {value}"
+   }
+  },
+  {
+   "name": "add_crisis_interest",
+   "role": "effect",
+   "scopes": [
+    "country"
+   ],
+   "category": "diplomacy",
+   "label": {
+    "es": "Interesarse por la crisis",
+    "en": "Join crisis interest"
+   },
+   "value": {
+    "type": "bool"
+   },
+   "phrase": {
+    "es": "se interesa por la crisis",
+    "en": "takes an interest in the crisis"
+   }
+  },
+  {
+   "name": "flashpoint_tension",
+   "role": "effect",
+   "scopes": [
+    "province",
+    "state"
+   ],
+   "category": "diplomacy",
+   "label": {
+    "es": "Cambiar la tensión",
+    "en": "Change tension"
+   },
+   "value": {
+    "type": "float"
+   },
+   "phrase": {
+    "es": "la tensión cambia en {value}",
+    "en": "tension changes by {value}"
+   }
+  },
+  {
+   "name": "enable_canal",
+   "role": "effect",
+   "scopes": [
+    "any"
+   ],
+   "category": "province",
+   "label": {
+    "es": "Abrir un canal",
+    "en": "Open a canal"
+   },
+   "value": {
+    "type": "int"
+   },
+   "phrase": {
+    "es": "se abre el canal {value}",
+    "en": "canal {value} opens"
+   }
+  },
+  {
+   "name": "great_wars_enabled",
+   "role": "effect",
+   "scopes": [
+    "any"
+   ],
+   "category": "military",
+   "label": {
+    "es": "Activar las grandes guerras",
+    "en": "Enable great wars"
+   },
+   "value": {
+    "type": "bool"
+   },
+   "phrase": {
+    "es": "las grandes guerras quedan activas ({value})",
+    "en": "great wars are enabled ({value})"
+   }
+  },
+  {
+   "name": "world_wars_enabled",
+   "role": "effect",
+   "scopes": [
+    "any"
+   ],
+   "category": "military",
+   "label": {
+    "es": "Activar las guerras mundiales",
+    "en": "Enable world wars"
+   },
+   "value": {
+    "type": "bool"
+   },
+   "phrase": {
+    "es": "las guerras mundiales quedan activas ({value})",
+    "en": "world wars are enabled ({value})"
+   }
+  },
+  {
+   "name": "assimilate",
+   "role": "effect",
+   "scopes": [
+    "province",
+    "pop"
+   ],
+   "category": "population",
+   "label": {
+    "es": "Asimilar",
+    "en": "Assimilate"
+   },
+   "value": {
+    "type": "bool"
+   },
+   "phrase": {
+    "es": "los POP se asimilan a la cultura principal",
+    "en": "the POPs assimilate into the primary culture"
+   }
+  },
+  {
+   "name": "add_tax_relative_income",
+   "role": "effect",
+   "scopes": [
+    "country"
+   ],
+   "category": "economy",
+   "label": {
+    "es": "Ingreso según impuestos",
+    "en": "Tax relative income"
+   },
+   "value": {
+    "type": "float"
+   },
+   "phrase": {
+    "es": "recibe {value} veces sus ingresos por impuestos",
+    "en": "receives {value} times its tax income"
+   }
+  },
+  {
+   "name": "nationalize",
+   "role": "effect",
+   "scopes": [
+    "country"
+   ],
+   "category": "economy",
+   "label": {
+    "es": "Nacionalizar",
+    "en": "Nationalize"
+   },
+   "value": {
+    "type": "bool"
+   },
+   "phrase": {
+    "es": "nacionaliza la inversión extranjera",
+    "en": "nationalizes foreign investment"
+   }
+  },
+  {
+   "name": "is_slave",
+   "role": "effect",
+   "scopes": [
+    "any"
+   ],
+   "category": "population",
+   "label": {
+    "es": "Esclavizar",
+    "en": "Enslave"
+   },
+   "value": {
+    "type": "bool"
+   },
+   "phrase": {
+    "es": "los POP pasan a ser esclavos ({value})",
+    "en": "the POPs become slaves ({value})"
+   }
+  },
+  {
+   "name": "move_pop",
+   "role": "effect",
+   "scopes": [
+    "pop"
+   ],
+   "category": "population",
+   "label": {
+    "es": "Trasladar el POP",
+    "en": "Move the POP"
+   },
+   "value": {
+    "type": "ref",
+    "kind": "province"
+   },
+   "phrase": {
+    "es": "el POP se muda a {value}",
+    "en": "the POP moves to {value}"
+   }
+  },
+  {
+   "name": "pop_type",
+   "role": "effect",
+   "scopes": [
+    "pop"
+   ],
+   "category": "population",
+   "label": {
+    "es": "Cambiar el tipo de POP",
+    "en": "Change POP type"
+   },
+   "value": {
+    "type": "ref",
+    "kind": "pop_type"
+   },
+   "phrase": {
+    "es": "el POP pasa a ser de {value}",
+    "en": "the POP becomes {value}"
+   }
+  },
+  {
+   "name": "add_crime",
+   "role": "effect",
+   "scopes": [
+    "province"
+   ],
+   "category": "province",
+   "label": {
+    "es": "Añadir delincuencia",
+    "en": "Add crime"
+   },
+   "value": {
+    "type": "word"
+   },
+   "phrase": {
+    "es": "aparece la delincuencia {value}",
+    "en": "crime {value} appears"
+   }
+  },
+  {
+   "name": "define_general",
+   "role": "effect",
+   "scopes": [
+    "country",
+    "province"
+   ],
+   "category": "military",
+   "label": {
+    "es": "Crear un general",
+    "en": "Create a general"
+   },
+   "block": {
+    "name": {
+     "type": "text"
+    },
+    "personality": {
+     "type": "word",
+     "required": false
+    },
+    "background": {
+     "type": "word",
+     "required": false
+    }
+   },
+   "phrase": {
+    "es": "aparece el general «{name}»",
+    "en": "the general «{name}» appears"
+   }
+  },
+  {
+   "family": "technology_gain",
+   "key_kind": "technology",
+   "role": "effect",
+   "scopes": [
+    "country"
+   ],
+   "value": {
+    "type": "int"
+   },
+   "category": "technology",
+   "label": {
+    "es": "Dar la tecnología {key}",
+    "en": "Give technology {key}"
+   },
+   "phrase": {
+    "es": "obtiene la tecnología {key}",
+    "en": "gets the technology {key}"
+   }
+  },
+  {
+   "family": "invention_gain",
+   "key_kind": "invention",
+   "role": "effect",
+   "scopes": [
+    "country"
+   ],
+   "value": {
+    "type": "word"
+   },
+   "category": "technology",
+   "label": {
+    "es": "Dar el invento {key}",
+    "en": "Give invention {key}"
+   },
+   "phrase": {
+    "es": "obtiene el invento {key}",
+    "en": "gets the invention {key}"
+   }
+  },
+  {
+   "family": "goods_stockpile",
+   "key_kind": "goods",
+   "role": "effect",
+   "scopes": [
+    "country"
+   ],
+   "value": {
+    "type": "float"
+   },
+   "category": "economy",
+   "label": {
+    "es": "Reservas de {key}",
+    "en": "Stockpile of {key}"
+   },
+   "phrase": {
+    "es": "recibe {value} de {key}",
+    "en": "receives {value} {key}"
+   }
+  }
+ ]
+}

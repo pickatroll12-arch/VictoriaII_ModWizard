@@ -1,0 +1,5 @@
+{
+  "schema.country_registry.title": "Country registry",
+  "schema.country_registry.name": "TAG",
+  "schema.country_registry.doc": "common/countries.txt: one TAG = \"countries/<File>.txt\" line per country. New TAGs go before dynamic_tags (and the comments right above it); after it, the game treats them as dynamic dominions."
+}
