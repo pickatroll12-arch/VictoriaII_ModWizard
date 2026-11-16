@@ -6,6 +6,7 @@ Definiciones de spriteTypes en interface/*.gfx: el nombre que usan las ventanas,
 - **Disposición:** entradas dentro de los bloques spriteTypes de cada archivo con la clave spriteType / textSpriteType / corneredTileSpriteType / maskedShieldType / progressbartype / tileSpriteType / PieChartType / LineChartType / BarChartType / scrollingSprite
 - **Identificador:** el campo «name»
 - **Edición:** se crea, se duplica y se borra desde el Studio
+- **Sección:** `interface:sprites`
 
 ## Campos
 

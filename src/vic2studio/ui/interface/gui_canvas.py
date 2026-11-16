@@ -143,7 +143,8 @@ class GuiCanvas(QGraphicsView):
         self.screen = (1024, 768)
         self.grid = True
         self.snap = False
-        self.zoom = 1.0
+        self.zoom_to_window = False             # True: el encuadre es la ventana (con margen), no la pantalla
+        self.window_path: str | None = None
 
     # --- dibujo --------------------------------------------------------------------------------
 
@@ -165,6 +166,7 @@ class GuiCanvas(QGraphicsView):
         for loose in extra:
             rects.update(renderer.layout(loose, self.screen))
         win = rects[window.uid]
+        self.window_path = element_path(window)
         background = document.background_of(window)
         back = renderer._sprite_for(background, (win.w, win.h)) if background is not None else None
         panel = back if back is not None else renderer.panel((win.w, win.h))
@@ -180,7 +182,7 @@ class GuiCanvas(QGraphicsView):
                 if image is None:
                     image = renderer.placeholder((rect.w, rect.h), element.name)
                 pixmap = to_pixmap(image)
-            item = ElementItem(self, element_path(element), rect, pixmap, movable=element is not window or True,
+            item = ElementItem(self, element_path(element), rect, pixmap, movable=True,
                                resizable=element.size is not None)
             item.setZValue(z)
             z += 1
@@ -218,7 +220,18 @@ class GuiCanvas(QGraphicsView):
         return items[0].path if items and isinstance(items[0], ElementItem) else None
 
     def fit(self) -> None:
-        self.fitInView(self.scene().sceneRect(), Qt.AspectRatioMode.KeepAspectRatio)
+        """Encuadra la pantalla entera o, con ``zoom_to_window``, la ventana con un margen."""
+        target = self.scene().sceneRect()
+        item = self.items_by_path.get(self.window_path) if self.zoom_to_window and self.window_path else None
+        if item is not None:
+            box = item.sceneBoundingRect()
+            margin = max(24.0, 0.08 * max(box.width(), box.height()))
+            target = box.adjusted(-margin, -margin, margin, margin)
+        self.fitInView(target, Qt.AspectRatioMode.KeepAspectRatio)
+
+    def set_zoom_to_window(self, enabled: bool) -> None:
+        self.zoom_to_window = bool(enabled)
+        self.fit()
 
     def set_grid(self, enabled: bool) -> None:
         self.grid = bool(enabled)

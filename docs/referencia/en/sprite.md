@@ -6,6 +6,7 @@ spriteTypes definitions in interface/*.gfx: the name windows use, its texture an
 - **Layout:** entries inside the spriteTypes blocks of each file keyed spriteType / textSpriteType / corneredTileSpriteType / maskedShieldType / progressbartype / tileSpriteType / PieChartType / LineChartType / BarChartType / scrollingSprite
 - **Identifier:** the «name» field
 - **Editing:** created, duplicated and deleted from the Studio
+- **Section:** `interface:sprites`
 
 ## Fields
 

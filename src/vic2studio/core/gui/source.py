@@ -16,7 +16,7 @@ from collections.abc import Mapping
 from typing import Protocol
 
 from ..clausewitz.nodes import Document
-from ..vfs.model import DocKind, VfsSnapshot, matching_keys
+from ..vfs.model import VfsSnapshot, matching_keys
 from ..vfs.paths import VPath
 
 
@@ -150,8 +150,8 @@ class WorkspaceSource:
     def read(self, rel: VPath) -> bytes | None:
         rel = VPath.of(rel)
         handle = self.ws.peek(rel)
-        if handle is not None and not handle.deleted and handle.kind is DocKind.BINARY \
-                and isinstance(handle.model, (bytes, bytearray)):
+        if handle is not None and not handle.deleted and isinstance(handle.model, (bytes, bytearray)):
+            # Una imagen o un binario abierto (``DocKind.IMAGE``/``BINARY``): sus bytes sin guardar mandan.
             return bytes(handle.model)
         if self.find(rel) is None:
             return None

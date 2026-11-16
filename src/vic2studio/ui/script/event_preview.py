@@ -4,7 +4,12 @@ Dibuja con QPainter una ventana con las proporciones de la del juego: el título
 descripción y un botón por opción. No usa ningún recurso del juego salvo la imagen del propio evento, que se
 lee de la instalación del usuario cuando existe (``set_game_art(False)`` la sustituye por un marco
 procedural: las capturas del repositorio van siempre así). Interpreta los códigos de color ``§Y…§W`` y deja
-los ``$VARIABLE$`` como fichas. En la iteración 8 pasa a usar el renderizador ``.gui`` real.
+los ``$VARIABLE$`` como fichas.
+
+Desde la iteración 8, si el proyecto tiene ``interface/event_country_window.gui`` (o el de provincia) con el arte
+de su fondo, la vista previa es la ventana real compuesta por el renderizador ``.gui``
+(``core.gui.event_window.render_event``): su fondo, sus fuentes, la imagen en su marco y un botón por opción.
+Sin ese arte (sin juego, o con ``VIC2STUDIO_NO_GAME_ART``) se dibuja la ventana procedural de siempre.
 """
 
 from __future__ import annotations
@@ -78,6 +83,7 @@ class EventPreviewData:
     option_keys: tuple[str, ...] = ()
     picture_name: str = ""
     picture_image: QImage | None = None          # la imagen ya leída (de memoria o de la VFS)
+    picture_data: bytes | None = None            # sus bytes (TGA/DDS), para el renderizador .gui
 
 
 def load_event_data(session, ref, lang: str, *, game_art: bool = True) -> EventPreviewData | None:
@@ -112,14 +118,47 @@ def load_event_data(session, ref, lang: str, *, game_art: bool = True) -> EventP
         option_keys.append(key)
     picture_name = record.get("picture", None)
     image = None
+    picture_data = None
     if game_art and isinstance(picture_name, str) and picture_name:
         found = find_picture(session, "gfx/pictures/events", picture_name)
         image = image_from_bytes(found[1]) if found is not None else None
+        picture_data = found[1] if found is not None else None
     return EventPreviewData(
         ident=ref.ident, province=(record.entity_key or "").lower() == "province_event", title=title, desc=desc,
         options=tuple(options), major=record.get("major", False) is True, title_key=title_key,
         desc_key=desc_key, option_keys=tuple(option_keys),
-        picture_name=picture_name if isinstance(picture_name, str) else "", picture_image=image)
+        picture_name=picture_name if isinstance(picture_name, str) else "", picture_image=image,
+        picture_data=picture_data)
+
+
+def compose_real_window(session, data: EventPreviewData | None) -> QImage | None:
+    """La ventana real del evento compuesta con su ``.gui`` (iteración 8), o None si no hay arte para ella."""
+    from ..interface import game_art_allowed, renderer_of, source_of, to_qimage
+
+    if data is None or not game_art_allowed() or getattr(session, "project", None) is None:
+        return None
+    renderer = renderer_of(session)
+    source = source_of(session)
+    if renderer is None or source is None:
+        return None
+    from ...core.gui.event_window import render_event
+
+    picture = None
+    if data.picture_data:
+        from ...core.gui import load_image
+
+        try:
+            picture = load_image(data.picture_data)
+        except ValueError:
+            picture = None
+    options = [text or (data.option_keys[index] if index < len(data.option_keys) else "") or "—"
+               for index, text in enumerate(data.options)]
+    try:
+        image = render_event(renderer, source, province=data.province, title=data.title or data.title_key or "",
+                             desc=data.desc or data.desc_key or "", options=options, picture=picture)
+    except (OSError, ValueError, KeyError):
+        return None
+    return to_qimage(image) if image is not None else None
 
 
 class EventCanvas(QWidget):
@@ -130,15 +169,21 @@ class EventCanvas(QWidget):
         self.setObjectName("eventCanvas")
         self.data: EventPreviewData | None = None
         self.game_art = True
+        self.real: QImage | None = None              # la ventana compuesta con el .gui real (iteración 8)
         self.current_option: int | None = None
         self.empty_text = ""
         self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
         self.setMinimumSize(320, 240)
 
     def natural_width(self) -> int:
+        if self.real is not None and self.data is not None:
+            return self.real.width()
         return PROVINCE_WIDTH if self.data is not None and self.data.province else WINDOW_WIDTH
 
     def natural_height(self, width: int | None = None) -> int:
+        if self.real is not None and self.data is not None:
+            scale = min(1.0, (width or self.real.width()) / max(1, self.real.width()))
+            return int(self.real.height() * scale)
         return self._layout(width or self.natural_width())[-1]
 
     def sizeHint(self) -> QSize:
@@ -193,6 +238,9 @@ class EventCanvas(QWidget):
             painter.drawText(QRectF(0, 0, width, height), Qt.AlignmentFlag.AlignCenter | Qt.TextFlag.TextWordWrap,
                              self.empty_text)
             return
+        if self.real is not None:
+            self._paint_real(painter, width, height)
+            return
         natural = self.natural_width()
         window_w = min(width - 8, natural) if width > 200 else natural
         title_doc, desc_doc, option_docs, picture_h, window_h = self._layout(window_w)
@@ -237,6 +285,16 @@ class EventCanvas(QWidget):
             doc.drawContents(painter)
             painter.restore()
             y += h + 6
+
+    def _paint_real(self, painter: QPainter, width: int, height: int) -> None:
+        """La ventana real, centrada y reducida si no cabe (nunca ampliada: se vería borrosa)."""
+        image = self.real
+        scale = min(1.0, (width - 8) / max(1, image.width()), (height - 8) / max(1, image.height()))
+        w, h = image.width() * scale, image.height() * scale
+        painter.save()
+        painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
+        painter.drawImage(QRectF((width - w) / 2, max(4.0, (height - h) / 2), w, h), image)
+        painter.restore()
 
     def _paint_picture(self, painter: QPainter, rect: QRectF, data: EventPreviewData) -> None:
         image = data.picture_image if self.game_art else None
@@ -319,6 +377,7 @@ class EventPreview(QWidget):
             return
         self.canvas.data = load_event_data(self.session, self._ref, self._lang, game_art=self.canvas.game_art) \
             if self._ref is not None else None
+        self._compose()
         self.canvas.updateGeometry()
         self.canvas.update()
 
@@ -326,8 +385,16 @@ class EventPreview(QWidget):
         """Pinta ``data`` a mano, sin registro (pruebas y capturas)."""
         self._manual = True
         self.canvas.data = data
+        self._compose()
         self.canvas.updateGeometry()
         self.canvas.update()
+
+    def _compose(self) -> None:
+        self.canvas.real = compose_real_window(self.session, self.canvas.data) if self.canvas.game_art else None
+
+    def uses_real_window(self) -> bool:
+        """True si la vista previa es la ventana real compuesta con el ``.gui`` (no la procedural)."""
+        return self.canvas.real is not None and self.canvas.data is not None
 
     def data(self) -> EventPreviewData | None:
         return self.canvas.data
@@ -344,6 +411,10 @@ class EventPreview(QWidget):
     def set_game_art(self, enabled: bool) -> None:
         self.canvas.game_art = bool(enabled)
         self._reload()
+        if self._manual:
+            self._compose()
+            self.canvas.updateGeometry()
+            self.canvas.update()
 
     def set_current_option(self, index: int | None) -> None:
         """Resalta una opción (la tarjeta con el foco)."""

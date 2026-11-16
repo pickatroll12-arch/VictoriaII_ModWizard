@@ -15,14 +15,14 @@ from __future__ import annotations
 
 from .bmfont import BMFont, BMFontError, Glyph
 from .gfxdb import SPRITE_CONTAINERS, Sprite, SpriteDB, normalize_texture, resolve_texture
-from .guimodel import ELEMENT_TYPES, GuiDocument, GuiElement, element_path
+from .guimodel import ELEMENT_TYPES, HIDDEN_POSITION, GuiDocument, GuiElement, element_path
 from .layout import ANCHORS, Rect, anchor_point, layout, local_position
 from .source import ContextSource, GuiSource, SnapshotSource, WorkspaceSource
 from .textures import TextureCache, TextureError, frame_box, load_image, nine_slice, split_frame
 
 __all__ = [
     "ANCHORS", "BMFont", "BMFontError", "ContextSource", "ELEMENT_TYPES", "Glyph", "GuiDocument", "GuiElement",
-    "GuiSource", "Rect", "SPRITE_CONTAINERS", "SnapshotSource", "Sprite", "SpriteDB", "TextureCache",
+    "GuiSource", "HIDDEN_POSITION", "Rect", "SPRITE_CONTAINERS", "SnapshotSource", "Sprite", "SpriteDB", "TextureCache",
     "TextureError", "WorkspaceSource", "anchor_point", "element_path", "frame_box", "layout", "load_image",
     "local_position", "nine_slice", "normalize_texture", "resolve_texture", "split_frame",
 ]

@@ -150,7 +150,8 @@ class SectionWindowTests(EntityWindowCase):
                 self.assertEqual(rail.rail.buttons[rail.section_index(section)].badge, len(idents))
         self.assertNotIsInstance(window.page("war:cb"), PlannedSectionPage)
         self.assertNotIsInstance(window.page("war:wars"), PlannedSectionPage)   # iteración 6: página propia
-        self.assertIsInstance(window.page("interface:windows"), PlannedSectionPage)
+        self.assertNotIsInstance(window.page("interface:windows"), PlannedSectionPage)   # iteración 8: propia
+        self.assertIsInstance(window.page("map:forge"), PlannedSectionPage)
 
     def test_without_a_project_the_page_says_so(self):
         window = self.make_window()

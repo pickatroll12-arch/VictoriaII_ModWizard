@@ -86,6 +86,9 @@ SPRITE = EntitySchema(
     ),
     template=_template,
     ignore_case=True,
+    hall="interface",
+    section="sprites",
+    order=2,
     icon="file_image",
 )
 

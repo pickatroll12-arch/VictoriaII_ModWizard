@@ -21,6 +21,7 @@ ELEMENT_TYPES = frozenset({
     "listboxtype", "scrollbartype", "positiontype", "overlappingelementsboxtype", "editboxtype", "shieldtype",
     "eu3dialogtype",
 })
+HIDDEN_POSITION = (-4000, -4000)           # fuera de cualquier pantalla, sea cual sea el anclaje
 CONTAINER_TYPES = frozenset({"windowtype", "eu3dialogtype"})
 GUI_CONTAINERS = ("guitypes",)
 SPRITE_KEYS = ("spritetype", "quadtexturesprite")
@@ -209,6 +210,11 @@ class GuiDocument:
         """Pone ``position = { x = <x> y = <y> }`` cambiando solo los dos números (o creando el bloque)."""
         self._set_pair(el, "position", int(x), int(y))
         el.position = (int(x), int(y))
+
+    def hide(self, el: GuiElement) -> None:
+        """«Ocultar» (wizard §17.4): lo deja fuera de la pantalla en lugar de borrarlo, porque el ejecutable
+        busca muchos elementos por su nombre. Solo cambia su ``position``."""
+        self.set_position(el, *HIDDEN_POSITION)
 
     def set_size(self, el: GuiElement, w: int, h: int) -> None:
         """Cambia el tamaño: ``maxWidth``/``maxHeight`` en las cajas de texto que los usan; ``size`` en el
