@@ -69,8 +69,8 @@ modelo de encargo, porque ya están hechas (ver el estado de arriba).
 7. **Ida y vuelta exacta.** Donde la tarea pide «sin pérdidas», `to_bytes(from_bytes(b)) == b` **byte a byte**
    para cualquier entrada válida, también con el corpus real. Es el invariante I3 del proyecto.
 8. **Batería completa** antes de entregar (regla 2). Hoy da 1094 pruebas OK (5 omitidas sin corpus). Con el
-   corpus (variable `VIC2_CORPUS`, rutas separadas por `:`; en Windows `;`), ninguna omitida. El corpus está en la
-   release `recursos-v1` del repositorio; cómo descomprimirlo **fuera del repositorio** lo explica
+   corpus (variable `VIC2_CORPUS`, rutas separadas por `:`; en Windows `;`), ninguna omitida. El corpus no está en el
+   repositorio: pídeselo al usuario; cómo descomprimirlo **fuera del repositorio** lo explica
    `CONTINUAR_EN_CLAUDE_CODE.md` §4, «Corpus». Las pruebas de «latido» miden pausas de la interfaz: en una máquina
    cargada pueden fallar; repítelas solas antes de darlas por rotas.
 9. **Archivos.** **Solo creas** los archivos que nombra tu tarea; **no modifiques ningún archivo existente**

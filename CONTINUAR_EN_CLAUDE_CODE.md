@@ -72,7 +72,7 @@ arreglarlo, deja una prueba de regresión que falle sin el arreglo y pasa la bat
 
   Los 8 criterios de wizard.md §22 se cumplen, los del corpus con los archivos reales del usuario.
 - **Pruebas** (28-10-2026, con la iteración 4): 1803 en 116 archivos.
-  - Con el corpus real del usuario (release `recursos-v1`, descomprimido fuera del repositorio según §4, y copias
+  - Con el corpus real del usuario (descomprimido fuera del repositorio según §4, y copias
     de VSM y de la plantilla: nunca se abren las reales) pasan todas, sin omitir ninguna, con Python 3.13.17 +
     PySide6 6.12.0, y no queda ningún `.vic2studio` en el corpus real.
   - Sin corpus pasan con 54 omitidas, las de corpus, con Python 3.10.20 + PySide6 6.11.3.
@@ -667,15 +667,8 @@ python3 tools/screenshot.py --out DIR --lang all --size 1100x700 --mod tests/fix
 
 ### 2. Criterios con corpus: hechos (27-10-2026)
 
-El usuario subió el corpus a la release `recursos-v1` del repositorio. Se descarga por la API de GitHub (la URL
-directa da 404 porque el repositorio es privado; el proxy de la nube pone la autenticación):
-
-```bash
-curl -sSL -H "Accept: application/octet-stream" -o <nombre> \
-    https://api.github.com/repos/pickatroll12-arch/VictoriaII_ModWizard/releases/assets/<id>
-```
-
-(los `id` y los sha256 salen de la release). Se descomprime fuera del repositorio como dice §4. Con él, los
+El corpus del usuario se usa desde una carpeta local, descomprimido fuera del repositorio como dice §4; nunca se
+sube al repositorio. Con él, los
 criterios 1 y 3 se cumplen: 1089 pruebas OK sin omitir ninguna, ida y vuelta de 12 054 archivos y el criterio 3
 sobre vanilla real + VSM. Además, el Shago Mod completo abre sobre vanilla en 0,12 s, su `somaliland_shago.txt`
 roto se abre en solo lectura y guardar sin cambios no escribe nada.

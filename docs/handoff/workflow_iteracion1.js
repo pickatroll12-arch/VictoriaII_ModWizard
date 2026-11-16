@@ -9,9 +9,9 @@ export const meta = {
   ],
 }
 
-const P = '/home/chononias/Documentos/VIIMOD_EDITOR/victoria2_mod_studio'
-const SCRATCH = '/tmp/claude-1000/-home-chononias-Documentos-VIIMOD-EDITOR/28954578-a97f-4ba0-85a5-39ebe458cda6/scratchpad'
-const TEMPLATE = '/home/chononias/Documentos/VIIMOD_EDITOR/Plantilla Mod'
+const P = '<carpeta del repositorio>'
+const SCRATCH = '<carpeta temporal de la sesión>'
+const TEMPLATE = '<carpeta de la plantilla>'
 const ZIPCORPUS = SCRATCH + '/corpus'
 const CORPUS_ENV = 'VIC2_CORPUS="' + TEMPLATE + ':' + ZIPCORPUS + '"'
 const TEST_CMD = 'cd ' + P + ' && ' + CORPUS_ENV + ' QT_QPA_PLATFORM=offscreen python3 -m unittest discover -s tests -v'

@@ -1,6 +1,6 @@
 """Criterios 3, 4 y 5 de la iteración 3 con el corpus real: VSM sobre vanilla (``VIC2_CORPUS``).
 
-Cifras medidas con el corpus de la release ``recursos-v1``:
+Cifras medidas con el corpus local del usuario (fuera del repositorio):
 
 - Errores propios de VSM: exactamente los 7 del criterio 3. CSR, que solo tiene sus
   5 banderas (``gfx/flags/CSR*.tga``, que vanilla no trae) sin registro, historia ni

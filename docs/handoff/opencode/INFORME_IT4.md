@@ -12,7 +12,7 @@ agentes de wizard §20, por fases.
   fusionado más el commit del handoff (`main` aún no lo trae), así que el código de partida es el de `main`.
 - **Python.** `.venv` con 3.12.13 (PySide6 por pip) y `.venv310` con 3.10.20. El del sistema es 3.14.7 y no se
   usa para las baterías (PRUEBAS.md §2).
-- **Corpus.** Descargado de la release `recursos-v1` con `gh release download` y descomprimido **fuera** del
+- **Corpus.** Copia local del usuario, descomprimida **fuera** del
   repositorio, en `~/vic2corpus/{vanilla,Plantilla Mod,ShagoMod}` (8 861 archivos en `vanilla`), como dice
   CONTINUAR §4. Las pruebas de corpus usan
   `VIC2_CORPUS="$HOME/vic2corpus/vanilla:$HOME/vic2corpus/Plantilla Mod:$HOME/vic2corpus/ShagoMod"` y solo

@@ -16,10 +16,9 @@ implementación punta a punta de `government` y `unit` (ENCARGO_MOTOR.md).
     `.venv/bin/python`. Python 3.10 existe (`~/.local/bin/python3.10`, 3.10.20) pero sin dependencias;
     se preparará en la fase 4 para la doble batería.
 - **Corpus.** Disponible fuera del repositorio (no se sube nada de Paradox):
-  - juego vanilla: `~/Documentos/VIIMOD_EDITOR/Victoria.II.v3.04.Inclu.ALL.DLC` (con `map/default.map`,
+  - juego vanilla: `<carpeta del juego>` (con `map/default.map`,
     `common/governments.txt` y las 21 unidades de `units/`);
-  - copia del mod grande (VSM / ShagoMod): `~/Documentos/VIIMOD_EDITOR/VictoriaShagoMod_for testing
-    purposes (1)/` (raíz de corpus con `VSM/` y `VSM.mod`).
+  - copia del mod grande (VSM / ShagoMod): `<copia del mod>/` (raíz de corpus con `VSM/` y `VSM.mod`).
   - Se usarán con `VIC2_GAME` y `VIC2_CORPUS` tal como pide PRUEBAS.md §4; las pruebas de corpus solo
     trabajan sobre copias temporales (`tests/_corpus.py`).
 

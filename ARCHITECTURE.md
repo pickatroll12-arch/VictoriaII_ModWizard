@@ -2224,7 +2224,7 @@ Estado de los criterios de aceptación de wizard §22:
 
 | Criterio | Estado | Pruebas |
 |---|---|---|
-| 1. La batería pasa sin corpus, con la muestra y con `VIC2_CORPUS` completo | **Sí.** 1089 pruebas: con el corpus real del usuario (vanilla, su plantilla y el Shago Mod, de la release `recursos-v1`) pasan todas sin omitir ninguna, con ida y vuelta byte a byte de los 12 054 archivos Clausewitz (27,4 MB); sin corpus, 1089 con 5 omitidas (§7.1) | toda la batería |
+| 1. La batería pasa sin corpus, con la muestra y con `VIC2_CORPUS` completo | **Sí.** 1089 pruebas: con el corpus real del usuario (vanilla, su plantilla y el Shago Mod, en una carpeta local fuera del repositorio) pasan todas sin omitir ninguna, con ida y vuelta byte a byte de los 12 054 archivos Clausewitz (27,4 MB); sin corpus, 1089 con 5 omitidas (§7.1) | toda la batería |
 | 2. `a = 1 # c\rb = 2\r` da 2 entradas y `detect_newline` da `"\r"` | Sí | `test_lexer_cr` |
 | 3. Cambiar `months` de un CB copia `cb_types.txt` con 1 línea de diff; sobre la copia de VSM, la modifica; el juego no cambia | **Sí**, con el minijuego (mod vacío y mod con su copia) y sobre vanilla real + la copia de `cb_types.txt` de VSM (1 línea de diff, `common/` de vanilla intacto) | `test_project_workspace.test_acceptance_criterion_3_*` |
 | 4. Abrir y guardar sin cambios no escribe ni crea `.vic2studio/` | Sí | `test_noop_save` |
@@ -2493,7 +2493,7 @@ Paradox, nombres inválidos en Windows, cambios externos, taller de mapas…).
   mitad de la batería; `VIC2STUDIO_ALLOW_BROKEN_PYSIDE=1` desactiva la
   comprobación.
 - **Cifras actuales** (28-10-2026, con la iteración 4 integrada): 1803 pruebas en 116 archivos. Con el corpus
-  completo (la instalación de vanilla, la plantilla del usuario y su mod, de la release `recursos-v1`, en copias)
+  completo (la instalación de vanilla, la plantilla del usuario y su mod, en copias locales fuera del repositorio)
   pasan todas, sin omitir ninguna, con Python 3.13.17 y PySide6 6.12.0. Sin corpus pasan con 54 omitidas, las de
   corpus (§7.2), con Python 3.10.20 y PySide6 6.11.3. Las 1494 de la iteración 3 pasaron además con PySide6 6.5.0, el
   mínimo declarado (Python 3.10, numpy 1.24.0 y Pillow 10.0.0, sin

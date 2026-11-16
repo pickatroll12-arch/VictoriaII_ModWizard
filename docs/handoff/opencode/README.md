@@ -50,12 +50,10 @@ Debe acabar en `OK (skipped=54)`. Si fallan pruebas de disposición («… recor
 ## 2. El corpus (recomendado)
 
 Los criterios 1 y 7 y la revisión adversarial se comprueban contra vanilla real y una copia del mod grande. El
-corpus está en la release privada `recursos-v1`. **Descomprímelo fuera del repositorio**:
+corpus no está en el repositorio: usa tu propia copia local. **Descomprímelo fuera del repositorio**:
 
 ```bash
 mkdir -p ~/vic2corpus && cd ~/vic2corpus
-gh auth login
-gh release download recursos-v1 -R pickatroll12-arch/VictoriaII_ModWizard
 # Descomprime cada zip como dice CONTINUAR_EN_CLAUDE_CODE.md §4: quedan vanilla/, «Plantilla Mod»/ y ShagoMod/
 ```
 
