@@ -521,3 +521,21 @@ def _layer_roots(ctx) -> list:
 def severity_of(code: str) -> Severity:
     """Gravedad de un código de ``CODES`` (``KeyError`` si no es del mapa)."""
     return CODES[code]
+
+
+def province_raster(ctx):
+    """El ráster de provincias de la vista de ``ctx`` (desde la caché si está), o None si no se puede leer. Se
+    recuerda en el contexto: varias reglas de una validación lo comparten (iteración 6: ``navy_location_inland``)."""
+    cached = getattr(ctx, "_province_raster", _MISSING)
+    if cached is not _MISSING:
+        return cached
+    checker = _Checker(ctx, set(), None, getattr(ctx, "cancelled", None))
+    raster = checker.raster
+    try:
+        object.__setattr__(ctx, "_province_raster", raster)
+    except (AttributeError, TypeError):
+        pass
+    return raster
+
+
+_MISSING = object()

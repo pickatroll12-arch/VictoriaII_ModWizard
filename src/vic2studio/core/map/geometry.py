@@ -152,3 +152,25 @@ def distance_to(raster: ProvinceRaster, pid: int, x: float, y: float) -> float:
     if raster.width:
         dx = np.minimum(dx, raster.width - dx)
     return float(np.sqrt((dx ** 2 + (ys - y) ** 2).min()))
+
+
+def coastal_provinces(raster: ProvinceRaster, sea: Iterable[int], *, wrap_x: bool = True) -> set[int]:
+    """Las provincias que no son de mar y tocan alguna de ``sea`` (vecinas en horizontal o vertical; con
+    ``wrap_x`` el borde izquierdo toca el derecho). numpy, sin bucles por píxel: unos 0,3 s con vanilla."""
+    ids = raster.ids
+    lut = np.zeros(int(raster.max_id) + 1, dtype=bool)
+    for pid in sea:
+        if 0 < int(pid) < lut.size:
+            lut[int(pid)] = True
+    pairs = [(ids[:, :-1], ids[:, 1:]), (ids[:-1, :], ids[1:, :])]
+    if wrap_x:
+        pairs.append((ids[:, -1:], ids[:, :1]))
+    found: set[int] = set()
+    for a, b in pairs:
+        differ = a != b
+        a, b = a[differ], b[differ]
+        sea_a, sea_b = lut[a], lut[b]
+        found.update(int(x) for x in np.unique(a[sea_b & ~sea_a]))
+        found.update(int(x) for x in np.unique(b[sea_a & ~sea_b]))
+    found.discard(0)
+    return found

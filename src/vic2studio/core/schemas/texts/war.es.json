@@ -1,0 +1,7 @@
+{
+  "schema.war.title": "Guerras de inicio",
+  "schema.war.name": "Guerra",
+  "schema.war.doc": "history/wars/<Nombre>.txt: una guerra por archivo. Cada bloque fechado es un suceso: entran o salen atacantes y defensores y se fijan los objetivos de guerra (war_goal).",
+  "schema.war.section.general": "General",
+  "schema.war.field.name": "Nombre"
+}

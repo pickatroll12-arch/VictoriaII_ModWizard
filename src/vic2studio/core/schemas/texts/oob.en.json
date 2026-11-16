@@ -1,0 +1,22 @@
+{
+  "schema.oob.title": "Orders of battle",
+  "schema.oob.name": "Order of battle",
+  "schema.oob.doc": "history/units/<TAG>_oob.txt (and dated subfolders): armies with their regiments, fleets with their ships, and leaders. The country history names it with oob = \"<file>\".",
+  "schema.oob.section.armies": "Armies",
+  "schema.oob.section.navies": "Fleets",
+  "schema.oob.section.leaders": "Leaders",
+  "schema.oob.group.army": "Army",
+  "schema.oob.group.navy": "Fleet",
+  "schema.oob.group.regiment": "Regiment",
+  "schema.oob.group.ship": "Ship",
+  "schema.oob.group.leader": "Leader",
+  "schema.oob.field.name": "Name",
+  "schema.oob.field.location": "Location",
+  "schema.oob.field.type": "Type",
+  "schema.oob.field.home": "Home province",
+  "schema.oob.field.date": "Date",
+  "schema.oob.field.personality": "Personality",
+  "schema.oob.field.background": "Background",
+  "schema.oob.field.picture": "Picture",
+  "schema.oob.field.prestige": "Prestige"
+}

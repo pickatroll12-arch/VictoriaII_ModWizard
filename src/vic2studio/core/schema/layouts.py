@@ -375,6 +375,31 @@ class Registry:
     before: str = "dynamic_tags"
     merge: LoadMode = LoadMode.WHOLE_FILE
 
+    # Implementación de la iteración 6. Las entradas del registro son escalares (``TAG = "countries/X.txt"``), no
+    # bloques: ``Entities`` no sirve registros de aquí (``entries`` no da ninguno) y los lee el índice (símbolos
+    # ``tag``). Añadir una línea lo hace ``core.domain.country`` (asistente «Nuevo país») o el arreglo
+    # ``register_tag``, siempre delante de ``before`` y de los comentarios que lo preceden (H11).
+
+    def touches(self, rel: VPath) -> bool:
+        return VPath.of(rel).key == VPath.of(self.path).key
+
+    def files(self, vfs: VirtualFS) -> list[FileEntry]:
+        entry = vfs.resolve(self.path)
+        return [] if entry is None else [entry]
+
+    def context_rels(self, ctx) -> list[VPath]:
+        folder, _, name = self.path.rpartition("/")
+        return [rel for rel in ctx.rels(folder, name) if self.touches(rel)]
+
+    def entries(self, doc, rel: VPath):
+        return iter(())
+
+    def target_for_new(self, ctx: CheckContext, ident: str, values: dict) -> tuple[VPath, BlockPath]:
+        raise ValueError(f"{self.path}: los TAG nuevos se registran con el asistente de países")
+
+    def insert(self, doc: Document, container: Block, ident: str, block: Block) -> None:
+        raise ValueError(f"{self.path}: los TAG nuevos se registran con el asistente de países")
+
 
 @dataclass(frozen=True)
 class NestedIn:

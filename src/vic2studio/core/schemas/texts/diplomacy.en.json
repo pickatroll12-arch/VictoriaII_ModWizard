@@ -1,0 +1,15 @@
+{
+  "schema.diplomacy.title": "Starting diplomacy",
+  "schema.diplomacy.name": "Diplomacy file",
+  "schema.diplomacy.doc": "history/diplomacy/*.txt: alliances, vassals, substates, unions and guarantees, each with first, second, start_date and end_date.",
+  "schema.diplomacy.section.relations": "Relations",
+  "schema.diplomacy.group.alliance": "Alliance",
+  "schema.diplomacy.group.vassal": "Vassal",
+  "schema.diplomacy.group.substate": "Substate",
+  "schema.diplomacy.group.union": "Union",
+  "schema.diplomacy.group.guarantee": "Guarantee",
+  "schema.diplomacy.field.first": "First",
+  "schema.diplomacy.field.second": "Second",
+  "schema.diplomacy.field.start_date": "From",
+  "schema.diplomacy.field.end_date": "Until"
+}

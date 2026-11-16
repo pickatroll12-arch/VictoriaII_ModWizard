@@ -184,6 +184,43 @@ CASES = {
         {"common/bookmarks.txt": GAME_FILES["common/bookmarks.txt"]
          + 'bookmark = {\r\n\tname = "MG_FAR"\r\n\tdate = 1836.1.1\r\n\tcameraX = 500\r\n\tcameraY = 10\r\n}\r\n'},
         {"bookmark": "MG_FAR", "x": "500", "y": "10", "width": 64, "height": 32}, "common/bookmarks.txt"),
+    # Iteración 6: países, órdenes de batalla y guerras (el detalle, en test_validate_it6).
+    "ruling_party_inactive": (
+        {ALAND: GAME_FILES[ALAND].replace("end_date = 2000.1.1", "end_date = 1835.1.1"),
+         AAA: history("ruling_party = AAA_conservative\n")},
+        {"tag": "AAA", "party": "AAA_conservative", "end": "1835.1.1"}, AAA),
+    "capital_not_owned": ({}, {"tag": "BBB", "province": "3", "owner": "CCC"}, "history/countries/BBB - Borland.txt"),
+    "flag_missing": ({}, {"tag": "BBB", "file": "gfx/flags/BBB.tga"}, COUNTRIES),
+    "flag_format": ({}, {"tag": "AAA", "reason": "short"}, "gfx/flags/AAA.tga"),
+    "country_colors_missing": ({"common/country_colors.txt": "AAA = {\r\n\tcolor1 = { 1 2 3 }\r\n}\r\n"},
+                               {"tag": "BBB"}, COUNTRIES),
+    "map_color_duplicate": (
+        {"common/countries/Borland.txt": GAME_FILES["common/countries/Borland.txt"].replace("40 50 60", "10 20 30")},
+        {"color": "10 20 30"}, "common/countries/Borland.txt"),
+    "army_location_sea": ({"history/units/AAA_oob.txt": 'army = {\r\n\tname = "Sea Army"\r\n\tlocation = 9\r\n}\r\n'},
+                          {"army": "Sea Army", "province": "9"}, "history/units/AAA_oob.txt"),
+    "navy_location_inland": (
+        {"history/units/AAA_oob.txt": 'navy = {\r\n\tname = "Lake Fleet"\r\n\tlocation = 6\r\n}\r\n'},
+        {"navy": "Lake Fleet", "province": "6"}, "history/units/AAA_oob.txt"),
+    "regiment_type_mismatch": (
+        {"history/units/AAA_oob.txt": 'army = {\r\n\tname = "Mixed"\r\n\tlocation = 1\r\n'
+                                      '\tregiment = {\r\n\t\tname = "Boat"\r\n\t\ttype = frigate\r\n'
+                                      '\t\thome = 1\r\n\t}\r\n}\r\n'},
+        {"unit": "Boat", "type": "frigate", "expected": "land", "actual": "naval"}, "history/units/AAA_oob.txt"),
+    "wargoal_actor_not_in_war": (
+        {"history/wars/Odd War.txt": "1836.1.1 = {\r\n\tadd_attacker = AAA\r\n\tadd_defender = BBB\r\n"
+                                     "\twar_goal = {\r\n\t\tcasus_belli = conquer_land\r\n\t\tactor = CCC\r\n"
+                                     "\t\treceiver = BBB\r\n\t}\r\n}\r\n"},
+        {"tag": "CCC", "role": "actor"}, "history/wars/Odd War.txt"),
+    "wargoal_state_required": ({}, {"war": "Old War", "cb": "conquer_land"}, "history/wars/Old War.txt"),
+    "war_dates_order": (
+        {"history/wars/Back War.txt": "1836.1.1 = {\r\n\tadd_attacker = AAA\r\n\tadd_defender = BBB\r\n}\r\n"
+                                      "1835.1.1 = {\r\n\trem_attacker = AAA\r\n}\r\n"},
+        {"tag": "AAA", "date": "1835.1.1"}, "history/wars/Back War.txt"),
+    "war_inactive_at_bookmarks": (
+        {"history/wars/Ancient War.txt": "1700.1.1 = {\r\n\tadd_attacker = AAA\r\n\tadd_defender = BBB\r\n}\r\n"
+                                         "1701.1.1 = {\r\n\trem_attacker = AAA\r\n\trem_defender = BBB\r\n}\r\n"},
+        {"war": "Ancient War", "start": "1700.1.1", "end": "1701.1.1"}, "history/wars/Ancient War.txt"),
 }
 
 
@@ -435,6 +472,12 @@ class ExpectedCleanTests(unittest.TestCase):
             # (la forma de 1337 y 3246 en vanilla).
             ("missing_history", "history/provinces"),
             ("province_file_name", "history/provinces/south/2  Llanura.txt"),
+            # iteración 6: BBB y CCC sin bandera, la de AAA es un TGA de mentira, la capital de BBB (3) es de CCC
+            # y el CB conquer_land de «Old War» pide un estado que su objetivo no da.
+            ("flag_missing", "common/countries.txt"),
+            ("flag_format", "gfx/flags/AAA.tga"),
+            ("capital_not_owned", "history/countries/BBB - Borland.txt"),
+            ("wargoal_state_required", "history/wars/Old War.txt"),
         })
         self.assertTrue(all(p.inherited for p in report.problems))
         self.assertTrue(report.baseline_ready)

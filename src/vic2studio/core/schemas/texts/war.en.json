@@ -1,0 +1,7 @@
+{
+  "schema.war.title": "Starting wars",
+  "schema.war.name": "War",
+  "schema.war.doc": "history/wars/<Name>.txt: one war per file. Each dated block is an event: attackers and defenders join or leave and war goals (war_goal) are set.",
+  "schema.war.section.general": "General",
+  "schema.war.field.name": "Name"
+}
