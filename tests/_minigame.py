@@ -722,3 +722,222 @@ def build_map_minigame(root: Path | None = None, *, clean: bool = False,
     files: dict[str, bytes | str] = dict(MAP_GAME_FILES)
     files.update(game_files or {})
     return build_minigame(root, game_files=files, drop=(*(MAP_CLEAN_DROPS if clean else ()), *drop), **kwargs)
+
+
+# --- ampliación de la iteración 7: eventos y decisiones con guion de verdad ------------------------------------
+# No entran en GAME_FILES ni en MOD_FILES (otras pruebas cuentan sus archivos y sus símbolos): las pruebas de la
+# iteración 7 los pasan con ``build_script_minigame()``. Todo inventado, con la forma de los archivos reales:
+# grupos AND/OR/NOT en mayúsculas y minúsculas, ámbitos, un MTTH con dos modificadores, ``ai_chance``,
+# ``ai_will_do``, una clave que ningún catálogo conoce, textos reutilizados entre eventos y un título en prosa.
+
+SCRIPT_EVENT_IDS = (2001, 2002, 2003)
+SCRIPT_DECISIONS = ("mg_build_harbour", "mg_call_council")
+SCRIPT_BROKEN_DECISIONS = "decisions/tst_broken.txt"          # sin la «}» final, como dos archivos del usuario
+SCRIPT_BROKEN_IDS = ("tst_broken_one", "tst_broken_two")
+
+SCRIPT_GAME_FILES: dict[str, str] = {
+    # 2001: país. Dos países, «1842 o después», tres gobiernos y «antes de 1845» (la forma del criterio 5), con
+    # MTTH de 6 meses × 0.75 × 0.95. 2002: provincia, con una condición de país fuera de sitio (criterio 6).
+    # 2003: solo por otro evento, con el título en prosa y la descripción de 2001.
+    "events/mg_flavor.txt": _crlf("""\
+# Eventos del minijuego para el constructor de condiciones.
+country_event = {
+	id = 2001
+	title = "EVTNAME2001"
+	desc = "EVTDESC2001"
+	picture = "mg_harbour"
+
+	trigger = {
+		OR = {
+			tag = AAA
+			tag = BBB
+		}
+		year = 1842 # desde ese año
+		OR = {
+			government = monarchy
+			government = republic
+			government = council
+		}
+		NOT = { year = 1845 }
+		mg_made_up_check = 3
+	}
+
+	mean_time_to_happen = {
+		months = 6
+		modifier = {
+			factor = 0.75
+			prestige = 10
+		}
+		modifier = {
+			factor = 0.95
+			is_greater_power = yes
+		}
+	}
+
+	immediate = { set_country_flag = mg_seen }
+
+	option = {
+		name = "EVTOPTA2001"
+		prestige = 5
+		any_owned = {
+			limit = { owned_by = AAA }
+			add_core = BBB
+		}
+		ai_chance = {
+			factor = 70
+			modifier = {
+				factor = 0
+				NOT = { tag = AAA }
+			}
+		}
+	}
+	option = {
+		name = "EVTOPTB2001"
+		BBB = { relation = { who = AAA value = 50 } }
+		country_event = { id = 2003 days = 3 }
+	}
+}
+
+province_event = {
+	id = 2002
+	title = "EVTNAME2002"
+	desc = "EVTDESC2002"
+	fire_only_once = yes
+
+	trigger = {
+		prestige = 5
+		owner = { tag = AAA }
+		not = { owned_by = CCC }
+	}
+
+	mean_time_to_happen = { months = 24 }
+
+	option = {
+		name = "EVTOPTA2002"
+		owner = { prestige = 1.5 }
+		3 = { add_core = AAA }
+	}
+}
+
+country_event = {
+	id = 2003
+	title = "A plain title"
+	desc = "EVTDESC2001"
+	is_triggered_only = yes
+
+	option = {
+		name = "EVTOPTA2001"
+		musket_drill = 1
+	}
+}
+"""),
+    "decisions/mg_decisions.txt": _crlf("""\
+political_decisions = {
+	mg_build_harbour = {
+		potential = {
+			tag = AAA
+			NOT = { has_country_flag = mg_harbour_built }
+		}
+		allow = {
+			prestige = 10
+			musket_drill = 1
+		}
+		effect = {
+			prestige = -5
+			set_country_flag = mg_harbour_built
+			capital_scope = { add_core = AAA }
+		}
+		ai_will_do = {
+			factor = 1
+			modifier = {
+				factor = 0
+				year = 1850
+			}
+		}
+	}
+
+	mg_call_council = {
+		picture = mg_build_harbour
+		alert = no
+		potential = { }
+		allow = { government = monarchy }
+		effect = { government = council }
+	}
+}
+"""),
+    "localisation/mg_script.csv": _loc([
+        ("EVTNAME2001", "The harbour question", "La cuestión del puerto"),
+        ("EVTDESC2001", "Aland and Borland argue about the harbour.", "Aland y Borland discuten por el puerto."),
+        ("EVTOPTA2001", "Build it", "Construirlo"), ("EVTOPTB2001", "Leave it", "Dejarlo"),
+        ("EVTNAME2002", "A quiet province", "Una provincia tranquila"),
+        ("EVTDESC2002", "Nothing happens here.", "Aquí no pasa nada."), ("EVTOPTA2002", "Good", "Bien"),
+        ("mg_build_harbour_title", "Build the harbour", "Construir el puerto"),
+        ("mg_build_harbour_desc", "A harbour for Aland.", "Un puerto para Aland."),
+        ("mg_call_council_title", "Call the council", "Convocar el consejo"),
+        ("mg_call_council_desc", "The council takes over.", "El consejo toma el mando."),
+    ]),
+}
+
+SCRIPT_MOD_FILES: dict[str, str] = {
+    # Falta la llave que cierra ``political_decisions``: un único ``unclosed_block`` en 1:23 (D17).
+    SCRIPT_BROKEN_DECISIONS: _crlf("""\
+political_decisions = {
+	tst_broken_one = {
+		potential = { tag = AAA }
+		allow = { year = 1840 }
+		effect = { prestige = 1 }
+	}
+	tst_broken_two = {
+		potential = { tag = BBB }
+		allow = { prestige = 3 }
+		effect = { prestige = 2 }
+	}
+"""),
+    "localisation/00_TST_script.csv": _loc([
+        ("tst_broken_one_title", "First broken", "Primera rota"), ("tst_broken_one_desc", "One", "Una"),
+        ("tst_broken_two_title", "Second broken", "Segunda rota"), ("tst_broken_two_desc", "Two", "Dos"),
+    ]),
+}
+
+
+def event_picture_tga(width: int = 521, height: int = 203, color: tuple[int, int, int] = (90, 110, 150)) -> bytes:
+    """Un TGA de 24 bits sin comprimir y de un solo color, con el tamaño de las imágenes de evento."""
+    header = bytes([0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, width & 255, width >> 8, height & 255, height >> 8, 24, 0])
+    red, green, blue = color
+    return header + bytes([blue, green, red]) * (width * height)
+
+
+def decision_picture_dds(size: int = 95, color: tuple[int, int, int] = (150, 110, 60)) -> bytes:
+    """Un DDS A8R8G8B8 sin comprimir de un solo color, con el tamaño de las imágenes de decisión."""
+    import numpy as np
+
+    from vic2studio.core.gfx.dds import write_dds
+
+    rgba = np.empty((size, size, 4), dtype=np.uint8)
+    rgba[:, :] = (*color, 255)
+    return write_dds(rgba)
+
+
+def script_pictures() -> dict[str, bytes]:
+    """Las imágenes del evento 2001 y de la decisión ``mg_build_harbour`` (válidas, generadas aquí)."""
+    return {"gfx/pictures/events/mg_harbour.tga": event_picture_tga(),
+            "gfx/pictures/decisions/mg_build_harbour.dds": decision_picture_dds()}
+
+
+def build_script_minigame(root: Path | None = None, *, broken: bool = True, pictures: bool = True,
+                          mod_files: Mapping[str, bytes | str] | None = None,
+                          game_files: Mapping[str, bytes | str] | None = None, **kwargs) -> MiniGame:
+    """El minijuego con los fragmentos de esquemas (``SCHEMA_GAME_FILES``) y los de guion de la iteración 7.
+
+    ``broken=False`` deja fuera el archivo de decisiones sin cerrar; ``pictures=False``, las imágenes. El resto
+    de argumentos son los de ``build_minigame``.
+    """
+    game: dict[str, bytes | str] = dict(SCHEMA_GAME_FILES)
+    game.update(SCRIPT_GAME_FILES)
+    if pictures:
+        game.update(script_pictures())
+    game.update(game_files or {})
+    mod: dict[str, bytes | str] = {rel: data for rel, data in SCRIPT_MOD_FILES.items()
+                                   if broken or rel != SCRIPT_BROKEN_DECISIONS}
+    mod.update(mod_files or {})
+    return build_minigame(root, mod_files=mod, game_files=game, **kwargs)

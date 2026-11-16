@@ -34,6 +34,7 @@ from .entity import (
 from .fields import (
     MISSING,
     REMAINING_BLOCKS,
+    REST,
     Children,
     Condition,
     DynamicKeys,
@@ -42,7 +43,9 @@ from .fields import (
     Group,
     Opaque,
     Script,
+    ScriptKind,
     Scope,
+    ScopeByEntry,
     Section,
     SetOps,
     Values,
@@ -167,6 +170,9 @@ __all__ = [
     "When",
     "SetOps",
     "Scope",
+    "ScopeByEntry",
+    "ScriptKind",
+    "REST",
     "REMAINING_BLOCKS",
     # entidad (§10.3)
     "IdSpec",

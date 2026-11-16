@@ -1,0 +1,5 @@
+{
+  "schema.decision.title": "Decisiones",
+  "schema.decision.name": "Decisión",
+  "schema.decision.doc": "Decisiones de decisions/*.txt: cuándo aparecen, cuándo se pueden tomar y qué efecto tienen."
+}

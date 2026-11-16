@@ -1,0 +1,5 @@
+{
+  "schema.decision.title": "Decisions",
+  "schema.decision.name": "Decision",
+  "schema.decision.doc": "Decisions from decisions/*.txt: when they appear, when they can be taken and what they do."
+}

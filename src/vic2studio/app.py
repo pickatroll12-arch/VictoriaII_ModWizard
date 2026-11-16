@@ -28,6 +28,8 @@ SMOKE_KEYS = (
     "map.hover",                       # i18n/<idioma>/map.json
     "countries.new",                   # i18n/<idioma>/countries.json
     "war.new.button",                  # i18n/<idioma>/war.json
+    "events.preview.empty",            # i18n/<idioma>/events.json
+    "script_ui.raw_node",              # i18n/<idioma>/script.json
     "project.save_outside_mod",        # core/project/texts
     "issue.unclosed_block",            # core/validate/texts
     "issue.definition_bad_row",        # core/map/texts
@@ -49,6 +51,10 @@ SMOKE_KEYS = (
     "schema.default_map.field.sea_starts",   # core/schemas/texts/default_map
     "schema.adjacency.field.through",  # core/schemas/texts/adjacency
     "undo.province_set",               # core/domain/texts
+    "schema.event.title",              # core/schemas/texts/event
+    "schema.decision.title",           # core/schemas/texts/decision
+    "schema.mtth.unit.months",         # core/schemas/texts/mtth
+    "script.scope.country",            # core/script/texts
 )
 
 

@@ -408,7 +408,9 @@ class NestedIn:
 
     ``container=""``: las entidades son los bloques de la raíz de cada archivo (``technologies/*.txt``,
     ``inventions/*.txt``). Aquí solo se leen (los esquemas de solo lectura); crear llega con las
-    decisiones (iteración 7).
+    decisiones (iteración 7): ``{prefix}`` en ``new_file`` es el prefijo del proyecto
+    (``decisions/{prefix}_decisions.txt``), el archivo se crea con el contenedor si no existe y lo nuevo
+    va al final del contenedor. ``Entities.create(target_rel=…)`` elige otro archivo del mismo ``glob``.
     """
 
     glob: str
@@ -443,23 +445,96 @@ class NestedIn:
                 yield entry.key.text, entry.value, entry
 
     def target_for_new(self, ctx: CheckContext, ident: str, values: dict) -> tuple[VPath, BlockPath]:
-        return VPath.of(self.new_file), BlockPath((self.container,) if self.container else ())
+        return VPath.of(_with_prefix(self.new_file, ctx)), BlockPath((self.container,) if self.container else ())
+
+    def ensure_container(self, doc: Document) -> Block:
+        """El contenedor de ``doc``, creado al final si falta (un archivo nuevo de decisiones). Mutación."""
+        if not self.container:
+            return doc
+        found = doc.find(self.container)
+        if found is not None and isinstance(found.value, Block):
+            return found.value
+        return doc.append(self.container, Block()).value
 
     def insert(self, doc: Document, container: Block, ident: str, block: Block) -> Entry:
         return container.append(ident, block)
 
 
+def _with_prefix(template: str, ctx) -> str:
+    """``template`` con ``{prefix}`` sustituido por el prefijo del proyecto (el de ``LocSync``)."""
+    if "{prefix}" not in template:
+        return template
+    prefix = None
+    for owner in (getattr(ctx, "loc", None), ctx):
+        prefix = getattr(owner, "prefix", None)
+        if prefix:
+            break
+    return template.replace("{prefix}", str(prefix or "mod"))
+
+
 @dataclass(frozen=True)
 class TypedEntries:
-    """Entidades de varios tipos en los mismos archivos (``events/*.txt``:
-    ``country_event``/``province_event``, id = ``id``). Lo nuevo va a ``new_file``. Contrato
-    (iteración 7)."""
+    """Entidades de varios tipos en los mismos archivos (``events/*.txt``): cada registro es una entrada
+    de la raíz cuya clave es una de ``keys`` (``country_event``/``province_event``, sin distinguir
+    mayúsculas) y su id es el valor de ``id_field`` (``id``). Contrato (iteración 7).
+
+    Lo nuevo va al final de ``new_file``, donde ``{prefix}`` es el prefijo del proyecto
+    (``events/{prefix}_events.txt``), o del archivo que diga ``Entities.create(target_rel=…)``. La clave de
+    la entrada nueva es ``values[type_field]`` (por defecto la primera de ``keys``); ``type_field`` no es un
+    campo del bloque y no se escribe. El id se escribe en ``id_field``, el primero del bloque. Editar un
+    registro de un archivo del juego copia el archivo entero a la misma ruta al guardar
+    (``UNION_BY_PATH``). ``Record.entity_key`` da la clave de la entrada de un registro leído.
+    """
 
     glob: str
     keys: tuple[str, ...]
     id_field: str
     new_file: str
+    type_field: str = "type"
     merge: LoadMode = LoadMode.UNION_BY_PATH
+
+    def _folder_pattern(self) -> tuple[str, str]:
+        folder, _, pattern = self.glob.rpartition("/")
+        return folder, pattern
+
+    def files(self, vfs: VirtualFS) -> list[FileEntry]:
+        folder, pattern = self._folder_pattern()
+        return [entry for entry in vfs.list(folder, pattern, recursive=False) if self.touches(entry.rel)]
+
+    def touches(self, rel: VPath) -> bool:
+        return _glob_touches(self.glob, VPath.of(rel))
+
+    def context_rels(self, ctx) -> list[VPath]:
+        folder, pattern = self._folder_pattern()
+        return [rel for rel in ctx.rels(folder, pattern) if self.touches(rel)]
+
+    def is_key(self, key: str) -> bool:
+        lowered = key.lower()
+        return any(lowered == candidate.lower() for candidate in self.keys)
+
+    def entries(self, doc: Document, rel: VPath) -> Iterator[tuple[str, Block, Entry | None]]:
+        for entry in doc.entries:
+            if entry.key is None or not isinstance(entry.value, Block) or not self.is_key(entry.key.text):
+                continue
+            found = entry.value.find(self.id_field, ignore_case=True)
+            if found is None or not isinstance(found.value, Scalar):
+                continue
+            yield found.value.text, entry.value, entry
+
+    def target_for_new(self, ctx: CheckContext, ident: str, values: dict) -> tuple[VPath, BlockPath]:
+        return VPath.of(_with_prefix(self.new_file, ctx)), BlockPath()
+
+    def entry_key(self, values: dict) -> str:
+        """La clave de la entrada nueva: ``values[type_field]`` si es una de ``keys``, si no la primera."""
+        wanted = values.get(self.type_field)
+        if isinstance(wanted, str):
+            for key in self.keys:
+                if key.lower() == wanted.lower():
+                    return key
+        return self.keys[0]
+
+    def insert(self, doc: Document, container: Block, ident: str, block: Block, key: str | None = None) -> Entry:
+        return container.append(key or self.keys[0], block)
 
 
 # Qué copia cuenta cuando una clave está en dos archivos de un ``KeyedFiles``: la primera por ``rel.key`` (la

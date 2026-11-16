@@ -31,8 +31,8 @@ from ..clausewitz.nodes import Block, Entry, Scalar
 from ..vfs.model import LayerKind
 from ..vfs.paths import VPath
 from .entity import EntitySchema, LocSpec
-from .fields import MISSING, OPEN_CATALOG, Children, DynamicKeys, Field, Group, Opaque, Script, Section
-from .layouts import GroupedIn, OnePerFile, entry_path, follow_path, parent_block
+from .fields import MISSING, OPEN_CATALOG, REST, Children, DynamicKeys, Field, Group, Opaque, Script, Section
+from .layouts import TypedEntries, GroupedIn, OnePerFile, entry_path, follow_path, parent_block
 from .placement import SchemaOrder, dynamic_insert_index, first_dated_index, insertion_index
 from .registry import registry
 from .validate import CheckContext, issue as make_issue
@@ -140,6 +140,8 @@ def ident_problem(schema: EntitySchema, ident: str) -> str | None:
         return None if _SNAKE_RE.fullmatch(ident) else "bad_chars"
     if rule.mode == "word":
         return None if _WORD_RE.fullmatch(ident) else "bad_chars"
+    if rule.mode == "int_range":
+        return None if ident.isdigit() else "bad_chars"
     # tag e int_range llegan con los esquemas que los usan (countries, events…).
     return None
 
@@ -177,7 +179,8 @@ class Record:
 
     def __init__(self, schema: EntitySchema, ref: RecordRef, handle: DocHandle, block: Block,
                  origin: LayerKind | None = None, *, ws: Workspace = None, index=None,
-                 entry: Entry | None = None, document: Block | None = None) -> None:
+                 entry: Entry | None = None, document: Block | None = None,
+                 entity_key: str | None = None) -> None:
         self.schema = schema
         self.ref = ref
         self.handle = handle
@@ -187,6 +190,10 @@ class Record:
         self._index = index                    # catálogos de los DynamicKeys (B2)
         self._entry = entry                    # la entrada dueña en el documento (borrar)
         self._document = document              # el documento del bloque (None: el del handle)
+        # La clave de la entrada dueña de la entidad (``country_event``); las vistas de grupo la heredan.
+        self._group_view = False               # True en las vistas de grupo (``group``, ``groups``)
+        self._entity_key = entity_key if entity_key is not None else (
+            entry.key.text if entry is not None and entry.key is not None else None)
 
     # --- esquema efectivo ---------------------------------------------------------------
 
@@ -373,14 +380,20 @@ class Record:
         entries = self.block.find_all(key)
         if index >= len(entries) or not isinstance(entries[index].value, Block):
             raise KeyError(f"no hay grupo {key!r} #{index}")
-        return Record(self.schema, self.ref, self.handle, entries[index].value, self.origin,
-                      ws=self._ws, index=self._index, entry=entries[index], document=self._document)
+        view = Record(self.schema, self.ref, self.handle, entries[index].value, self.origin,
+                      ws=self._ws, index=self._index, entry=entries[index], document=self._document,
+                      entity_key=self.entity_key)
+        view._group_view = True
+        return view
 
     def groups(self, key: str) -> list[Record]:
         """Vistas de todas las repeticiones del grupo ``key``."""
-        return [Record(self.schema, self.ref, self.handle, entry.value, self.origin, ws=self._ws,
-                       index=self._index, entry=entry, document=self._document)
-                for entry in self.block.find_all(key) if isinstance(entry.value, Block)]
+        views = [Record(self.schema, self.ref, self.handle, entry.value, self.origin, ws=self._ws,
+                        index=self._index, entry=entry, document=self._document, entity_key=self.entity_key)
+                 for entry in self.block.find_all(key) if isinstance(entry.value, Block)]
+        for view in views:
+            view._group_view = True
+        return views
 
     def add_group(self, key: str, values: dict) -> Record:
         """Añade una repetición del grupo ``key`` con ``values``; devuelve su vista."""
@@ -389,8 +402,10 @@ class Record:
         for sub_key, value in values.items():
             block.append(sub_key, coerce_value(value))
         entry = self.block.append(key, block)
-        return Record(self.schema, self.ref, self.handle, block, self.origin, ws=self._ws,
-                      index=self._index, entry=entry)
+        view = Record(self.schema, self.ref, self.handle, block, self.origin, ws=self._ws,
+                      index=self._index, entry=entry, entity_key=self.entity_key)
+        view._group_view = True
+        return view
 
     # --- claves dinámicas ---------------------------------------------------------------
 
@@ -518,9 +533,79 @@ class Record:
                                 index=self._index, entry=entry, document=self._document))
         return found
 
-    def script(self, key: str):
-        """Árbol de guion de ``key`` (lo edita ``core.script``, iteración 7)."""
-        raise NotImplementedError
+    @property
+    def entity_key(self) -> str | None:
+        """Clave de la entrada dueña de la **entidad** (``country_event``, ``province_event``), también en
+        las vistas de sus grupos (``record.group("option", 1).entity_key``); None si el registro es la raíz
+        de un documento. La usan ``ScopeByEntry`` y las vistas de un ``TypedEntries``."""
+        return self._entity_key
+
+    def _group_spec(self) -> Group | None:
+        """El ``Group`` del esquema que describe esta vista de grupo (por la clave de su entrada); None en
+        la vista de la entidad."""
+        if not self._group_view or self._entry is None or self._entry.key is None:
+            return None
+        return _find_group(self._effective_fields(), self._entry.key.text)
+
+    def _is_group_view(self) -> bool:
+        return self._group_view
+
+    def _script_spec(self, key: str) -> tuple[Script, tuple[str, ...]]:
+        """``(Script, claves que no son guion)`` del campo ``key`` en esta vista."""
+        group = self._group_spec() if self._is_group_view() else None
+        items = group.fields if group is not None else self._effective_fields()
+        found = _find_script(items, key, deep=group is None)
+        if found is None:
+            raise KeyError(f"{self.ref.kind} no declara el guion {key!r}")
+        skip: tuple[str, ...] = ()
+        if key == REST and group is not None:
+            skip = tuple(_declared_keys(group.fields, exclude=REST))
+        return found, skip
+
+    def script(self, key: str, *, create: bool = False):
+        """``ScriptTree`` del campo ``Script`` ``key`` (wizard §10.5, §12.2); None si el bloque no existe.
+
+        ``key`` es la clave del bloque (``record.script("trigger")``) o ``REST`` en la vista de un grupo:
+        ``record.group("option", 1).script(REST)`` da el árbol de los efectos de la segunda opción, sin las
+        claves que el grupo declara como campos (``ScriptTree(skip=…)``). El tipo de guion y el ámbito
+        inicial salen del campo (``Script.kind``, ``Script.scope_for(self.entity_key)``) y el catálogo es
+        ``ScriptCatalog.load().with_symbols(índice)``.
+
+        Leer no escribe (I4). Las mutaciones del árbol pasan por ``ws.touch`` como las del registro: exigen
+        una transacción abierta por quien llama y fallan en un documento de solo texto (D17).
+        ``create=True`` añade antes el bloque vacío que falta, en su sitio según el esquema (es una
+        mutación). ``KeyError`` si el esquema no declara ``key`` como ``Script``.
+        """
+        from ..script.catalog import ScriptCatalog
+        from ..script.tree import ScriptTree
+
+        spec, skip = self._script_spec(key)
+        if key == REST:
+            block = self.block
+        else:
+            entry = self.block.find(key, ignore_case=True)
+            if entry is None or not isinstance(entry.value, Block):
+                if not create:
+                    return None
+                self._touch()
+                entry = self._insert_in_order(key, Block())
+            block = entry.value
+        catalog = ScriptCatalog.load().with_symbols(self._index)
+        return ScriptTree(block, spec.kind, spec.scope_for(self.entity_key), catalog, skip=skip,
+                          touch=self._touch if self._ws is not None else None)
+
+    def _insert_in_order(self, key: str, value) -> Entry:
+        """Inserta ``key`` antes de la primera entrada que el esquema pone detrás (orden canónico, §10.7)."""
+        group = self._group_spec() if self._is_group_view() else None
+        order = list(_declared_keys(group.fields if group is not None else self._effective_fields()))
+        lowered = [k.lower() for k in order]
+        if key.lower() in lowered:
+            position = lowered.index(key.lower())
+            for entry in self.block.entries:
+                if entry.key is not None and entry.key.text.lower() in lowered \
+                        and lowered.index(entry.key.text.lower()) > position:
+                    return self.block.insert_before(entry, key, value)
+        return self.block.append(key, value)
 
     def at(self, date, bookmarks=None):  # ClausewitzDate | None, Sequence[ClausewitzDate] | None
         """``HistoryView`` de este registro en ``date`` (§10.6, iteración 5). ``bookmarks``: las fechas de
@@ -606,7 +691,80 @@ class Record:
 
     def loc_keys(self) -> list[tuple[LocSpec, str]]:
         """Claves de localización de este registro: ``(LocSpec, clave ya formateada)``."""
-        return [(spec, spec.template.replace("{id}", self.ref.ident)) for spec in self.schema.loc]
+        found: list[tuple[LocSpec, str]] = []
+        for spec in self.schema.loc:
+            if spec.field:
+                found.extend((spec, key) for key in field_loc_keys(self.block, spec.field))
+            else:
+                found.append((spec, spec.template.replace("{id}", self.ref.ident)))
+        return found
+
+
+def _find_group(items, key: str) -> Group | None:
+    """El primer ``Group`` con clave ``key`` en ``items`` (también dentro de secciones y otros grupos)."""
+    for item in items:
+        if isinstance(item, Section):
+            found = _find_group(item.items, key)
+        elif isinstance(item, Group):
+            if item.key.lower() == key.lower():
+                return item
+            found = _find_group(item.fields, key)
+        else:
+            found = None
+        if found is not None:
+            return found
+    return None
+
+
+def _find_script(items, key: str, *, deep: bool = True) -> Script | None:
+    """El ``Script`` ``key`` de ``items`` (por secciones; sin entrar en grupos salvo ``deep=False``)."""
+    for item in items:
+        if isinstance(item, Section):
+            found = _find_script(item.items, key, deep=deep)
+            if found is not None:
+                return found
+        elif isinstance(item, Script) and item.key.lower() == key.lower():
+            return item
+    return None
+
+
+def _declared_keys(items, *, exclude: str | None = None):
+    """Claves que declaran ``items`` en su orden (campos, grupos y guiones), sin ``exclude``."""
+    for item in items:
+        if isinstance(item, Section):
+            yield from _declared_keys(item.items, exclude=exclude)
+        elif isinstance(item, (Field, Group, Script, Opaque)):
+            key = item.key
+            if key != exclude and key != REST:
+                yield key
+                for alias in getattr(item, "aliases", ()) or ():
+                    yield alias
+
+
+def is_loc_key(text) -> bool:
+    """True si ``text`` parece una clave de localización (sin espacios): un título en prosa no lo es."""
+    return isinstance(text, str) and bool(text) and not any(ch.isspace() for ch in text)
+
+
+def field_loc_keys(block: Block, path: tuple[str, ...]) -> list[str]:
+    """Las claves guardadas en el campo ``path`` de ``block`` (``("title",)``, ``("option", "name")``),
+    una por repetición del grupo; los textos en prosa no cuentan."""
+    blocks = [block]
+    for part in path[:-1]:
+        blocks = [entry.value for current in blocks for entry in current.find_all(part)
+                  if isinstance(entry.value, Block)]
+    keys = []
+    for current in blocks:
+        entry = current.find(path[-1], ignore_case=True)
+        if entry is not None and isinstance(entry.value, Scalar) and is_loc_key(entry.value.text):
+            keys.append(entry.value.text)
+    return keys
+
+
+def option_letter(position: int) -> str:
+    """A, B, C… para la repetición ``position`` (0, 1, 2…) de un grupo: ``EVTOPT{letter}{id}``."""
+    letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+    return letters[position] if position < len(letters) else f"{letters[position // 26 - 1]}{letters[position % 26]}"
 
 
 def coerce_value(value) -> Scalar | Block:
@@ -644,6 +802,11 @@ def build_block(schema: EntitySchema, ident: str, values: dict, index=None) -> B
                         block.append(key, value_type.write(item_value, None))
             elif isinstance(item, Group):
                 payload = merged.get(item.key)
+                if isinstance(payload, (list, tuple)) and item.repeat:
+                    for one in payload:
+                        if isinstance(one, dict):
+                            block.append(item.key, _group_block(item, one))
+                    continue
                 if isinstance(payload, dict):
                     inner = Block()
                     for sub_key, item_value in payload.items():
@@ -673,6 +836,15 @@ def build_block(schema: EntitySchema, ident: str, values: dict, index=None) -> B
         if case in variant.cases:
             emit(variant.cases[case])
     return block
+
+
+def _group_block(group: Group, payload: dict) -> Block:
+    """El bloque de una repetición de ``group`` con los valores de ``payload`` (campos simples)."""
+    inner = Block()
+    for sub in group.fields:
+        if isinstance(sub, Field) and payload.get(sub.key) is not None and payload.get(sub.key) is not MISSING:
+            inner.append(sub.key, sub.type.write(payload[sub.key], None))
+    return inner
 
 
 def _own_roles(schema: EntitySchema) -> frozenset[str]:
@@ -867,6 +1039,46 @@ class Entities:
                               ws=self.ws, index=self.index, entry=entry, document=document)
         raise KeyError(f"{ref.kind}:{ref.ident} no está en {rel}")
 
+    def id_allocator(self, family: str = "event"):
+        """``EventIdAllocator`` del proyecto: el índice más los ids de los documentos abiertos del esquema
+        que usa ``family`` (lo creado sin reindexar)."""
+        from ..script.idalloc import EventIdAllocator
+
+        pending: set[int] = set()
+        for schema in registry.all_schemas():
+            if schema.ident_rule.mode == "int_range" and schema.ident_rule.value == family:
+                for handle in self._open_handles(schema):
+                    document, _ = self._effective_document(handle)
+                    if document is None:
+                        continue
+                    for ident, _, _ in schema.layout.entries(document, handle.rel):
+                        if ident.isdigit():
+                            pending.add(int(ident))
+        settings = getattr(self.ws, "settings", None)
+        return EventIdAllocator(self.index, settings, pending=pending)
+
+    def _check_new_ident(self, schema: EntitySchema, ident: str) -> None:
+        """``InvalidIdentError`` si ``ident`` no vale para un registro nuevo de ``schema``."""
+        problem = ident_problem(schema, ident)
+        if problem is not None:
+            raise InvalidIdentError(problem, ident)
+        rule = schema.ident_rule
+        if rule.mode == "int_range":
+            allocator = self.id_allocator(rule.value or "event")
+            problem = allocator.problem(ident)
+            if problem is not None:
+                params = {}
+                try:
+                    params["next_free"] = allocator.next_free()
+                except ValueError:
+                    pass
+                collision = allocator.collision(int(ident)) if ident.isdigit() else None
+                if collision is not None:
+                    params.update(rel=str(collision.rel), layer=collision.layer.value)
+                raise InvalidIdentError(problem, ident, **params)
+        if self._ident_exists(schema, ident):
+            raise InvalidIdentError("taken", ident)
+
     def parent(self, ref: RecordRef) -> str | None:
         """Grupo del registro en un ``GroupedIn`` de nivel 1 (la cultura → su grupo); None si no tiene."""
         record = self.open(ref)
@@ -916,7 +1128,7 @@ class Entities:
         return container
 
     def create(self, kind: str, ident: str, values: dict | None = None, *,
-               texts: Mapping[str, Mapping[str, str]] | None = None) -> RecordRef:
+               texts: Mapping[str, Mapping[str, str]] | None = None, target_rel=None) -> RecordRef:
         """Crea un registro en una transacción (archivo + compañeros + claves de localización).
 
         Un id inválido o ya existente lanza ``InvalidIdentError`` sin cambiar nada. ``texts``:
@@ -925,18 +1137,24 @@ class Entities:
         """
         schema = self._schema(kind)
         self._require_editable(schema)
-        problem = ident_problem(schema, ident)
-        if problem is not None:
-            raise InvalidIdentError(problem, ident)
-        if self._ident_exists(schema, ident):
-            raise InvalidIdentError("taken", ident)
+        self._check_new_ident(schema, ident)
         values = dict(values or {})
+        layout = schema.layout
+        entry_key = None
+        if isinstance(layout, TypedEntries):
+            entry_key = layout.entry_key(values)
+            values.pop(layout.type_field, None)
         try:
-            rel, path = schema.layout.target_for_new(self._ctx(), ident, values)
+            rel, path = layout.target_for_new(self._ctx(), ident, values)
         except ValueError:
             raise InvalidIdentError("no_group", ident) from None
+        if target_rel is not None:
+            rel = VPath.of(target_rel)
+            if not self._layout_touches(schema, rel):
+                raise InvalidIdentError("bad_target", ident, rel=str(rel))
         existing = self.ws.peek(rel)
-        if path.parts:
+        ensure = getattr(layout, "ensure_container", None)
+        if path.parts and ensure is None:
             probe = existing if existing is not None and not existing.deleted else None
             document = probe.model.document if probe is not None else self._read_only_document(rel)
             if document is None or path.resolve(document) is None:
@@ -946,11 +1164,18 @@ class Entities:
             handle = self.ws.open(rel, create=True)
             self.ws.touch(handle)   # la transacción captura el estado previo (I5)
             document = handle.model.document
-            entry = schema.layout.insert(document, self._container(schema, document, path), ident, block)
+            if ensure is not None:
+                container = ensure(document)
+            else:
+                container = self._container(schema, document, path)
+            if entry_key is not None:
+                entry = layout.insert(document, container, ident, block, entry_key)
+            else:
+                entry = layout.insert(document, container, ident, block)
             record = Record(schema, RecordRef(kind, ident, rel), handle, block,
                             None if handle.origin is None else handle.origin.layer.kind,
                             ws=self.ws, index=self.index, entry=entry)
-            self._ensure_loc(schema, ident, texts)
+            self._ensure_loc(schema, ident, texts, block)
             from .companions import EditContext
 
             for companion in schema.companions:
@@ -1285,17 +1510,23 @@ class Entities:
 
     # --- localización -------------------------------------------------------------------
 
-    def _loc_pairs(self, schema: EntitySchema, ident: str) -> dict[str, str]:
-        """Clave de localización → área, agrupada por ``LocSpec``."""
+    def _loc_pairs(self, schema: EntitySchema, ident: str, block: Block | None = None) -> dict[str, str]:
+        """Clave de localización → área, agrupada por ``LocSpec``. Con ``LocSpec.field`` la clave es el valor
+        del campo en ``block`` (una por repetición; los textos en prosa no cuentan)."""
         pairs: dict[str, str] = {}
         for spec in schema.loc:
+            if spec.field:
+                if block is not None:
+                    for key in field_loc_keys(block, spec.field):
+                        pairs[key] = spec.area
+                continue
             pairs[spec.template.replace("{id}", ident)] = spec.area
         return pairs
 
     def _ensure_loc(self, schema: EntitySchema, ident: str,
-                    texts: Mapping[str, Mapping[str, str]] | None) -> None:
+                    texts: Mapping[str, Mapping[str, str]] | None, block: Block | None = None) -> None:
         by_area: dict[str, dict] = {}
-        for key, area in self._loc_pairs(schema, ident).items():
+        for key, area in self._loc_pairs(schema, ident, block).items():
             by_area.setdefault(area, {})[key] = dict((texts or {}).get(key, {}) or {})
         for area, keys in by_area.items():
             self.loc.ensure(keys, area=area)

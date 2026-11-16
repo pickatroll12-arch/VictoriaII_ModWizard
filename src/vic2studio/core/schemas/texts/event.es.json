@@ -1,0 +1,7 @@
+{
+  "schema.event.title": "Eventos",
+  "schema.event.name": "Evento",
+  "schema.event.doc": "Eventos de país y de provincia de events/*.txt: cuándo se disparan, qué texto enseñan y qué hace cada opción.",
+  "schema.event.view.country": "Eventos de país",
+  "schema.event.view.province": "Eventos de provincia"
+}

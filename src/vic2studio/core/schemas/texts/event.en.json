@@ -1,0 +1,7 @@
+{
+  "schema.event.title": "Events",
+  "schema.event.name": "Event",
+  "schema.event.doc": "Country and province events from events/*.txt: when they fire, the text they show and what each option does.",
+  "schema.event.view.country": "Country events",
+  "schema.event.view.province": "Province events"
+}
