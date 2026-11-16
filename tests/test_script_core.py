@@ -209,6 +209,21 @@ class EventCreateTests(ScriptProjectCase):
             self.assertIn(f"{key}{ident};", csv)
         self.assertEqual(self.entities.id_allocator("event").next_free(), ident + 1)
 
+    def test_new_decision_has_its_three_script_blocks_and_texts(self):
+        with self.project.ws.transaction("new"):
+            ref = self.entities.create("decision", "tst_new_harbour", None)
+        record = self.entities.open(ref)
+        rel = str(record.handle.rel)
+        self.assertTrue(rel.startswith("decisions/"), rel)
+        source = _text(self.project, rel)
+        self.assertIn("political_decisions = {", source)
+        for key in ("potential", "allow", "effect"):
+            self.assertIsNotNone(record.script(key), key)
+            self.assertRegex(source, rf"\t\t{key} = {{\s*}}")
+        csv = _text(self.project, "localisation/00_TESTMOD_decisions.csv")
+        self.assertIn("tst_new_harbour_title;", csv)
+        self.assertIn("tst_new_harbour_desc;", csv)
+
     def test_bad_ids_are_rejected_with_the_next_free(self):
         allocator = self.entities.id_allocator("event")
         self.assertEqual(allocator.problem("abc"), ID_NOT_A_NUMBER)

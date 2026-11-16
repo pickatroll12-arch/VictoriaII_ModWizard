@@ -1,7 +1,7 @@
 {
   "schema.casus_belli.title": "Casus belli",
   "schema.casus_belli.name": "Casus belli",
-  "schema.casus_belli.doc": "War justifications in common/cb_types.txt. Creating one appends it to peace_order; deleting it removes it. Script blocks are edited as code until iteration 7.",
+  "schema.casus_belli.doc": "War justifications in common/cb_types.txt. Creating one appends it to peace_order; deleting it removes it. Script blocks are edited with the condition or effect builder.",
   "schema.casus_belli.section.general": "General",
   "schema.casus_belli.section.factors": "Factors",
   "schema.casus_belli.section.peace_options": "Peace options",

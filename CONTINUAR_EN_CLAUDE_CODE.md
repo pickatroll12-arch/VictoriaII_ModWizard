@@ -100,7 +100,20 @@ arreglarlo, deja una prueba de regresión que falle sin el arreglo y pasa la bat
   clic en el mapa), taller de banderas, editor de OOB, Guerras de inicio con línea temporal y «Nueva guerra», y
   Diplomacia inicial. Pruebas nuevas: `test_country_create`, `test_schema_war`, `test_ui_country_wizard`,
   `test_ui_country_sheet` y `test_ui_wars`.
-- **Lo siguiente: la iteración 7, Event Studio y decisiones** (wizard.md §22).
+- **Iteración 7 (Event Studio y decisiones): hecha** (16-11-2026, mismo hilo). Núcleo en `core/script/{catalog,
+  tree,scopes,phrases,mtth,idalloc,textonly}.py` con el catálogo en `core/script/data/*.json` (solo nombres, tipos
+  y frases propias) y `tools/catalog_census.py` (vanilla: 111 archivos, 0 fallos de ida y vuelta, condiciones
+  99,6 % y efectos 99,8 % reconocidos; lo demás queda como nodo crudo y se conserva); esquemas `event`,
+  `decision` y `mtth` con su referencia; reglas `core/validate/rules/{events,decisions}.py`. Interfaz en
+  `ui/script/**` (constructor AND/OR/NOT con buscador del catálogo, editor de MTTH y de pesos con tiempo
+  efectivo, tarjetas de opciones con textos ES/EN, selector e importador de imágenes TGA/DDS, vistas previas
+  procedurales de evento y de decisión) y `ui/halls/events/studio.py` (Eventos con filtro país/provincia y
+  «Nuevo» con el primer id libre del rango; Decisiones con la franja de modo texto y su arreglo «Añadir `}`»).
+  Los bloques de guion de cualquier formulario (los `can_use`, `is_valid`… de los CB) se ven como frase y se
+  editan con el constructor (`ScriptFieldEditor`). Pruebas nuevas: `test_script_core`, `test_ui_event_studio` y
+  `test_ui_decisions` (con corpus: ida y vuelta de vanilla, censo ≥ 95 %, las 2 decisiones rotas del usuario y
+  la frase de AUSFlavor 31502).
+- **Lo siguiente: la iteración 8, suite de interfaces (.gui/.gfx) e imágenes** (wizard.md §22).
 - **Segunda tanda de Gemini (G4–G7): hecha por Claude.** La plataforma de Gemini se cayó y el usuario pidió
   asumirlas. Son piezas del núcleo para iteraciones futuras, en archivos nuevos:
   - G4 (`8c33ae6`): `core/tablecsv.py` y `core/map/definition.py`;

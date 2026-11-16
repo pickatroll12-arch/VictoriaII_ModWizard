@@ -842,6 +842,12 @@ def build_block(schema: EntitySchema, ident: str, values: dict, index=None) -> B
                         inner.append(sub_key, value_type.write(item_value, None))
                     if inner.entries or item.required:
                         block.append(item.key, inner)
+            elif isinstance(item, Script):
+                payload = merged.get(item.key)
+                if isinstance(payload, Block):
+                    block.append(item.key, payload)
+                elif isinstance(payload, dict) and not payload:      # bloque de guion vacío de la plantilla
+                    block.append(item.key, Block())
             elif isinstance(item, Section):
                 emit(item.items)
 

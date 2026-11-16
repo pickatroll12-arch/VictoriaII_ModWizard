@@ -1,7 +1,7 @@
 {
   "schema.casus_belli.title": "Casus belli",
   "schema.casus_belli.name": "Casus belli",
-  "schema.casus_belli.doc": "Motivos de guerra de common/cb_types.txt. Crear uno lo añade al final de peace_order; borrarlo lo quita. Los bloques de guion se editan como código hasta la iteración 7.",
+  "schema.casus_belli.doc": "Motivos de guerra de common/cb_types.txt. Crear uno lo añade al final de peace_order; borrarlo lo quita. Los bloques de guion se editan con el constructor de condiciones o de efectos.",
   "schema.casus_belli.section.general": "General",
   "schema.casus_belli.section.factors": "Factores",
   "schema.casus_belli.section.peace_options": "Opciones de paz",

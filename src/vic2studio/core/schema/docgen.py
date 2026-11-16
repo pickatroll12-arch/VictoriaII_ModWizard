@@ -23,6 +23,7 @@ from .layouts import (
     RepeatedKey,
     SingleFile,
     Table,
+    TypedEntries,
     WholeFile,
 )
 from .registry import registry
@@ -86,6 +87,8 @@ def _layout_text(schema: EntitySchema, t: _Texts) -> tuple[str, str]:
         return layout.path, t("docgen.layout.whole_file")
     if isinstance(layout, Table):
         return layout.path, t("docgen.layout.table", columns=";".join(layout.columns))
+    if isinstance(layout, TypedEntries):           # eventos (iteración 7)
+        return layout.glob, t("docgen.layout.typed_entries", keys=" / ".join(layout.keys))
     return "?", type(layout).__name__
 
 
@@ -121,6 +124,12 @@ def _description(kind: str, key: str, t: _Texts) -> str:
     return f"{label}. {help_text}" if help_text else label
 
 
+def _group_text(kind: str, key: str, t: _Texts) -> str:
+    """La etiqueta de un bloque repetido o de pesos (``option``, ``mean_time_to_happen``); su clave si no tiene."""
+    base = field_text_key(kind, key)
+    return _description(kind, key, t) if t.optional(base) else key
+
+
 def _rows(schema: EntitySchema, items, t: _Texts, lines: list[str]) -> None:
     kind = schema.kind
     for item in items:
@@ -145,7 +154,7 @@ def _rows(schema: EntitySchema, items, t: _Texts, lines: list[str]) -> None:
                                   value=value.describe(t.lang) if value is not None else "…")
             lines.append(f"| `{item.key}` | {_cell(what)} | {t('docgen.none')} | "
                          f"{t('docgen.yes') if item.required else t('docgen.no')} | "
-                         f"{_cell(t(f'schema.{kind}.dynamic.{item.dynamic.name}') if item.dynamic else item.key)} |")
+                         f"{_cell(t(f'schema.{kind}.dynamic.{item.dynamic.name}') if item.dynamic else _group_text(kind, item.key, t))} |")
         elif isinstance(item, Script):
             lines.append(f"| `{item.key}` | {_cell(t('schema.type.script'))} | {t('docgen.none')} | "
                          f"{t('docgen.yes') if item.required else t('docgen.no')} | "
@@ -182,12 +191,22 @@ def _example(schema: EntitySchema) -> str | None:
 
     if not schema.editable or schema.template is None:
         return None
+    from ..project.model import EVENT_ID_START
+    from .record import _find_field
+    from .types import Int
+
     ident = f"my_{schema.kind}"
+    if schema.ident.mode == "field":
+        id_field = _find_field(schema.fields, schema.ident.value)
+        if id_field is not None and isinstance(id_field.type, Int):
+            ident = str(EVENT_ID_START)          # un id numérico (``id = 200000000`` de un evento)
     block = build_block(schema, ident, {}, None)
     document = Document()
     from .layouts import RepeatedKey as _Repeated
 
     key = schema.layout.key if isinstance(schema.layout, _Repeated) else ident
+    if isinstance(schema.layout, TypedEntries):
+        key = schema.layout.keys[0]
     document.append(key, block)
     return format_canonical(document, indent="\t", newline="\n").rstrip("\n")
 
