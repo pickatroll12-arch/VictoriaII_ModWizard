@@ -38,6 +38,7 @@ from ..widgets import mark_data
 
 _ROLE = Qt.ItemDataRole.UserRole
 ACTIVATION_KINDS = ("technology", "invention")
+KIND_NAMES = {"technology": N_("entity.unit.kind.technology"), "invention": N_("entity.unit.kind.invention")}
 
 
 def activate_unit(schema) -> ActivateUnit | None:
@@ -105,6 +106,8 @@ class UnitPanel(QWidget):
         self.stats.verticalHeader().hide()
         self.stats.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.stats.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        for column in (1, 2, 3):
+            self.stats.horizontalHeader().setSectionResizeMode(column, QHeaderView.ResizeMode.ResizeToContents)
         outer.addWidget(self.stats, 3)
 
         self.unlock_title = QLabel()
@@ -175,7 +178,7 @@ class UnitPanel(QWidget):
             current = self.kind_combo.currentData()
             self.kind_combo.clear()
             for kind in ACTIVATION_KINDS:
-                self.kind_combo.addItem(tr(f"entity.unit.kind.{kind}"), kind)
+                self.kind_combo.addItem(tr(KIND_NAMES[kind]), kind)
             self.kind_combo.setCurrentIndex(max(self.kind_combo.findData(current), 0))
         self._fill_stats()
         self._fill_unlock()

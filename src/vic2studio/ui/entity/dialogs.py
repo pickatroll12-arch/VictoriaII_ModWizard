@@ -29,6 +29,13 @@ IDENT_MESSAGES = {
     "unchanged": N_("entity.ident.unchanged"),
 }
 
+# ``LocRename.action`` → texto de la fila (``core.schema.rename.LOC_*``).
+LOC_ACTIONS = {
+    "rename": N_("entity.rename.loc_rename"),
+    "copy": N_("entity.rename.loc_copy"),
+    "kept": N_("entity.rename.loc_kept"),
+}
+
 
 class NewEntityDialog(QDialog):
     """Pide el id, la base (plantilla del esquema o un registro existente: «basar en…») y, en un grupo, el grupo.
@@ -233,9 +240,11 @@ class RenameEntityDialog(QDialog):
         layout.addWidget(self.summary)
         self.files = mark_data(QListWidget())
         self.files.setObjectName("renameFiles")
+        self.files.setWordWrap(True)
         layout.addWidget(self.files, 1)
         self.loc = mark_data(QListWidget())
         self.loc.setObjectName("renameLoc")
+        self.loc.setWordWrap(True)
         self.loc.setMaximumHeight(110)
         layout.addWidget(self.loc)
         self.scripts_note = QLabel()
@@ -315,13 +324,12 @@ class RenameEntityDialog(QDialog):
         if plan.moved is not None:
             self.files.addItem(tr("entity.rename.moved", old=str(plan.moved[0]), new=str(plan.moved[1])))
         for item in plan.files:
-            key = "entity.rename.file_copied" if item.from_game else "entity.rename.file"
-            lines = ", ".join(str(use.line) for use in item.uses[:8] if use.line)
-            if len(item.uses) > 8:
-                lines += "…"
+            key = N_("entity.rename.file_copied") if item.from_game else N_("entity.rename.file")
+            numbers = sorted({use.line for use in item.uses if use.line})
+            lines = ", ".join(str(number) for number in numbers[:8]) + ("…" if len(numbers) > 8 else "")
             self.files.addItem(tr(key, rel=str(item.rel), count=len(item.uses), lines=lines or "—"))
         for change in plan.loc:
-            self.loc.addItem(tr(f"entity.rename.loc_{change.action}", old=change.old, new=change.new))
+            self.loc.addItem(tr(LOC_ACTIONS.get(change.action, LOC_ACTIONS["rename"]), old=change.old, new=change.new))
         self.loc.setVisible(bool(plan.loc))
         self.buttons.button(QDialogButtonBox.StandardButton.Ok).setEnabled(plan.allowed)
 
