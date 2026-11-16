@@ -71,6 +71,8 @@ WRITERS_ALLOWED = {
                            "si esa carpeta cae dentro de la capa",
     "core/validate/baseline.py": "la caché de la línea base, fuera del mod (core.appdirs.cache_dir()/baseline); no "
                                  "escribe si cae dentro del juego o del mod",
+    "core/map/cache.py": "la caché del ráster de provincias, fuera del mod (core.appdirs.cache_dir()/raster); no "
+                         "escribe si esa carpeta cae dentro del juego o del mod",
     "core/clausewitz/serializer.py": "es el envoltorio write_file",
     "core/csvloc/serialization.py": "es el envoltorio write_csv_file",
 }

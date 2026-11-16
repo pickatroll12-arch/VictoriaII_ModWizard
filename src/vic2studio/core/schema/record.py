@@ -528,7 +528,7 @@ class Record:
         from .history import HistoryView
 
         if bookmarks is None:
-            bookmarks = bookmark_dates(self._index)
+            bookmarks = bookmark_dates(getattr(self, "_index", None))
         return HistoryView(self, date, bookmarks)
 
     def unknown(self) -> list[Entry]:

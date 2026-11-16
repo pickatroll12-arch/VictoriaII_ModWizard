@@ -95,8 +95,8 @@ def load(key: str, *, root: Path | None = None) -> ProvinceRaster | None:
 
 
 def _array_bytes(array: np.ndarray) -> bytes:
-    buffer = io.BytesIO()
-    np.save(buffer, array, allow_pickle=False)
+    buffer = io.BytesIO()                        # en memoria: el archivo lo escribe ``fileio``
+    np.lib.format.write_array(buffer, array, allow_pickle=False)
     return buffer.getvalue()
 
 

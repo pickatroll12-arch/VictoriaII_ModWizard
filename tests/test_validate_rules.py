@@ -248,6 +248,12 @@ _COVERED_ELSEWHERE = {
     "descriptor_user_dir_empty", "replace_path_empty", "replace_path_hides_referenced",
     # heredado del minijuego: ExpectedCleanTests
     "bmp_color_unmapped",
+    # coherencia del mapa (iteración 5): un caso por código en test_map_coherence
+    "bmp_size_mismatch", "definition_bad_number", "province_without_pixels", "province_fragmented",
+    "max_provinces_too_small", "sea_start_unknown", "sea_start_duplicate", "region_empty", "region_not_contiguous",
+    "climate_layout", "positions_missing", "missing_history", "province_file_name", "adjacency_unknown_province",
+    "adjacency_bad_type", "adjacency_through_not_sea", "terrain_sea_mismatch", "definition_duplicate_color",
+    "definition_duplicate_id", "definition_bad_row",
 }
 
 
@@ -422,6 +428,9 @@ class ExpectedCleanTests(unittest.TestCase):
             ("event_ref_missing", "events/minigame_more.txt"),
             ("loc_key_missing", "map/definition.csv"),
             ("bmp_color_unmapped", "map/provinces.bmp"),
+            # iteración 5: «50.» en la fila 5 y el estado BBB_4, cuyas provincias 5 y 6 no tocan a la 4.
+            ("definition_bad_number", "map/definition.csv"),
+            ("region_not_contiguous", "map/region.txt"),
         })
         self.assertTrue(all(p.inherited for p in report.problems))
         self.assertTrue(report.baseline_ready)

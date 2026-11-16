@@ -125,9 +125,8 @@ class PublicApiTests(unittest.TestCase):
         record = Record.__new__(Record)
         record.schema = EntitySchema(kind="x", layout=SingleFile("y.txt"), fields=())
         record.block = Block()
-        for call in (lambda: record.script("trigger"), lambda: record.at(None)):
-            with self.assertRaises(NotImplementedError):
-                call()
+        with self.assertRaises(NotImplementedError):      # ``at`` ya existe desde la iteración 5
+            record.script("trigger")
         self.assertEqual(record.children(), [], "sin Children, ningún hijo")
         for value_type in (Color(), ListOf(Int())):
             with self.assertRaises(ValueError):
