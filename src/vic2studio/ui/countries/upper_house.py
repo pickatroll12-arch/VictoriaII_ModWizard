@@ -8,6 +8,7 @@ from PySide6.QtWidgets import QDoubleSpinBox, QFormLayout, QHBoxLayout, QLabel, 
 
 from ...i18n import N_, tr
 from ..pickers.fields import _Picker
+from ..widgets import mark_data
 
 
 class UpperHouseField(_Picker):
@@ -55,7 +56,7 @@ class UpperHouseField(_Picker):
                 label = self.session.display(symbol) if symbol is not None else ideology
             except Exception:  # noqa: BLE001
                 label = ideology
-            self.form.addRow(label, spin)
+            self.form.addRow(mark_data(QLabel(label)), spin)       # nombre de la ideología: dato
             self.spins[ideology] = spin
         self.set_value(current)
         self.retranslate()

@@ -42,6 +42,7 @@ class CountriesPage(BasePage):
         self.session = session
         self.wizard = None
         self._pending: str | None = None      # TAG recién creado: se elige cuando el índice lo conozca
+        self._stale = False                   # la lista espera a que la página se vea (ver ``reload``)
         super().__init__(parent)
         session.projectOpened.connect(self.reload)
         session.projectClosed.connect(self.reload)
@@ -97,9 +98,29 @@ class CountriesPage(BasePage):
             self.reload()
 
     def tags(self) -> list[str]:
+        self._ensure_loaded()
         return [self.list.item(i).data(ROLE_TAG) for i in range(self.list.count())]
 
     def reload(self, *args) -> None:
+        """Rehace la lista de países. Fuera de la vista solo se apunta y se rehace al enseñarla (o al pedir sus
+        datos): reconstruir las reglas del juego y los nombres de ~270 países en cada reindexado congelaba la
+        interfaz varios segundos mientras se validaba el mod."""
+        if self.session.project is not None and not self.isVisible():
+            self._stale = True
+            return
+        self._stale = False
+        self._reload_now()
+
+    def _ensure_loaded(self) -> None:
+        if self._stale:
+            self._stale = False
+            self._reload_now()
+
+    def showEvent(self, event) -> None:
+        self._ensure_loaded()
+        super().showEvent(event)
+
+    def _reload_now(self) -> None:
         current = self.current_tag()
         self.list.blockSignals(True)
         self.list.clear()
@@ -138,10 +159,12 @@ class CountriesPage(BasePage):
         self.count_label.setText(tr(N_("countries.count"), count=visible, total=self.list.count()))
 
     def current_tag(self) -> str | None:
+        self._ensure_loaded()
         item = self.list.currentItem()
         return item.data(ROLE_TAG) if item is not None else None
 
     def select_tag(self, tag: str) -> bool:
+        self._ensure_loaded()
         tag = (tag or "").upper()
         for i in range(self.list.count()):
             if self.list.item(i).data(ROLE_TAG) == tag:

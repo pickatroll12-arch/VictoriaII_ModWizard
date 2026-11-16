@@ -258,6 +258,7 @@ class WarsPage(BasePage):
         self.session = session
         self.items: list[tuple[object, core_war.WarModel]] = []
         self.dialog = None
+        self._stale = False                    # la lista espera a que la página se vea (ver ``reload``)
         super().__init__(parent)
         session.projectOpened.connect(self.reload)
         session.projectClosed.connect(self.reload)
@@ -288,7 +289,7 @@ class WarsPage(BasePage):
         right = QWidget()
         layout = QVBoxLayout(right)
         layout.setContentsMargins(6, 0, 0, 0)
-        self.detail_title = QLabel()
+        self.detail_title = mark_data(QLabel())      # nombre de la guerra: dato
         self.detail_title.setObjectName("warsDetailTitle")
         self.detail_title.setProperty("role", "title")
         layout.addWidget(self.detail_title)
@@ -336,6 +337,34 @@ class WarsPage(BasePage):
             self.reload()
 
     def reload(self, *args) -> None:
+        """Rehace la lista de guerras. Fuera de la vista solo se apunta y se rehace al enseñarla (o al pedir sus
+        datos): leer todas las guerras y las reglas del juego en cada reindexado frenaba la interfaz al validar."""
+        if self.session.project is not None and not self.isVisible():
+            self._stale = True
+            self._render_active()                # el idioma cambia aunque la lista espere
+            return
+        self._stale = False
+        self._reload_now()
+
+    def _ensure_loaded(self) -> None:
+        if self._stale:
+            self._stale = False
+            self._reload_now()
+
+    def showEvent(self, event) -> None:
+        self._ensure_loaded()
+        super().showEvent(event)
+
+    def _render_active(self) -> None:
+        """«N de M guerras activas en <fecha>» con la lista actual (vacío sin proyecto)."""
+        if self.session.project is None:
+            self.active_label.setText("")
+            return
+        date = str(self.session.working_date)
+        active = sum(1 for _rel, model in self.items if model.active_at(date))
+        self.active_label.setText(tr(N_("war.wars.active"), count=active, total=len(self.items), date=date))
+
+    def _reload_now(self) -> None:
         context = domain_context(self.session)
         current = self.current_rel()
         self.items = core_war.wars(context) if context is not None else []
@@ -354,8 +383,7 @@ class WarsPage(BasePage):
             else None
         self.timeline.set_data([(model.name or rel.name, model.start, model.end) for rel, model in self.items],
                                getattr(rules, "bookmarks", ()) or (), date, getattr(rules, "end_date", None))
-        self.active_label.setText(tr(N_("war.wars.active"), count=active, total=len(self.items), date=date or "—")
-                                  if self.session.project is not None else "")
+        self._render_active()
         self.new_button.setEnabled(self.session.project is not None)
         row = next((i for i, (rel, _m) in enumerate(self.items) if current is not None and rel == current), 0)
         if self.items:
@@ -364,15 +392,18 @@ class WarsPage(BasePage):
             self._show(-1)
 
     def current_rel(self):
+        self._ensure_loaded()
         item = self.list.currentItem()
         return item.data(ROLE_REL) if item is not None else None
 
     def select_row(self, row: int) -> None:
+        self._ensure_loaded()
         if 0 <= row < self.list.count():
             self.list.setCurrentRow(row)
             self._show(row)
 
     def select_war(self, ident: str) -> bool:
+        self._ensure_loaded()
         wanted = ident.lower().removesuffix(".txt")
         for row, (rel, model) in enumerate(self.items):
             if rel.name.lower().removesuffix(".txt") == wanted or model.name.lower() == wanted:

@@ -260,7 +260,7 @@ class NationalSheet(QWidget):
         self.government_picker = SymbolPicker(self.session, "government")
         self.government_picker.setObjectName("sheetGovernment")
         self.government_picker.value_committed.connect(lambda value: self._commit_history("government", value))
-        self.ruling_combo = QComboBox()
+        self.ruling_combo = mark_data(QComboBox())    # partidos del país: datos del mod
         self.ruling_combo.setObjectName("sheetRulingParty")
         self.ruling_combo.activated.connect(
             lambda _index: self._commit_history("ruling_party", self.ruling_combo.currentData()))
@@ -444,15 +444,25 @@ class NationalSheet(QWidget):
     def date(self):
         return getattr(self.session, "working_date", None)
 
+    def showEvent(self, event) -> None:
+        if getattr(self, "_index_stale", False):
+            self._on_index()
+        super().showEvent(event)
+
     def bind(self, tag: str | None) -> None:
         self.tag = tag.upper() if tag else None
         self.oob_editor.bind(self.tag)
         self.reload()
 
     def _on_index(self, *args) -> None:
-        """Los selectores que dependen del índice (ideologías, reformas, tecnologías) se rehacen con él."""
+        """Los selectores que dependen del índice (ideologías, reformas, tecnologías) se rehacen con él; fuera de
+        la vista, al enseñar la ficha (rehacerlos en cada reindexado frenaba la interfaz al validar)."""
         if getattr(self.session, "index", None) is None:
             return
+        if not self.isVisible():
+            self._index_stale = True
+            return
+        self._index_stale = False
         self.upper_house.reload()
         self.issue_picker.reload()
         self.tech_checklist.reload()
