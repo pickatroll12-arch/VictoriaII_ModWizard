@@ -189,7 +189,8 @@ class CountriesPage(BasePage):
         if kind == "country":
             countries = countries_facade(self.session)
             for tag in countries.tags() if countries is not None else ():
-                if (countries.country_file(tag) or "").lower().endswith("/" + ident.lower()):
+                path = "/" + (countries.country_file(tag) or "").lower()   # «countries/aland.txt», con o sin common/
+                if path.endswith("/" + ident.lower()):
                     return self._focus(tag, "identity")
             return False
         if kind == "oob":

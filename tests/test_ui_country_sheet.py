@@ -60,7 +60,7 @@ class OpenTests(SheetCase):
         page = self.window.current_page()
         self.assertEqual(page.current_tag(), "BBB")
         self.assertEqual(page.sheet.current_tab(), "politics")
-        self.assertTrue(self.window.open_entity("country", "aland.txt"))
+        self.assertTrue(self.window.open_entity("country", "countries/aland.txt"))
         self.assertEqual(page.current_tag(), "AAA")
         self.assertEqual(page.sheet.current_tab(), "identity")
 

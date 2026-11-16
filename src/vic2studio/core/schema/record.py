@@ -32,7 +32,7 @@ from ..vfs.model import LayerKind
 from ..vfs.paths import VPath
 from .entity import EntitySchema, LocSpec
 from .fields import MISSING, OPEN_CATALOG, Children, DynamicKeys, Field, Group, Opaque, Script, Section
-from .layouts import GroupedIn, OnePerFile, entry_path, follow_path, parent_block
+from .layouts import GroupedIn, OnePerFile, Registry, entry_path, follow_path, parent_block
 from .placement import SchemaOrder, dynamic_insert_index, first_dated_index, insertion_index
 from .registry import registry
 from .validate import CheckContext, issue as make_issue
@@ -749,8 +749,8 @@ class Entities:
 
     def _indexed(self, schema: EntitySchema) -> bool:
         index = self.index
-        if index is None:
-            return False
+        if index is None or isinstance(schema.layout, Registry):
+            return False   # los símbolos ``tag`` del registro son líneas escalares, no registros que abrir
         try:
             return self._provides(schema) in index.kinds()
         except Exception:  # noqa: BLE001 - un índice falso puede no saberlo
