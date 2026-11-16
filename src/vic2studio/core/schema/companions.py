@@ -389,6 +389,27 @@ class ActivateUnit:
         if target.find(ROLE_ACTIVATE_UNIT, rec.ref.ident) is None:
             target.append(ROLE_ACTIVATE_UNIT, rec.ref.ident)
 
+    def deactivate_in(self, ctx: EditContext, rec: Record, rel) -> int:
+        """Quita cada ``activate_unit = <id>`` del archivo ``rel`` (a cualquier profundidad), en la transacción
+        de quien llama. El resto del archivo no cambia. Devuelve cuántas líneas quitó (0: no toca nada)."""
+        handle = ctx.ws.open(rel)
+        found = []
+        stack = [handle.model.document]
+        while stack:
+            block = stack.pop()
+            for entry in block.entries:
+                if isinstance(entry.value, Block):
+                    stack.append(entry.value)
+                elif entry.key is not None and entry.key.text.lower() == ROLE_ACTIVATE_UNIT \
+                        and entry.value.text == rec.ref.ident:
+                    found.append((block, entry))
+        if not found:
+            return 0
+        ctx.ws.touch(handle)
+        for block, entry in found:
+            block.remove_entry(entry)
+        return len(found)
+
     def on_create(self, ctx: EditContext, rec: Record) -> None:
         return None
 

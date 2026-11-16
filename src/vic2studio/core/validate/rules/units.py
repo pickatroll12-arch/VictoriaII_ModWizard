@@ -80,6 +80,23 @@ def actor_lookup(index):
     return has_actor
 
 
+def unit_models(index) -> list[tuple[str, int]]:
+    """Los modelos que una unidad puede nombrar en ``sprite``: ``(modelo, n.º de culturas gráficas que lo
+    tienen)``, por orden alfabético. Un actor ``<cultura gráfica><modelo>`` cuenta para ``modelo``; uno que no
+    empieza por ninguna cultura gráfica (``GenericMount`` sí empieza por ``Generic``, y da ``Mount``) se ofrece
+    entero con 0 culturas. Para el selector de la ficha de unidad (§14.4); solo lee el índice."""
+    cultures = sorted((name for name in index.names(m.KIND_GRAPHICAL_CULTURE)), key=len, reverse=True)
+    models: dict[str, tuple[str, set]] = {}
+    for actor in index.names(m.ACTOR_KIND):
+        folded = actor.casefold()
+        culture = next((c for c in cultures if folded.startswith(c.casefold()) and len(actor) > len(c)), None)
+        name = actor[len(culture):] if culture is not None else actor
+        entry = models.setdefault(name.casefold(), (name, set()))
+        if culture is not None:
+            entry[1].add(culture.casefold())
+    return sorted(((name, len(found)) for name, found in models.values()), key=lambda item: item[0].casefold())
+
+
 @rule("sprite_missing", W)
 def unit_sprites(ctx):
     has_actor = actor_lookup(ctx.index)
