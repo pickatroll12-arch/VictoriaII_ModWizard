@@ -62,6 +62,10 @@ SMOKE_KEYS = (
     "schema.decision.title",           # core/schemas/texts/decision
     "schema.mtth.unit.months",         # core/schemas/texts/mtth
     "script.scope.country",            # core/script/texts
+    "interface.cancel",                # i18n/<idioma>/interface.json
+    "undo.new_sprite",                 # core/gui/texts
+    "schema.sprite.title",             # core/schemas/texts/gfx
+    "schema.gui_window.title",         # core/schemas/texts/gui_elements
 )
 
 

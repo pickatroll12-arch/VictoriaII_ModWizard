@@ -1337,7 +1337,8 @@ class Entities:
 
     def _rename_error(self, record: Record, new_ident: str, found) -> Exception | None:
         """Por qué no se puede renombrar ``record`` a ``new_ident`` (la excepción, sin lanzarla), o None."""
-        from .rename import BLOCKED_GAME_FILE, BLOCKED_READ_ONLY_FILE, BLOCKED_UNRESOLVED_USES, RenameBlockedError
+        from .rename import (BLOCKED_GAME_FILE, BLOCKED_GUI_ELEMENT, BLOCKED_READ_ONLY_FILE, BLOCKED_UNRESOLVED_USES,
+                             RenameBlockedError)
 
         schema = record.schema
         if not schema.editable:
@@ -1348,6 +1349,8 @@ class Entities:
         if new_ident == record.ref.ident:
             return InvalidIdentError("unchanged", new_ident)
         layout = schema.layout
+        if not getattr(layout, "renamable", True):
+            return RenameBlockedError(BLOCKED_GUI_ELEMENT, rel=str(record.handle.rel))
         if isinstance(layout, OnePerFile) and (found.moved is None or layout._ident(found.moved[1]) != new_ident):
             return InvalidIdentError("bad_chars", new_ident)   # el archivo nuevo no sería de esta entidad
         if self._ident_taken(schema, new_ident):

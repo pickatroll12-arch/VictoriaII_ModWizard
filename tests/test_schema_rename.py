@@ -739,11 +739,25 @@ class RejectionTests(Case):
         self.assertEqual(self.data(CB_FILE), self.game_data(CB_FILE))
         self.assertEqual(self.data(WAR_FILE), self.game_data(WAR_FILE))
 
+    def test_a_gui_element_is_not_renamed(self):
+        """El ejecutable busca los elementos de un .gui por su nombre (wizard §17.4): renombrar se rechaza con un
+        motivo traducido y no cambia nada (iteración 8)."""
+        from vic2studio.core.schema.rename import BLOCKED_GUI_ELEMENT
+
+        tree = self.game.tree()
+        ref = RecordRef("gui_window", "mg_all", "interface/mg_elements.gui")
+        with self.assertRaises(RenameBlockedError) as caught:
+            self.entities.rename(ref, "mg_other")
+        self.assertEqual(caught.exception.code, BLOCKED_GUI_ELEMENT)
+        self.assert_translated(caught.exception)
+        self.assertEqual(self.entities.rename_plan(ref, "mg_other").error.code, BLOCKED_GUI_ELEMENT)
+        self.assert_untouched(tree)
+
     def test_every_editable_schema_has_its_rename_label(self):
         for lang in ("es", "en"):
             texts = load_texts(lang)
             for schema in registry.all_schemas():
-                if schema.editable:
+                if schema.editable and getattr(schema.layout, "renamable", True):
                     self.assertIn(f"undo.rename_{schema.kind}", texts, lang)
                     self.assertEqual(set(re.findall(r"{(\w+)}", texts[f"undo.rename_{schema.kind}"])),
                                      {"ident", "new"})

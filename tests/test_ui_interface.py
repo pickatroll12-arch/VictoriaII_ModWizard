@@ -131,7 +131,11 @@ class WindowsPageTests(InterfaceWindowCase):
         send(QEvent.Type.MouseMove, QPoint((start.x() + end.x()) // 2, (start.y() + end.y()) // 2),
              Qt.MouseButton.LeftButton)
         send(QEvent.Type.MouseMove, end, Qt.MouseButton.LeftButton)
+        before = self.text_of(page.rel) if page.rel else None
         send(QEvent.Type.MouseButtonRelease, end, Qt.MouseButton.NoButton)
+        # La edición rehace la escena: no puede ocurrir dentro del mouseReleaseEvent del elemento (lo borraría
+        # mientras Qt aún lo usa), sino en cuanto vuelve el bucle de eventos.
+        self.assertEqual(self.text_of(page.rel) if page.rel else None, before, "edición dentro del release")
         _qt.process_events(20)
         self.settle()
 

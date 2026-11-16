@@ -50,6 +50,7 @@ LOC_KEPT = "kept"                        # la clave nueva ya existe: se usa esa 
 BLOCKED_GAME_FILE = "game_file"
 BLOCKED_READ_ONLY_FILE = "read_only_file"
 BLOCKED_UNRESOLVED_USES = "unresolved_uses"
+BLOCKED_GUI_ELEMENT = "gui_element"     # el ejecutable busca los elementos de un .gui por su nombre (§17.4)
 
 
 class RenameBlockedError(PermissionError):
@@ -467,6 +468,6 @@ def apply_sites(ws, found: Scan) -> None:
                 entry.value = Scalar(site.new, node.quoted)
 
 
-__all__ = ["BLOCKED_GAME_FILE", "BLOCKED_READ_ONLY_FILE", "BLOCKED_UNRESOLVED_USES", "LOC_COPY", "LOC_KEPT",
+__all__ = ["BLOCKED_GAME_FILE", "BLOCKED_GUI_ELEMENT", "BLOCKED_READ_ONLY_FILE", "BLOCKED_UNRESOLVED_USES", "LOC_COPY", "LOC_KEPT",
            "LOC_RENAME", "ROLE_DEFINITION", "LocRename", "RenameBlockedError", "RenameFile", "RenamePlan",
            "RenameUse"]

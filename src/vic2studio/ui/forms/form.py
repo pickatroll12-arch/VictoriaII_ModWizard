@@ -417,7 +417,7 @@ class EntityForm(QWidget):
             for problem in record.issues(entities.check_context()):
                 if problem.field:
                     problems.setdefault(problem.field[0], []).append(problem)
-        ident_field = self.schema.ident.value if self.schema.ident.mode == "field" else None
+        ident_field = self.schema.id_field
         for row in self.rows:
             self._fill_row(row, record, problems)
             # El campo que da el id (``name`` de un bookmark) no se cambia aquí: sería renombrar (wizard §15).

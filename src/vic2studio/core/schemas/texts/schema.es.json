@@ -163,5 +163,7 @@
   "docgen.layout.typed_entries_in": "entradas dentro de los bloques {container} de cada archivo con la clave {keys}",
   "docgen.layout.gui_elements": "elementos {keys} a cualquier profundidad de los guiTypes de cada archivo",
   "docgen.ident.gui_path": "su ruta dentro del archivo (ventana/elemento)",
-  "docgen.editable.edit_only": "se edita desde el Studio (ni se crea ni se borra: el juego busca los elementos por su nombre)"
+  "docgen.editable.edit_only": "se edita desde el Studio (ni se crea ni se borra: el juego busca los elementos por su nombre)",
+  "schema.rename.blocked.gui_element": "«{rel}»: los elementos de un .gui no se renombran; el juego los busca por su nombre y la ventana dejaría de encontrarlos.",
+  "undo.rename_sprite": "Renombrar el sprite {ident} a {new}"
 }

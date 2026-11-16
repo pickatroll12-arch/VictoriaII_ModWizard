@@ -162,3 +162,12 @@ class EntitySchema:
     icon: str = "file_text"
     preview: str | None = None               # "event", "decision", "unit_card", "flag"…
     editable: bool = True                    # False: solo se indexa (tecnologías, ideologías…)
+
+    @property
+    def id_field(self) -> str | None:
+        """Campo del bloque del que sale el id, si hay uno: el formulario no lo deja cambiar (sería renombrar,
+        wizard §15). ``IdSpec.FIELD`` lo dice el esquema; un layout que deriva el id de un campo (la ruta de un
+        elemento de ``.gui`` sale de su ``name``) lo declara con ``id_field``."""
+        if self.ident.mode == "field":
+            return self.ident.value
+        return getattr(self.layout, "id_field", None)
