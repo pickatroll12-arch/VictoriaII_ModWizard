@@ -11,8 +11,9 @@ Todo sale del índice (sin volver a analizar archivos) y de ``GameRules``:
   ``country_history_duplicate``;
 - partidos (H12): ``ruling_party_not_of_country``, ``ruling_party_ideology_not_allowed``
   (a la fecha de inicio o de trabajo) y ``party_unknown_policy``;
-- gobiernos (H16): ``government_missing_in_rebel_map`` y
-  ``government_election_without_duration``;
+- gobiernos (H16): ``government_missing_in_rebel_map``,
+  ``government_election_without_duration`` y ``government_flagtype_unknown`` (un
+  ``flagType`` sin ninguna bandera ``gfx/flags/<TAG>_<flagType>.tga``, §14.11);
 - historia: ``upper_house_sum`` y ``duplicate_field`` (campos de valor único
   repetidos en el mismo bloque: los 50 ``civilized`` de D01–D50, H13);
 - referencias rotas por tipo, ``*_unknown`` (cultura, religión, gobierno, valor
@@ -24,10 +25,10 @@ Todo sale del índice (sin volver a analizar archivos) y de ``GameRules``:
 from __future__ import annotations
 
 from ...clausewitz import Severity
-from ...clausewitz.nodes import ClausewitzDate
+from ...clausewitz.nodes import ClausewitzDate, Scalar
 from ...index import model as m
 from ...index.extractors._support import path_name
-from ...rules.ids import DYNAMIC_TAG_RE, RESERVED_TAGS, flag_tag, tag_problem
+from ...rules.ids import DYNAMIC_TAG_RE, FLAGS_FOLDER, RESERVED_TAGS, TAG_RE, flag_tag, tag_problem
 from ...vfs.paths import VPath
 from ...vfs.rules import tag_key
 from ..registry import make_problem, rule
@@ -298,6 +299,58 @@ def governments(ctx):
                 problems.append(make_problem("government_missing_in_rebel_map", rebel.rel, rebel.line,
                                              entity=(m.KIND_GOVERNMENT, government), government=government,
                                              rebel=rebel.name))
+    return problems
+
+
+def flag_types(index) -> set[str] | None:
+    """Los ``<tipo>`` de las banderas ``gfx/flags/<TAG>_<tipo>.tga`` de la vista, en minúsculas (las rutas de las
+    imágenes van así en el índice y Windows no las distingue); None si no hay ninguna bandera de país."""
+    found: set[str] = set()
+    any_flag = False
+    for name in index.names(m.KIND_IMAGE):
+        if not name.startswith(FLAGS_FOLDER) or not name.endswith(".tga"):
+            continue
+        stem = name[len(FLAGS_FOLDER):-len(".tga")]
+        if "/" in stem or TAG_RE.fullmatch(stem[:3].upper()) is None:
+            continue
+        any_flag = True
+        if len(stem) > 4 and stem[3] == "_":
+            found.add(stem[4:])
+    return found if any_flag else None
+
+
+def _flag_type_entry(ctx, symbol):
+    """La entrada ``flagType`` del gobierno ``symbol`` en su archivo, para dar su línea (el índice solo trae la del
+    bloque); None si no se encuentra."""
+    parsed = ctx.parse(symbol.rel)
+    if parsed is None:
+        return None
+    for entry in parsed.document.entries:
+        if entry.key is not None and entry.key.text == symbol.name and entry.value.__class__ is not Scalar:
+            return entry.value.find("flagType", ignore_case=True)
+    return None
+
+
+@rule("government_flagtype_unknown", W)
+def government_flag_types(ctx):
+    """Vanilla: 7 de sus 8 gobiernos llevan ``flagType`` y los 4 tipos (communist, fascist, monarchy y republic)
+    tienen bandera en 271 países cada uno. Qué enseña el juego si un país con ese gobierno no tiene la suya es
+    [verificar en juego]; aquí solo se avisa cuando no la tiene **ninguno**: el tipo no existe como bandera. Sin
+    banderas de país en la vista, la regla calla."""
+    index = ctx.index
+    known = flag_types(index)
+    if known is None:
+        return []
+    problems = []
+    for symbol in index.symbols(m.KIND_GOVERNMENT):
+        flag_type = symbol.attrs.get("flag_type")
+        if not isinstance(flag_type, str) or not flag_type.strip() or flag_type.strip().lower() in known:
+            continue
+        entry = _flag_type_entry(ctx, symbol)
+        line, column = (symbol.line, None) if entry is None else (entry.line, entry.column)
+        problems.append(make_problem("government_flagtype_unknown", symbol.rel, line, column,
+                                     entity=(m.KIND_GOVERNMENT, symbol.name), field=("flagType",),
+                                     government=symbol.name, flag_type=flag_type.strip()))
     return problems
 
 

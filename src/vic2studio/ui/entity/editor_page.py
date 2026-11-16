@@ -5,9 +5,11 @@ la derecha, la cabecera del registro (id, cinta de origen y problemas) y las pes
 ``EntityForm`` generado), **Textos** (las ``LocSpec`` en ES y EN), **Usos** (``where_used``; doble clic abre el
 archivo en su línea), **Código** (el ``ScriptEditor`` de Proyecto › Archivos sobre el archivo, en la línea del
 bloque: decisión 2 del informe) y **Otros campos** (las claves que el esquema no conoce, I6). Los esquemas con
-``MappingTable`` añaden **Rebeldes** (la matriz) y las fechas de inicio, el editor de ``end_date``.
+``MappingTable`` añaden **Rebeldes** (la matriz); los que tienen ``ActivateUnit``, **Unidad** (estadísticas
+comparadas, dónde se desbloquea y el modelo); y las fechas de inicio, el editor de ``end_date``.
 
-Crear, duplicar, borrar y restaurar son una transacción cada uno (``Entities``); editar un campo o un texto,
+Crear, duplicar, renombrar (con su plan a la vista, §15), mover de grupo, borrar y restaurar son una
+transacción cada uno (``Entities``); editar un campo o un texto,
 una transacción con ``merge_key`` por campo. Nada se escribe en disco hasta Ctrl+S.
 """
 
@@ -39,11 +41,20 @@ from ...i18n import N_, language, tr
 from ..forms import EntityForm
 from ..pages.base import BasePage
 from ..widgets import RibbonBadge, mark_data
-from .dialogs import IDENT_MESSAGES, NewEntityDialog, UnitNamesDialog, UsesDialog
+from .dialogs import (
+    IDENT_MESSAGES,
+    MoveGroupDialog,
+    NewEntityDialog,
+    RenameEntityDialog,
+    UnitNamesDialog,
+    UsesDialog,
+)
 from .extras import EndDatePanel, RebelMatrix, mapping_table
 from .navigator import ORIGIN_KEYS, EntityNavigator
+from .unit_panel import UnitPanel, activate_unit
 
 TAB_FORM, TAB_TEXTS, TAB_USES, TAB_CODE, TAB_OTHER, TAB_REBELS = "form", "texts", "uses", "code", "other", "rebels"
+TAB_UNIT = "unit"
 _REF = Qt.ItemDataRole.UserRole
 
 
@@ -214,6 +225,9 @@ class EntityEditorPage(BasePage):
         self.navigator.duplicate_requested.connect(self.ask_duplicate)
         self.navigator.delete_requested.connect(self.delete)
         self.navigator.restore_requested.connect(self.restore)
+        self.navigator.rename_requested.connect(self.ask_rename)
+        self.navigator.move_requested.connect(self.ask_move)
+        self.navigator.new_group_requested.connect(self.ask_new_group)
         self.splitter.addWidget(self.navigator)
         right = QWidget()
         column = QVBoxLayout(right)
@@ -270,6 +284,13 @@ class EntityEditorPage(BasePage):
             self.rebels.status_requested.connect(self.status_requested)
             self.tabs.addTab(self.rebels, "")
             self._tab_keys.append(TAB_REBELS)
+        self.unit = None
+        if activate_unit(self.schema) is not None:
+            self.unit = UnitPanel(self.session, self.schema)
+            self.unit.status_requested.connect(self.status_requested)
+            self.unit.location_requested.connect(self.location_requested)
+            self.tabs.addTab(self.unit, "")
+            self._tab_keys.append(TAB_UNIT)
         self.tabs.currentChanged.connect(self._on_tab)
         column.addWidget(self.tabs, 1)
         self.splitter.addWidget(right)
@@ -284,7 +305,7 @@ class EntityEditorPage(BasePage):
             panel.retranslate()
         names = {TAB_FORM: N_("entity.tab.form"), TAB_TEXTS: N_("entity.tab.texts"), TAB_USES: N_("entity.tab.uses"),
                  TAB_CODE: N_("entity.tab.code"), TAB_OTHER: N_("entity.tab.other"),
-                 TAB_REBELS: N_("entity.tab.rebels")}
+                 TAB_REBELS: N_("entity.tab.rebels"), TAB_UNIT: N_("entity.tab.unit")}
         for index, key in enumerate(self._tab_keys):
             self.tabs.setTabText(index, tr(names[key]))
         self._render_header()
@@ -403,6 +424,8 @@ class EntityEditorPage(BasePage):
                 self.problems_list.addItem(item)
         if self.rebels is not None:
             self.rebels.bind(ref if ref is not None and ref.kind == self.schema.kind else None)
+        if self.unit is not None:
+            self.unit.bind(ref if record is not None else None)
         if self.tabs.currentIndex() == self._tab_keys.index(TAB_CODE):
             self._load_code()
         self._render_header()
@@ -601,6 +624,114 @@ class EntityEditorPage(BasePage):
             return False
         self.refresh()
         self.request_status(N_("entity.deleted"), ident=ref.ident)
+        return True
+
+    # --- renombrar y grupos (§15, §14.13) ---------------------------------------------------------
+
+    def ask_rename(self, ref) -> bool:
+        """«Renombrar»: enseña el plan (archivos, usos, claves de texto) y, si se acepta, renombra."""
+        entities = self.session.entities
+        if entities is None or ref is None or self.session.is_read_only():
+            return False
+        self.commit_pending()
+        dialog = RenameEntityDialog(entities, ref, parent=self)
+        if self.exec_dialog(dialog) != QDialog.DialogCode.Accepted:
+            return False
+        return self.rename(ref, dialog.new_ident())
+
+    def rename(self, ref, new_ident: str) -> bool:
+        """Renombrado seguro de ``ref`` (definición, usos, compañeros y claves de texto) en una transacción."""
+        entities = self.session.entities
+        if entities is None or self.session.is_read_only():
+            return False
+        try:
+            with self.session.edit(f"undo.rename_{ref.kind}", kind=ref.kind, ident=ref.ident, new=new_ident):
+                renamed = entities.rename(ref, new_ident)
+        except InvalidIdentError as exc:
+            self.request_status(N_("entity.rename.failed"), reason=tr(
+                IDENT_MESSAGES.get(exc.code, "entity.ident.bad_chars"), ident=new_ident))
+            return False
+        except (ReadOnlySchemaError, PermissionError, KeyError, FileNotFoundError) as exc:
+            reason = exc.message(language()) if hasattr(exc, "message") else str(exc)
+            self.request_status(N_("entity.rename.failed"), reason=reason)
+            return False
+        self.refresh()
+        self.navigator.select(renamed)
+        self.request_status(N_("entity.rename.done"), ident=ref.ident, new=new_ident)
+        return True
+
+    def ask_move(self, ref) -> bool:
+        """«Mover a otro grupo» (culturas): pide el grupo y mueve el bloque con su texto intacto."""
+        entities = self.session.entities
+        if entities is None or ref is None or ref.kind != self.schema.kind:
+            return False
+        try:
+            current = entities.parent(ref)
+        except (KeyError, FileNotFoundError):
+            current = None
+        dialog = MoveGroupDialog(ref.ident, entities.groups(ref.kind), current, parent=self)
+        if self.exec_dialog(dialog) != QDialog.DialogCode.Accepted or dialog.group() is None:
+            return False
+        return self.move_to_group(ref, dialog.group())
+
+    def move_to_group(self, ref, group: str) -> bool:
+        entities = self.session.entities
+        if entities is None or self.session.is_read_only():
+            return False
+        self.commit_pending()
+        try:
+            with self.session.edit(f"undo.move_{ref.kind}", kind=ref.kind, ident=ref.ident, group=group):
+                moved = entities.move_to_group(ref, group)
+        except InvalidIdentError as exc:
+            self.request_status(N_("entity.move.failed"), reason=tr(
+                IDENT_MESSAGES.get(exc.code, "entity.ident.no_group"), ident=group))
+            return False
+        except (ReadOnlySchemaError, PermissionError, KeyError, ValueError, FileNotFoundError) as exc:
+            self.request_status(N_("entity.move.failed"), reason=str(exc))
+            return False
+        self.refresh()
+        self.navigator.select(moved)
+        self.request_status(N_("entity.move.done"), ident=ref.ident, group=group)
+        return True
+
+    def ask_new_group(self) -> bool:
+        """«Nuevo grupo» (culturas): pide el id y crea el grupo vacío con su esquema."""
+        from ...core.schema import registry
+
+        entities = self.session.entities
+        kind = None if entities is None else entities.group_kind(self.schema.kind)
+        if kind is None:
+            return False
+        schema = registry.get(kind)
+        existing = [summary.ref for summary in entities.list(kind)]
+        dialog = NewEntityDialog(schema, existing, [], parent=self)
+        if self.exec_dialog(dialog) != QDialog.DialogCode.Accepted:
+            return False
+        ident, base, _group = dialog.result_values()
+        return self.create_group(ident, base)
+
+    def create_group(self, ident: str, base=None) -> bool:
+        entities = self.session.entities
+        kind = None if entities is None else entities.group_kind(self.schema.kind)
+        if kind is None or self.session.is_read_only():
+            return False
+        try:
+            if base is not None:
+                with self.session.edit(f"undo.duplicate_{kind}", kind=kind, ident=ident):
+                    ref = entities.duplicate(base, ident)
+            else:
+                with self.session.edit(f"undo.create_{kind}", kind=kind, ident=ident):
+                    ref = entities.create(kind, ident, {})
+        except InvalidIdentError as exc:
+            self.request_status(N_("entity.create_failed"), reason=tr(
+                IDENT_MESSAGES.get(exc.code, "entity.ident.bad_chars"), ident=ident))
+            return False
+        except (ReadOnlySchemaError, PermissionError, FileNotFoundError, ValueError) as exc:
+            self.request_status(N_("entity.create_failed"), reason=str(exc))
+            return False
+        self.refresh()
+        self.navigator.select(ref)
+        self.request_status(N_("entity.created"), ident=ident)
         return True
 
     def restore(self, ref) -> bool:

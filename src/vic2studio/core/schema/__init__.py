@@ -90,6 +90,7 @@ from .record import (
     RecordRef,
 )
 from .registry import SchemaRegistry, registry
+from .rename import LocRename, RenameBlockedError, RenameFile, RenamePlan, RenameUse
 from .types import (
     Bool,
     Color,
@@ -122,6 +123,11 @@ __all__ = [
     "LocSpec",
     "EntityInUseError",
     "InvalidIdentError",
+    "RenameBlockedError",
+    "RenamePlan",
+    "RenameFile",
+    "RenameUse",
+    "LocRename",
     "registry",
     "SchemaRegistry",
     "CheckContext",

@@ -166,7 +166,7 @@ class SectionWindowTests(EntityWindowCase):
         self.assertTrue(page.tabs.isVisible())
         self.assertEqual([page.tabs.tabText(i) for i in range(page.tabs.count())],
                          [tr("entity.tab.form"), tr("entity.tab.texts"), tr("entity.tab.uses"), tr("entity.tab.code"),
-                          tr("entity.tab.other")])
+                          tr("entity.tab.other"), tr("entity.tab.unit")])   # Unidad: cierre de la iteración 4
         self.assertEqual(page.origin_badge.text(), tr("entity.origin.game"))
         uses = [page.uses.item(i).text() for i in range(page.uses.count())]
         self.assertTrue(any("activate_unit" in use for use in uses), uses)

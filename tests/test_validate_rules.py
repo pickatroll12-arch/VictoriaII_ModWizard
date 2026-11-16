@@ -39,6 +39,10 @@ def validate(game, *, codes=None, replace_paths=(), baseline=False, overrides=No
     return Validator(ctx, baseline=base).validate(codes=codes)
 
 
+# Un actor inventado con la forma de los de interface/*.gfx (``objectTypes`` → ``EMFXActorType``).
+ACTORS_GFX = ('objectTypes = {\r\n\tEMFXActorType = {\r\n\t\tname = "GenericInfantry"\r\n'
+              '\t\tactorfile = "gfx/anims/mg_infantry.xac"\r\n\t}\r\n}\r\n')
+
 # código → (archivos del mod, argumentos que deben aparecer en algún problema de ese código, archivo del problema)
 CASES = {
     "unclosed_block": ({"decisions/broken.txt": "political_decisions = {\r\n\td = { }\r\n"},
@@ -155,6 +159,31 @@ CASES = {
                                + "new_cb = {\r\n\tmonths = 1\r\n}\r\n"}, {"cb": "new_cb"}, "common/cb_types.txt"),
     "peace_order_unknown": ({"common/cb_types.txt": GAME_FILES["common/cb_types.txt"].replace("annex", "ghost_cb")},
                             {"cb": "ghost_cb"}, "common/cb_types.txt"),
+    # Cierre de la iteración 4 (el detalle de cada una, en test_validate_it4_y1).
+    "sprite_missing": ({"interface/tst_actors.gfx": ACTORS_GFX,
+                        "units/lancer.txt": "lancer = {\r\n\ttype = land\r\n\tsprite = Lancer\r\n}\r\n"},
+                       {"unit": "lancer", "sprite": "Lancer", "attr": "sprite"}, "units/lancer.txt"),
+    "unit_port_level_too_high": (
+        {"common/buildings.txt": GAME_FILES["common/buildings.txt"]
+         + "naval_base = {\r\n\ttype = naval_base\r\n\tmax_level = 4\r\n}\r\n",
+         "units/galleon.txt": "galleon = {\r\n\ttype = naval\r\n\tmin_port_level = 5\r\n}\r\n"},
+        {"unit": "galleon", "level": 5, "max": 4, "building": "naval_base"}, "units/galleon.txt"),
+    "government_flagtype_unknown": (
+        {"common/governments.txt": GAME_FILES["common/governments.txt"]
+         + "junta = {\r\n\tconservative = yes\r\n\tflagType = theocracy\r\n}\r\n"},
+        {"government": "junta", "flag_type": "theocracy"}, "common/governments.txt"),
+    "culture_name_duplicate": (
+        {"common/cultures.txt": GAME_FILES["common/cultures.txt"]
+         + "east_folk = {\r\n\tleader = european\r\n\talander = {\r\n\t\tcolor = { 1 2 3 }\r\n\t}\r\n}\r\n"},
+        {"culture": "alander", "group": "east_folk", "first_group": "north_folk"}, "common/cultures.txt"),
+    "bookmark_without_pops": (
+        {"common/bookmarks.txt": GAME_FILES["common/bookmarks.txt"]
+         + 'bookmark = {\r\n\tname = "MG_EARLY"\r\n\tdate = 1820.1.1\r\n}\r\n'},
+        {"bookmark": "MG_EARLY", "date": "1820.1.1"}, "common/bookmarks.txt"),
+    "bookmark_camera_outside_map": (
+        {"common/bookmarks.txt": GAME_FILES["common/bookmarks.txt"]
+         + 'bookmark = {\r\n\tname = "MG_FAR"\r\n\tdate = 1836.1.1\r\n\tcameraX = 500\r\n\tcameraY = 10\r\n}\r\n'},
+        {"bookmark": "MG_FAR", "x": "500", "y": "10", "width": 64, "height": 32}, "common/bookmarks.txt"),
 }
 
 
@@ -388,6 +417,8 @@ class ExpectedCleanTests(unittest.TestCase):
             ("peace_order_unknown", "common/cb_types.txt"),
             ("country_history_missing", "common/countries.txt"),
             ("government_election_without_duration", "common/governments.txt"),
+            # «monarchy» y «communist»: el minijuego solo trae gfx/flags/AAA.tga, sin banderas con tipo.
+            ("government_flagtype_unknown", "common/governments.txt"),
             ("event_ref_missing", "events/minigame_more.txt"),
             ("loc_key_missing", "map/definition.csv"),
             ("bmp_color_unmapped", "map/provinces.bmp"),
