@@ -44,14 +44,46 @@ def region_folder(ctx, ident: str) -> str | None:
     (``"studio"``). En vanilla, 516 de los 549 estados tienen todas sus historias en una sola carpeta, 32 en dos
     y 1 en tres. Solo lee el índice de ``ctx`` (``pop``/``region``/``province_history``): no abre documentos.
     """
-    raise NotImplementedError
+    from collections import Counter
+
+    from ..index.model import KIND_PROVINCE_HISTORY, KIND_REGION
+
+    index = getattr(ctx, "index", None)
+    if index is None or not str(ident).isdigit():
+        return None
+    pid = int(ident)
+    region = next((symbol for symbol in index.symbols(KIND_REGION)
+                   if pid in ((symbol.attrs or {}).get("provinces") or ())), None)
+    if region is None:
+        return None
+    folders: Counter = Counter()
+    for other in (region.attrs or {}).get("provinces") or ():
+        symbol = index.get(KIND_PROVINCE_HISTORY, str(other))
+        if symbol is None:
+            continue
+        parts = symbol.rel.parts
+        if len(parts) >= 4:            # history/provinces/<carpeta>/<archivo>
+            folders[parts[2]] += 1
+    if not folders:
+        return None
+    best = max(folders.values())
+    return sorted((name for name, count in folders.items() if count == best), key=str.lower)[0]
 
 
 def province_name(ctx, ident: str) -> str | None:
     """Nombre para el archivo nuevo de la provincia ``ident``: el texto de ``PROV<id>`` en la primera columna de
     la localización efectiva (con lo sin guardar); None si no hay texto. ``KeyedFiles`` lo pasa por
     ``ascii_name``."""
-    raise NotImplementedError
+    loc = getattr(ctx, "loc", None)
+    if loc is None:
+        return None
+    key = f"PROV{ident}"
+    try:
+        text = loc.text(key, "en")
+    except (AttributeError, TypeError):
+        entry = getattr(loc, "entry", lambda _key: None)(key)
+        text = None if entry is None else (entry.get("en") if hasattr(entry, "get") else None)
+    return text.strip() or None if isinstance(text, str) else None
 
 
 PROVINCE_HISTORY = EntitySchema(
@@ -97,7 +129,7 @@ PROVINCE_HISTORY = EntitySchema(
     ),
     loc=(LocSpec("PROV{id}", "provinces"),),
     hall="map", section="world", order=1, icon="map",
-    editable=False,
+    editable=True,
 )
 
 SCHEMAS = (PROVINCE_HISTORY,)

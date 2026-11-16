@@ -26,17 +26,38 @@ def border_mask(ids: np.ndarray, group_lut: np.ndarray | None = None, *, wrap_x:
 
     ``group_lut`` es ``(N+1,)`` con el grupo de cada id (None = el propio id). Con ``wrap_x`` la última columna se
     compara con la primera. Los píxeles sin provincia (id 0) forman su propio grupo."""
-    raise NotImplementedError
+    groups = ids if group_lut is None else np.asarray(group_lut)[ids]
+    mask = np.zeros(ids.shape, dtype=bool)
+    if ids.size == 0:
+        return mask
+    mask[:, :-1] |= groups[:, :-1] != groups[:, 1:]
+    mask[:-1, :] |= groups[:-1, :] != groups[1:, :]
+    if wrap_x and ids.shape[1] > 1:
+        mask[:, -1] |= groups[:, -1] != groups[:, 0]
+    return mask
 
 
 def level_lut(facts: ProvinceFacts, level: str) -> np.ndarray | None:
     """La LUT de grupo de un nivel: None para ``LEVEL_PROVINCE``, ``facts.region`` para ``LEVEL_STATE`` y
     ``facts.owner`` para ``LEVEL_COUNTRY`` (el mar y lo que no tiene dueño comparten el grupo 0, así que no se
     dibujan fronteras de país dentro del mar). ``ValueError`` con otro nivel."""
-    raise NotImplementedError
+    if level == LEVEL_PROVINCE:
+        return None
+    if level == LEVEL_STATE:
+        return facts.region
+    if level == LEVEL_COUNTRY:
+        lut = facts.owner.copy()
+        lut[facts.is_sea] = 0
+        return lut
+    raise ValueError(f"nivel de frontera desconocido: {level}")
 
 
 def border_rgba(mask: np.ndarray, color: int) -> np.ndarray:
     """Imagen ``(alto, ancho)`` ``uint32`` ``0xAARRGGBB`` premultiplicado: ``color`` donde ``mask`` y 0 (transparente)
     en el resto. Misma orientación que ``mask`` (la vista la voltea)."""
-    raise NotImplementedError
+    alpha = (color >> 24) & 255
+    r, g, b = (color >> 16) & 255, (color >> 8) & 255, color & 255
+    premultiplied = (alpha << 24) | ((r * alpha // 255) << 16) | ((g * alpha // 255) << 8) | (b * alpha // 255)
+    out = np.zeros(mask.shape, dtype=np.uint32)
+    out[mask] = np.uint32(premultiplied)
+    return out

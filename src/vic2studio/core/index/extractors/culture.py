@@ -97,7 +97,7 @@ def pop_types(rel, data, layer):
     return facts.result()
 
 
-@extractor("history/pops/**/*.txt", version=1)
+@extractor("history/pops/**/*.txt", version=2)
 def pops(rel, data, layer):
     """``<provincia> = { <tipo> = { culture religion size } }``: una referencia por nombre distinto y archivo
     (la primera línea), para que la caché no crezca con cada POP; y un bloque (fecha, provincia) por aparición
@@ -105,6 +105,7 @@ def pops(rel, data, layer):
     facts = Facts(rel, layer)
     date = rel.parts[2] if len(rel.parts) > 3 and is_date(rel.parts[2]) else ""
     seen: set[tuple[str, str]] = set()
+    occurrences: dict[int, int] = {}
 
     def once(kind: str, name: str, entry, role: str) -> None:
         if (kind, name) not in seen:
@@ -117,18 +118,33 @@ def pops(rel, data, layer):
         province = as_int(entry.key.text)
         if province is None:
             continue
-        facts.define(KIND_POP_BLOCK, f"{date}:{province}", entry.line)
+        occurrence = occurrences.get(province, 0)
+        occurrences[province] = occurrence + 1
         once(KIND_PROVINCE, str(province), entry, "pops")
+        total, best, culture, religion = 0, -1, None, None
         for pop in entry.value.entries:
             if pop.key is None or pop.value.__class__ is Scalar:
                 continue
             once(KIND_POP_TYPE, pop.key.text, pop, "pop_type")
+            pop_culture = pop_religion = None
+            size = 0
             for field in pop.value.entries:
                 if field.key is None or field.value.__class__ is not Scalar:
                     continue
                 lowered = field.key.text.lower()
                 if lowered == "culture":
+                    pop_culture = field.value.text
                     once(KIND_CULTURE, field.value.text, field, "pop_culture")
                 elif lowered == "religion":
+                    pop_religion = field.value.text
                     once(KIND_RELIGION, field.value.text, field, "pop_religion")
+                elif lowered == "size":
+                    size = as_int(field.value.text) or 0
+            total += size
+            if size > best:
+                best, culture, religion = size, pop_culture, pop_religion
+        # Tamaño total del bloque y cultura y religión de su POP mayor (el primero a igualdad): ProvinceFacts.
+        facts.define(KIND_POP_BLOCK, f"{date}:{province}", entry.line,
+                     {"size": total, "top": max(best, 0), "culture": culture, "religion": religion,
+                      "occurrence": occurrence})
     return facts.result()

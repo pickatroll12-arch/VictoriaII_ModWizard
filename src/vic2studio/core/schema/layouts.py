@@ -206,30 +206,59 @@ class PairedKeys:
     merge: LoadMode = LoadMode.MAP_BUNDLE
 
     def files(self, vfs: VirtualFS) -> list[FileEntry]:
-        raise NotImplementedError
+        entry = vfs.resolve(self.path)
+        return [] if entry is None else [entry]
 
     def touches(self, rel: VPath) -> bool:
         return VPath.of(rel).key == VPath.of(self.path).key
 
     def context_rels(self, ctx) -> list[VPath]:
-        raise NotImplementedError
+        folder, _, name = self.path.rpartition("/")
+        return [rel for rel in ctx.rels(folder, name) if self.touches(rel)]
 
     def pair(self, doc: Document, ident: str) -> tuple[Entry | None, Entry | None]:
         """``(modificadores, lista)`` de ``ident``; None lo que falte."""
-        raise NotImplementedError
+        found = [entry for entry in doc.entries
+                 if entry.key is not None and entry.key.text == ident and isinstance(entry.value, Block)]
+        lists = [entry for entry in found if is_id_list(entry.value)]
+        listing = lists[-1] if lists else None
+        modifiers = next((entry for entry in found if entry is not listing), None)
+        return modifiers, listing
 
     def entries(self, doc: Document, rel: VPath) -> Iterator[tuple[str, Block, Entry | None]]:
         """Un registro por nombre, en el orden de su primera aparición: ``(nombre, bloque de modificadores,
         su entrada)``. Un nombre que solo tiene la lista da un bloque vacío sin entrada (None)."""
-        raise NotImplementedError
+        seen: set[str] = set()
+        for entry in doc.entries:
+            if entry.key is None or not isinstance(entry.value, Block) or entry.key.text in seen:
+                continue
+            seen.add(entry.key.text)
+            modifiers, _ = self.pair(doc, entry.key.text)
+            if modifiers is None:
+                yield entry.key.text, Block(), None
+            else:
+                yield entry.key.text, modifiers.value, modifiers
 
     def target_for_new(self, ctx: CheckContext, ident: str, values: dict) -> tuple[VPath, BlockPath]:
-        raise NotImplementedError
+        return VPath.of(self.path), BlockPath()
 
     def insert(self, doc: Document, container: Block, ident: str, block: Block) -> Entry:
         """Añade las dos entradas: ``ident = <block>`` tras la última de modificadores e ``ident = { }`` (la
         lista, vacía) al final. Devuelve la de modificadores."""
-        raise NotImplementedError
+        modifier_entries = [entry for entry in doc.entries if entry.key is not None
+                            and isinstance(entry.value, Block) and not is_id_list(entry.value)]
+        if modifier_entries:
+            entry = doc.insert_after(modifier_entries[-1], ident, block)
+        else:
+            entry = doc.append(ident, block)
+        doc.append(ident, Block())
+        return entry
+
+
+def is_id_list(block: Block) -> bool:
+    """True si todos los valores de ``block`` son sueltos y hay alguno (la lista de ids de un clima)."""
+    return bool(block.entries) and all(entry.key is None and isinstance(entry.value, Scalar)
+                                       for entry in block.entries)
 
 
 @dataclass(frozen=True)
@@ -418,7 +447,16 @@ def ascii_name(text: str) -> str:
     ``Cordoba``), lo que no tiene equivalente se quita y el resultado pasa por ``rules.names.clean_file_name``
     (sin caracteres vetados en Windows ni punto o espacio final). Vacío si no queda nada. El id es lo que
     cuenta para el juego (H9); los acentos van en la localización (§23)."""
-    raise NotImplementedError
+    import unicodedata
+
+    from ..rules.names import FALLBACK_NAME, clean_file_name
+
+    folded = unicodedata.normalize("NFKD", text or "").encode("ascii", "ignore").decode("ascii")
+    folded = " ".join(folded.split())
+    if not folded.strip(" ."):
+        return ""
+    cleaned = clean_file_name(folded)
+    return "" if cleaned == FALLBACK_NAME and folded != FALLBACK_NAME else cleaned
 
 
 @dataclass(frozen=True)
@@ -472,36 +510,67 @@ class KeyedFiles:
     def files(self, vfs: VirtualFS) -> list[FileEntry]:
         """Las historias efectivas (el ganador de la VFS por ruta), ordenadas por ``rel.key``; con las
         duplicadas."""
-        raise NotImplementedError
+        found = [entry for entry in vfs.list(self.folder, "*.txt", recursive=True) if self.touches(entry.rel)]
+        return sorted(found, key=lambda entry: entry.rel.key)
 
     def context_rels(self, ctx) -> list[VPath]:
-        raise NotImplementedError
+        return sorted((rel for rel in ctx.rels(self.folder, "*.txt") if self.touches(rel)), key=lambda rel: rel.key)
 
     def effective(self, rels: Iterable[VPath]) -> dict[str, VPath]:
         """Clave → la copia que cuenta (``KEYED_WINNER``) entre ``rels``."""
-        raise NotImplementedError
+        found: dict[str, VPath] = {}
+        for rel in sorted((VPath.of(rel) for rel in rels), key=lambda rel: rel.key):
+            key = self.key_of(rel)
+            if key is not None:
+                found.setdefault(key, rel)
+        return found
 
     def duplicates(self, rels: Iterable[VPath]) -> dict[str, list[VPath]]:
         """Clave → todas sus rutas, ordenadas por ``rel.key``, solo de las claves con más de una."""
-        raise NotImplementedError
+        found: dict[str, list[VPath]] = {}
+        for rel in sorted((VPath.of(rel) for rel in rels), key=lambda rel: rel.key):
+            key = self.key_of(rel)
+            if key is not None:
+                found.setdefault(key, []).append(rel)
+        return {key: paths for key, paths in found.items() if len(paths) > 1}
 
     def entries(self, doc: Document, rel: VPath) -> Iterator[tuple[str, Block, Entry | None]]:
         """``(key_of(rel), doc, None)``, una sola vez; nada si el nombre no tiene clave."""
-        raise NotImplementedError
+        key = self.key_of(rel)
+        if key is not None:
+            yield key, doc, None
 
     def file_name(self, ident: str, name: str | None) -> str:
         """Nombre del archivo nuevo de ``ident`` (ASCII; ``"<id>.txt"`` sin nombre)."""
-        raise NotImplementedError
+        cleaned = ascii_name(name or "")
+        if not cleaned:
+            return f"{ident}.txt"
+        return self.new_name.format(id=ident, name=cleaned)
 
     def target_for_new(self, ctx: CheckContext, ident: str, values: dict) -> tuple[VPath, BlockPath]:
         """Ruta del archivo nuevo (ver la clase) y ``BlockPath()`` (la raíz). No comprueba que el id esté libre:
         lo hace ``Entities``."""
-        raise NotImplementedError
+        subfolder = values.get("folder")
+        if not subfolder and self.subfolder_of is not None and ctx is not None:
+            try:
+                subfolder = self.subfolder_of(ctx, ident)
+            except Exception:  # noqa: BLE001 - una carpeta que no se puede deducir usa la de por defecto
+                subfolder = None
+        subfolder = subfolder or self.default_subfolder
+        name = values.get("name")
+        if not name and self.name_of is not None and ctx is not None:
+            try:
+                name = self.name_of(ctx, ident)
+            except Exception:  # noqa: BLE001
+                name = None
+        return VPath.of(f"{self.folder}/{subfolder}/{self.file_name(ident, name)}"), BlockPath()
 
     def insert(self, doc: Document, container: Block, ident: str, block: Block) -> None:
         """Pasa las entradas de ``block`` a la raíz de ``doc`` (el documento nuevo), en su orden. Devuelve None:
         el registro no tiene entrada dueña."""
-        raise NotImplementedError
+        for entry in list(block.entries):
+            block.move(entry, to=doc)
+        return None
 
 
 @dataclass(frozen=True)
@@ -538,23 +607,45 @@ class KeyedAcross:
         return (len(parts) == len(base) + 2 and parts[:len(base)] == base
                 and fnmatch.fnmatch(parts[-1], self.glob.rsplit("/", 1)[-1].lower()))
 
+    def _base_text(self) -> str:
+        return "/".join(self.glob.split("/")[:-2])
+
     def files(self, vfs: VirtualFS) -> list[FileEntry]:
-        raise NotImplementedError
+        return sorted((entry for entry in vfs.list(self._base_text(), "*.txt", recursive=True)
+                       if self.touches(entry.rel)), key=lambda entry: entry.rel.key)
 
     def context_rels(self, ctx) -> list[VPath]:
-        raise NotImplementedError
+        return sorted((rel for rel in ctx.rels(self._base_text(), "*.txt") if self.touches(rel)),
+                      key=lambda rel: rel.key)
 
     def entries(self, doc: Document, rel: VPath) -> Iterator[tuple[str, Block, Entry | None]]:
         """``(id, bloque, entrada)`` de cada bloque con clave válida, en orden de archivo."""
-        raise NotImplementedError
+        folder = self.folder_of(rel)
+        if folder is None:
+            return
+        seen: dict[str, int] = {}
+        for entry in doc.entries:
+            if entry.key is None or not isinstance(entry.value, Block) \
+                    or re.fullmatch(self.key_regex, entry.key.text) is None:
+                continue
+            key = str(int(entry.key.text)) if entry.key.text.isdigit() else entry.key.text
+            occurrence = seen.get(key, 0)
+            seen[key] = occurrence + 1
+            ident = f"{folder}:{key}" if occurrence == 0 else f"{folder}:{key}#{occurrence + 1}"
+            yield ident, entry.value, entry
 
     def target_for_new(self, ctx: CheckContext, ident: str, values: dict) -> tuple[VPath, BlockPath]:
         """``<base>/<carpeta del id>/<new_file>`` y la raíz. ``ValueError`` si el id no es ``carpeta:clave``."""
-        raise NotImplementedError
+        folder, sep, key = ident.partition(":")
+        if not sep or not folder or not key:
+            raise ValueError(f"id de bloque no válido: {ident!r}")
+        prefix = values.get("prefix") or "studio"
+        return VPath.of(f"{self._base_text()}/{folder}/{self.new_file.format(prefix=prefix)}"), BlockPath()
 
     def insert(self, doc: Document, container: Block, ident: str, block: Block) -> Entry:
         """Añade ``<clave> = <block>`` al final del documento (la clave es la parte del id tras la carpeta)."""
-        raise NotImplementedError
+        key = ident.partition(":")[2].split("#", 1)[0]
+        return doc.append(key, block)
 
 
 @dataclass(frozen=True)
@@ -570,20 +661,23 @@ class WholeFile:
         return VPath.of(rel).key == VPath.of(self.path).key
 
     def files(self, vfs: VirtualFS) -> list[FileEntry]:
-        raise NotImplementedError
+        entry = vfs.resolve(self.path)
+        return [] if entry is None else [entry]
 
     def context_rels(self, ctx) -> list[VPath]:
-        raise NotImplementedError
+        folder, _, name = self.path.rpartition("/")
+        return [rel for rel in ctx.rels(folder, name) if self.touches(rel)]
 
     def entries(self, doc: Document, rel: VPath) -> Iterator[tuple[str, Block, Entry | None]]:
         """``(ident, doc, None)``."""
-        raise NotImplementedError
+        if self.touches(rel):
+            yield self.ident, doc, None
 
     def target_for_new(self, ctx: CheckContext, ident: str, values: dict) -> tuple[VPath, BlockPath]:
-        raise NotImplementedError
+        raise ValueError(f"{self.path} no se crea: siempre existe")
 
     def insert(self, doc: Document, container: Block, ident: str, block: Block) -> None:
-        raise NotImplementedError
+        raise ValueError(f"{self.path} no se crea: siempre existe")
 
 
 @dataclass(frozen=True)
@@ -602,10 +696,15 @@ class Table:
         return VPath.of(rel).key == VPath.of(self.path).key
 
     def files(self, vfs: VirtualFS) -> list[FileEntry]:
-        raise NotImplementedError
+        entry = vfs.resolve(self.path)
+        return [] if entry is None else [entry]
 
     def context_rels(self, ctx) -> list[VPath]:
-        raise NotImplementedError
+        folder, _, name = self.path.rpartition("/")
+        return [rel for rel in ctx.rels(folder, name) if self.touches(rel)]
+
+    def entries(self, doc, rel: VPath):
+        return iter(())
 
 
 @dataclass(frozen=True)

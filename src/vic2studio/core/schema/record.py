@@ -69,6 +69,29 @@ class EntitySummary:
     parent: str | None = None
 
 
+def bookmark_dates(index) -> list:
+    """Fechas de los bookmarks del índice (``attrs["date"]``), ordenadas y sin repetir; vacía sin índice."""
+    from ..clausewitz.nodes import ClausewitzDate
+
+    found = set()
+    if index is None:
+        return []
+    try:
+        symbols = index.symbols("bookmark")
+    except Exception:  # noqa: BLE001 - un índice falso puede no tener el tipo
+        return []
+    for symbol in symbols:
+        text = (getattr(symbol, "attrs", None) or {}).get("date")
+        if isinstance(text, ClausewitzDate):
+            found.add(text)
+            continue
+        try:
+            found.add(ClausewitzDate.parse(str(text)))
+        except (TypeError, ValueError):
+            continue
+    return sorted(found)
+
+
 class InvalidIdentError(ValueError):
     """``create``/``duplicate``/``rename`` con un id inválido (``.code``: ``empty``, ``bad_chars``,
     ``reserved``, ``out_of_range``…), que ya existe (``taken``) o que es el que ya tiene
@@ -502,7 +525,11 @@ class Record:
     def at(self, date, bookmarks=None):  # ClausewitzDate | None, Sequence[ClausewitzDate] | None
         """``HistoryView`` de este registro en ``date`` (§10.6, iteración 5). ``bookmarks``: las fechas de
         inicio; None = las de los símbolos ``bookmark`` del índice del registro (``attrs["date"]``)."""
-        raise NotImplementedError
+        from .history import HistoryView
+
+        if bookmarks is None:
+            bookmarks = bookmark_dates(self._index)
+        return HistoryView(self, date, bookmarks)
 
     def unknown(self) -> list[Entry]:
         """Entradas que el esquema no declara: se conservan (I6) y salen en «Otros campos».

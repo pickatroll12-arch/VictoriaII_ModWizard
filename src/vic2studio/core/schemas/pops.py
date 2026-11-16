@@ -42,7 +42,7 @@ POPS = EntitySchema(
     fields=(Children(POP),),
     unknown="keep",
     hall="map", section="world", order=2, icon="map",
-    editable=False,
+    editable=True,
 )
 
 SCHEMAS = (POPS,)

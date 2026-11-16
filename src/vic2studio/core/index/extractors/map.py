@@ -155,7 +155,10 @@ PROVINCE_REFS = {
     "trade_goods": (KIND_GOODS, "trade_goods"),
     "terrain": (KIND_TERRAIN, "terrain"),
 }
-PROVINCE_KEPT = ("owner", "controller", "trade_goods", "life_rating", "colonial", "terrain")
+PROVINCE_KEPT = ("owner", "controller", "trade_goods", "life_rating", "colonial", "colony", "terrain", "railroad",
+                 "fort", "naval_base")
+# Claves que se repiten y se guardan como lista, en su orden (los núcleos: ProvinceFacts los acumula por fecha).
+PROVINCE_LISTED = ("add_core", "remove_core")
 
 
 def _province_block(facts: Facts, block, fields: dict) -> None:
@@ -176,6 +179,8 @@ def _province_block(facts: Facts, block, fields: dict) -> None:
             continue
         if lowered in PROVINCE_KEPT:
             fields[lowered] = value.text
+        elif lowered in PROVINCE_LISTED:
+            fields.setdefault(lowered, []).append(value.text)
         if lowered in PROVINCE_REFS:
             kind, role = PROVINCE_REFS[lowered]
             facts.ref(kind, value.text, entry, role)
@@ -183,7 +188,7 @@ def _province_block(facts: Facts, block, fields: dict) -> None:
             facts.define(KIND_PROVINCE_FLAG, value.text, entry.line)
 
 
-@extractor("history/provinces/**/*.txt", version=1)
+@extractor("history/provinces/**/*.txt", version=2)
 def province_history(rel, data, layer):
     """Una historia por archivo; el id es el entero inicial del nombre (H9: ``3246  JanMayen.txt``)."""
     facts = Facts(rel, layer)

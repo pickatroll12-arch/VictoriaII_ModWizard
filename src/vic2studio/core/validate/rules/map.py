@@ -1,4 +1,4 @@
-"""Familia «map»: coherencia del mapa (wizard §16.6). Contrato de la iteración 5: aún no registra ninguna regla.
+"""Familia «map»: coherencia del mapa (wizard §16.6).
 
 La lógica vive en ``core.map.coherence.check_map`` y la tabla de códigos y gravedades, en
 ``core.map.coherence.CODES``. Este módulo es donde la cadena A registra con ``@rule`` los códigos **nuevos**
@@ -21,3 +21,30 @@ criterio 8).
 from __future__ import annotations
 
 FAMILY = "map"
+
+from ...map.coherence import CODES, NEW_CODES, RASTER_CODES, check_map
+from ..registry import rule
+
+_PLAIN = tuple(code for code in NEW_CODES if code not in RASTER_CODES)
+_RASTER = tuple(code for code in NEW_CODES if code in RASTER_CODES)
+
+
+def _register(codes, fn):
+    for code in codes:
+        fn = rule(code, CODES[code])(fn)
+    return fn
+
+
+def map_files(ctx):
+    """Los códigos nuevos que no necesitan el ráster (definition.csv, default.map, grupos, positions, historias y
+    adyacencias)."""
+    return check_map(ctx, codes=_PLAIN)
+
+
+def map_raster(ctx):
+    """Los que leen el BMP de provincias (una sola carga del ráster, desde la caché si está)."""
+    return check_map(ctx, codes=_RASTER)
+
+
+map_files = _register(_PLAIN, map_files)
+map_raster = _register(_RASTER, map_raster)

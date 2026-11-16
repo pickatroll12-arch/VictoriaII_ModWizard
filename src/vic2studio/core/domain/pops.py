@@ -87,40 +87,122 @@ class Pop:
     rebel_type: str | None = None
 
 
+def _folder_date(text: str) -> ClausewitzDate | None:
+    try:
+        return ClausewitzDate.parse(text)
+    except ValueError:
+        return None
+
+
 class PopsIndex:
     """Qué archivo y qué bloque definen los POPs de cada provincia en cada fecha, con los repetidos."""
 
     def __init__(self, index) -> None:
         """``index``: el ``SymbolIndex`` (vivo o una copia). Lee los símbolos ``pop_block``."""
         self.index = index
+        self._cache: tuple[int, dict] | None = None
+
+    def _table(self) -> dict[ClausewitzDate, dict[int, list[PopBlockRef]]]:
+        """``{carpeta: {provincia: bloques}}`` con los bloques efectivos (también los repetidos)."""
+        generation = getattr(self.index, "generation", 0)
+        if self._cache is not None and self._cache[0] == generation:
+            return self._cache[1]
+        from ..index.model import KIND_POP_BLOCK
+
+        table: dict[ClausewitzDate, dict[int, list[PopBlockRef]]] = {}
+        for name in self.index.names(KIND_POP_BLOCK):
+            folder_text, _, province_text = name.partition(":")
+            folder = _folder_date(folder_text)
+            if folder is None or not province_text.isdigit():
+                continue
+            province = int(province_text)
+            seen: dict[str, int] = {}
+            for symbol in self.index.effective(KIND_POP_BLOCK, name):
+                occurrence = symbol.attrs.get("occurrence") if symbol.attrs else None
+                if occurrence is None:
+                    occurrence = seen.get(symbol.rel.key, 0)
+                seen[symbol.rel.key] = seen.get(symbol.rel.key, 0) + 1
+                table.setdefault(folder, {}).setdefault(province, []).append(
+                    PopBlockRef(folder, symbol.rel, province, int(occurrence), symbol.line))
+        for provinces in table.values():
+            for blocks in provinces.values():
+                blocks.sort(key=lambda ref: (ref.rel.key, ref.occurrence))
+        self._cache = (generation, table)
+        return table
+
+    def symbol(self, ref: PopBlockRef):
+        """El símbolo ``pop_block`` del bloque (con ``size``, ``culture`` y ``religion``); None si no está."""
+        from ..index.model import KIND_POP_BLOCK
+
+        for symbol in self.index.effective(KIND_POP_BLOCK, f"{ref.folder}:{ref.province}"):
+            if symbol.rel.key == ref.rel.key and symbol.line == ref.line:
+                return symbol
+        return None
 
     def folders(self) -> list[ClausewitzDate]:
         """Las carpetas de fecha con algún bloque, de menor a mayor. Una carpeta cuyo nombre no es una fecha no
         cuenta."""
-        raise NotImplementedError
+        return sorted(self._table())
 
     def folder_for(self, date: ClausewitzDate) -> ClausewitzDate | None:
         """La última carpeta con fecha ≤ ``date``; None si no hay ninguna."""
-        raise NotImplementedError
+        found = None
+        for folder in self.folders():
+            if folder <= date:
+                found = folder
+        return found
 
     def blocks(self, pid: int, date: ClausewitzDate, *, exact: bool = False) -> list[PopBlockRef]:
         """Los bloques de ``pid`` en la carpeta de ``date`` (``folder_for``; con ``exact``, solo si la carpeta
         es exactamente ``date``), por archivo (``rel.key``) y aparición. Vacía si no tiene."""
-        raise NotImplementedError
+        folder = date if exact else self.folder_for(date)
+        if folder is None:
+            return []
+        return list(self._table().get(folder, {}).get(int(pid), ()))
 
     def provinces(self, date: ClausewitzDate) -> list[int]:
         """Ids con algún bloque en la carpeta de ``date``, ordenados."""
-        raise NotImplementedError
+        folder = self.folder_for(date)
+        return [] if folder is None else sorted(self._table().get(folder, {}))
 
     def repeated(self, date: ClausewitzDate | None = None) -> list[tuple[PopBlockRef, ...]]:
         """Los grupos de bloques de una misma provincia y carpeta que son más de uno (en un archivo o en
         varios); con ``date``, solo los de su carpeta. Vanilla: uno, el de 2482."""
-        raise NotImplementedError
+        table = self._table()
+        folders = sorted(table) if date is None else [f for f in [self.folder_for(date)] if f is not None]
+        found = []
+        for folder in folders:
+            for province in sorted(table.get(folder, {})):
+                blocks = table[folder][province]
+                if len(blocks) > 1:
+                    found.append(tuple(blocks))
+        return found
 
     def target_for_new(self, pid: int, date: ClausewitzDate, prefix: str) -> VPath:
         """Archivo donde crear el bloque de una provincia sin POPs:
         ``history/pops/<folder_for(date) o date>/00_<prefix>_pops.txt``."""
-        raise NotImplementedError
+        folder = self.folder_for(date) or date
+        return VPath.of(f"{POPS_FOLDER}/{folder}/{NEW_FILE.format(prefix=prefix)}")
+
+
+def _pop_entries(block) -> list:
+    from ..clausewitz.nodes import Block
+
+    return [entry for entry in block.entries if entry.key is not None and isinstance(entry.value, Block)]
+
+
+def _text(block, key: str) -> str | None:
+    value = block.get(key)
+    return value.text if value is not None and hasattr(value, "text") else None
+
+
+def _number(text: str | None, kind=int):
+    if text is None:
+        return None
+    try:
+        return kind(float(text)) if kind is int else kind(text)
+    except ValueError:
+        return None
 
 
 class ProvincePops:
@@ -130,39 +212,156 @@ class ProvincePops:
         self.entities = entities
         self.pops_index = pops_index if pops_index is not None else PopsIndex(entities.index)
 
+    def _record(self, ref: PopBlockRef):
+        from ..schema.record import RecordRef
+
+        return self.entities.open(RecordRef("pops", ref.ident, ref.rel))
+
     def read(self, ref: PopBlockRef) -> list[Pop]:
         """Los POPs del bloque en orden de archivo. ``KeyError`` si el bloque ya no está. No escribe."""
-        raise NotImplementedError
+        record = self._record(ref)
+        pops = []
+        for position, entry in enumerate(_pop_entries(record.block)):
+            block = entry.value
+            pops.append(Pop(position, entry.key.text, _text(block, "culture") or "", _text(block, "religion") or "",
+                            _number(_text(block, "size")) or 0, _number(_text(block, "militancy"), float),
+                            _text(block, "rebel_type")))
+        return pops
 
     def total(self, pid: int, date: ClausewitzDate) -> int:
         """Suma de ``size`` de todos los bloques de ``pid`` en la carpeta de ``date`` (repetidos incluidos)."""
-        raise NotImplementedError
+        total = 0
+        for ref in self.pops_index.blocks(pid, date):
+            try:
+                total += sum(pop.size for pop in self.read(ref))
+            except (KeyError, FileNotFoundError):
+                continue
+        return total
+
+    def majority(self, pid: int, date: ClausewitzDate) -> tuple[str | None, str | None]:
+        """Cultura y religión del POP mayor de ``pid`` en la fecha (el primero a igualdad)."""
+        best = None
+        for ref in self.pops_index.blocks(pid, date):
+            try:
+                pops = self.read(ref)
+            except (KeyError, FileNotFoundError):
+                continue
+            for pop in pops:
+                if best is None or pop.size > best.size:
+                    best = pop
+        return (None, None) if best is None else (best.culture or None, best.religion or None)
+
+    def _entry(self, ref: PopBlockRef, index: int):
+        record = self._record(ref)
+        entries = _pop_entries(record.block)
+        if not 0 <= index < len(entries):
+            raise IndexError(index)
+        return record, entries[index]
 
     def set(self, ref: PopBlockRef, index: int, *, type: str | None = None, culture: str | None = None,
             religion: str | None = None, size: int | None = None, militancy: object = MISSING,
             rebel_type: object = MISSING) -> None:
         """Cambia los datos indicados del POP ``index`` (None = no tocar; ``militancy`` y ``rebel_type`` admiten
         None para quitar la clave). Cambiar el tipo cambia solo la clave del POP."""
-        raise NotImplementedError
+        if size is not None and int(size) < 1:
+            raise ValueError("size")
+        record, entry = self._entry(ref, index)
+        block = entry.value
+        changes = []
+        if type is not None and entry.key.text != type:
+            changes.append(lambda: setattr(entry, "key", type))
+        for key, value in (("culture", culture), ("religion", religion)):
+            if value is not None and _text(block, key) != value:
+                changes.append(lambda key=key, value=value: block.set(key, value))
+        if size is not None and _number(_text(block, "size")) != int(size):
+            changes.append(lambda: block.set("size", int(size)))
+        if militancy is not MISSING:
+            current = _number(_text(block, "militancy"), float)
+            if militancy is None and block.has("militancy"):
+                changes.append(lambda: block.remove("militancy"))
+            elif militancy is not None and current != float(militancy):
+                changes.append(lambda: block.set("militancy", float(militancy)))
+        if rebel_type is not MISSING:
+            if rebel_type is None and block.has("rebel_type"):
+                changes.append(lambda: block.remove("rebel_type"))
+            elif rebel_type is not None and _text(block, "rebel_type") != rebel_type:
+                changes.append(lambda: block.set("rebel_type", rebel_type))
+        if not changes:
+            return
+        record._touch()
+        for change in changes:
+            change()
 
     def add(self, ref: PopBlockRef, pop: Pop) -> int:
         """Añade un POP al final del bloque y devuelve su posición (``pop.index`` se ignora)."""
-        raise NotImplementedError
+        from ..clausewitz.nodes import Block
+
+        if pop.size < 1:
+            raise ValueError("size")
+        record = self._record(ref)
+        values = [("culture", pop.culture), ("religion", pop.religion), ("size", int(pop.size))]
+        if pop.militancy is not None:
+            values.append(("militancy", float(pop.militancy)))
+        if pop.rebel_type:
+            values.append(("rebel_type", pop.rebel_type))
+        record._touch()
+        record.block.append(pop.type, Block.from_pairs(values))
+        return len(_pop_entries(record.block)) - 1
 
     def remove(self, ref: PopBlockRef, index: int) -> None:
-        raise NotImplementedError
+        record, entry = self._entry(ref, index)
+        record._touch()
+        record.block.remove_entry(entry)
 
     def create_block(self, pid: int, date: ClausewitzDate) -> PopBlockRef:
         """Bloque vacío para una provincia sin POPs en la carpeta de ``date``, en ``target_for_new`` (crea el
         archivo si hace falta). ``ValueError`` si ya tiene alguno."""
-        raise NotImplementedError
+        if self.pops_index.blocks(pid, date):
+            raise ValueError(f"la provincia {pid} ya tiene POPs")
+        from ..schema.record import RecordRef
+
+        folder = self.pops_index.folder_for(date) or date
+        prefix = getattr(self.entities.loc, "prefix", None) or "studio"
+        rel = self.pops_index.target_for_new(pid, date, prefix)
+        ws = self.entities.ws
+        handle = ws.open(rel, create=True)
+        ws.touch(handle)
+        from ..clausewitz.nodes import Block
+
+        handle.model.document.append(str(int(pid)), Block())
+        occurrence = 0
+        ref = PopBlockRef(folder, rel, int(pid), occurrence)
+        self.entities.open(RecordRef("pops", ref.ident, rel))      # comprueba que se lee
+        return ref
 
     def copy_from(self, target: PopBlockRef, source: PopBlockRef) -> None:
         """«Copiar POPs de la provincia…»: sustituye los POPs de ``target`` por una copia de los de
         ``source`` (con su formato)."""
-        raise NotImplementedError
+        origin = self._record(source)
+        copies = [entry.clone() for entry in _pop_entries(origin.block)]
+        record = self._record(target)
+        record._touch()
+        for entry in _pop_entries(record.block):
+            record.block.remove_entry(entry)
+        for entry in copies:
+            record.block.insert_entry(len(record.block.entries), entry)
 
     def scale(self, ref: PopBlockRef, factor: float) -> None:
         """«Escalar ×»: multiplica cada ``size`` por ``factor`` y redondea al entero más cercano (mínimo 1).
         ``ValueError`` si ``factor`` ≤ 0."""
-        raise NotImplementedError
+        if factor <= 0:
+            raise ValueError("factor")
+        record = self._record(ref)
+        targets = []
+        for entry in _pop_entries(record.block):
+            size = _number(_text(entry.value, "size"))
+            if size is None:
+                continue
+            new = max(1, int(round(size * factor)))
+            if new != size:
+                targets.append((entry.value, new))
+        if not targets:
+            return
+        record._touch()
+        for block, new in targets:
+            block.set("size", new)
