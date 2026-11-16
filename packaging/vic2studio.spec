@@ -51,6 +51,9 @@ def package_modules():
     return modules
 
 
+# La licencia y los avisos de terceros viajan con el ejecutable (la GPL y la MIT de Azgaar lo exigen).
+LEGAL_FILES = [(str(ROOT / name), ".") for name in ("LICENSE", "THIRD_PARTY_NOTICES.md")]
+
 # El emblema de la ventana, dibujado por tools/render_icon.py (sin él se usa el de PyInstaller).
 ICON = ROOT / "packaging" / "icons" / "vic2studio.ico"
 
@@ -58,7 +61,7 @@ a = Analysis(
     [str(PKG / "__main__.py")],
     pathex=[str(SRC)],
     binaries=[],
-    datas=package_data(DATA_PATTERNS),
+    datas=package_data(DATA_PATTERNS) + LEGAL_FILES,
     hiddenimports=package_modules(),
     hookspath=[],
     runtime_hooks=[],

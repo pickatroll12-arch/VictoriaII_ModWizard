@@ -37,6 +37,9 @@ cp packaging/linux/vic2studio.desktop "$APPDIR/usr/share/applications/vic2studio
 cp packaging/icons/vic2studio.png "$APPDIR/vic2studio.png"
 cp packaging/icons/vic2studio.png "$APPDIR/usr/share/icons/hicolor/256x256/apps/vic2studio.png"
 ln -sf vic2studio.png "$APPDIR/.DirIcon"
+# La licencia y los avisos de terceros, donde los busca una distribución.
+mkdir -p "$APPDIR/usr/share/doc/vic2studio"
+cp LICENSE THIRD_PARTY_NOTICES.md "$APPDIR/usr/share/doc/vic2studio/"
 
 TOOL="${APPIMAGETOOL:-}"
 if [[ -z "$TOOL" ]]; then

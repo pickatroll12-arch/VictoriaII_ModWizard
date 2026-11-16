@@ -1,6 +1,6 @@
 [build-system]
-# 64+: instalación editable (PEP 660) y globs recursivos "**" en package-data.
-requires = ["setuptools>=64"]
+# 64+: instalación editable (PEP 660) y globs recursivos "**" en package-data. 77+: licencia SPDX (PEP 639).
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -8,6 +8,8 @@ name = "vic2studio"
 dynamic = ["version"]
 description = "Victoria II Mod Studio: editor visual de mods de Victoria II (motor Clausewitz)"
 readme = "README.md"
+license = "GPL-3.0-or-later"
+license-files = ["LICENSE", "THIRD_PARTY_NOTICES.md"]
 requires-python = ">=3.10"
 dependencies = [
     # PySide6 6.12.0 suelta referencias de más a None, True y False (en cada tarea de QThreadPool, entre otras).

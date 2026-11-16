@@ -722,9 +722,13 @@ El árbol detallado y la arquitectura están en [ARCHITECTURE.md](ARCHITECTURE.m
     los 6 países, los partidos `MAJ_*` de Warsangali y las rarezas de formato.
   - Las capturas de `docs/capturas/` solo muestran archivos de la muestra
     (desde T5; las anteriores enseñaban dos archivos de vanilla).
-- **Código del proyecto.** Todavía sin licencia: no hay archivo `LICENSE` ni
-  campo de licencia en `pyproject.toml`, y está pendiente de que el autor la
-  elija.
+- **Código del proyecto.** [GPL-3.0 o posterior](LICENSE): puedes usarlo,
+  estudiarlo, cambiarlo y redistribuirlo, y quien distribuya una versión
+  modificada tiene que publicar su código con la misma licencia. Cubre el
+  código, las pruebas, las herramientas, el empaquetado y la documentación.
+- **La muestra del mod del usuario** (`tests/fixtures/shago_mod_min`) no entra
+  en la GPL: es parte del Shago Mod de su autor, con todos los derechos
+  reservados, y solo se incluye para que funcionen las pruebas.
 - **Terceros.** [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) recoge la
   licencia MIT de Azgaar's Fantasy Map Generator, cuyos algoritmos portan los
   prototipos del taller de mapas y que porta el taller (iteraciones 9a y 9b).
@@ -848,7 +852,8 @@ user's installation at runtime. The six `common/countries/` files of the test
 sample (`tests/fixtures/shago_mod_min`, from the user's mod) repeated vanilla
 party blocks and unit name lists; at the user's request (26 October 2026) they
 are now synthetic (invented policies, party dates and unit names). The
-screenshots in `docs/capturas/` only show files of that sample. The project's own code has no licence yet. See
+screenshots in `docs/capturas/` only show files of that sample. The project's own code is licensed under the [GPL-3.0 or later](LICENSE); the test sample
+`tests/fixtures/shago_mod_min` is excluded (all rights reserved by the mod's author, included only for the tests). See
 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for the MIT licence of
 Azgaar's Fantasy Map Generator and [ARCHITECTURE.md](ARCHITECTURE.md)
 (Spanish) for the design.
