@@ -1,0 +1,9 @@
+{
+  "schema.continent.title": "Continents",
+  "schema.continent.name": "Continent",
+  "schema.continent.doc": "Continents in map/continent.txt: the province list goes in «provinces» and the rest of the block is its effects. Every land province must be in one.",
+  "schema.continent.section.provinces": "Provinces",
+  "schema.continent.section.effects": "Effects",
+  "schema.continent.field.provinces": "Provinces of the continent",
+  "schema.continent.dynamic.effects": "Continent effects"
+}

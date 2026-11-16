@@ -56,6 +56,7 @@ from .layouts import (
     FileLayout,
     GroupedIn,
     KeyedAcross,
+    KeyedFiles,
     NestedIn,
     OnePerFile,
     PairedKeys,
@@ -64,6 +65,7 @@ from .layouts import (
     SingleFile,
     Table,
     TypedEntries,
+    WholeFile,
 )
 from .placement import SchemaOrder, insertion_index, registry_index
 from .recipes import (
@@ -178,6 +180,8 @@ __all__ = [
     "NestedIn",
     "TypedEntries",
     "KeyedAcross",
+    "KeyedFiles",
+    "WholeFile",
     "Table",
     "Descriptor",
     # historia y colocación (§10.6, §10.7)

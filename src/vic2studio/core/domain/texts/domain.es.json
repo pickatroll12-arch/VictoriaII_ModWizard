@@ -1,0 +1,13 @@
+{
+  "undo.province_set": "Cambiar {field} de la provincia {province}",
+  "undo.province_paint": "Pintar {field} en {count} provincias",
+  "undo.province_core": "Cambiar el núcleo de {tag} en la provincia {province}",
+  "undo.province_history_create": "Crear la historia de la provincia {province}",
+  "undo.province_pops": "Editar los POPs de la provincia {province}",
+  "undo.map_group_move": "Mover la provincia {province} a {group}",
+  "undo.map_group_create": "Crear {group}",
+  "undo.map_group_rename": "Renombrar {group} como {new}",
+  "undo.map_group_delete": "Borrar {group}",
+  "undo.map_adjacency_add": "Añadir el paso entre {start} y {end}",
+  "undo.map_adjacency_remove": "Quitar el paso entre {start} y {end}"
+}

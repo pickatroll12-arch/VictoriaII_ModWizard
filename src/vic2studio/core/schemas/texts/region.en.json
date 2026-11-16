@@ -1,0 +1,5 @@
+{
+  "schema.region.title": "Regions",
+  "schema.region.name": "Region",
+  "schema.region.doc": "Regions (states) in map/region.txt: each one is the list of its provinces. Every land province must be in one region, and only one."
+}

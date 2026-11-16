@@ -14,13 +14,19 @@ Tienen lógica ``SingleFile`` (gobiernos, CB), ``OnePerFile`` (unidades),
 ``RepeatedKey`` (bookmarks), ``GroupedIn`` (culturas, ideologías, bienes) y
 ``NestedIn`` (tecnologías e invenciones, de solo lectura). Las demás quedan
 como contrato para sus iteraciones.
+
+Contrato de la iteración 5 (el mapa): ``KeyedFiles`` (historias de provincia: el archivo entero es el
+registro y su id es la clave del nombre), ``KeyedAcross`` (POPs: varios bloques por archivo en carpetas de
+fecha), ``PairedKeys`` (climas), ``WholeFile`` (``default.map``) y ``Table`` (``adjacencies.csv``). De ellas
+solo está hecho ``touches`` (un predicado sobre la ruta, que ya usan la navegación y ``Entities``); el resto
+lanza ``NotImplementedError`` hasta que lo implemente la cadena A.
 """
 
 from __future__ import annotations
 
 import fnmatch
 import re
-from collections.abc import Iterator
+from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass
 from pathlib import PurePosixPath
 from typing import TYPE_CHECKING, Protocol
@@ -28,7 +34,7 @@ from typing import TYPE_CHECKING, Protocol
 from ..clausewitz.nodes import Block, Document, Entry, Scalar
 from ..vfs.model import FileEntry
 from ..vfs.paths import VPath
-from ..vfs.rules import LoadMode
+from ..vfs.rules import LoadMode, leading_int_key
 
 if TYPE_CHECKING:
     from ..vfs.vfs import VirtualFS
@@ -75,8 +81,9 @@ class FileLayout(Protocol):
         """Archivo del mod (vista efectiva) y contenedor donde irá una entidad nueva."""
         ...
 
-    def insert(self, doc: Document, container: Block, ident: str, block: Block) -> Entry:
-        """Inserta ``block`` como ``ident`` en ``container`` según la política de colocación (§10.7)."""
+    def insert(self, doc: Document, container: Block, ident: str, block: Block) -> Entry | None:
+        """Inserta ``block`` como ``ident`` en ``container`` según la política de colocación (§10.7). Devuelve la
+        entrada dueña; None cuando el registro es la raíz del documento (``KeyedFiles``, ``WholeFile``)."""
         ...
 
 
@@ -183,12 +190,46 @@ class OnePerFile:
 
 @dataclass(frozen=True)
 class PairedKeys:
-    """Una entidad, dos entradas con la misma clave (``map/climate.txt``, H7): la primera con los
-    modificadores y la segunda con la lista de provincias. En ese archivo está prohibido
-    ``Block.set(nombre)``. Contrato (iteración 5)."""
+    """Una entidad, dos entradas con la misma clave (``map/climate.txt``, H7): una con los modificadores y otra
+    con la lista de provincias. Contrato de la iteración 5.
+
+    Vanilla trae primero las 4 entradas de modificadores y después las 4 listas; el minijuego las alterna. Regla
+    de lectura, la misma que ``core.map.groups`` y el extractor del índice: de las entradas de un nombre, la
+    **lista** es la última cuyos valores son todos sueltos (y tiene alguno) y los **modificadores**, la primera
+    que no es la lista. El registro (``entries``) es el bloque de modificadores; la lista se edita con
+    ``ProvinceGroups(layout="paired")``. Un nombre con una sola entrada o con más de una lista da
+    ``climate_layout``. En este archivo está prohibido ``Block.set(nombre)``: cambiaría la primera entrada sin
+    mirar cuál es.
+    """
 
     path: str
-    merge: LoadMode = LoadMode.WHOLE_FILE
+    merge: LoadMode = LoadMode.MAP_BUNDLE
+
+    def files(self, vfs: VirtualFS) -> list[FileEntry]:
+        raise NotImplementedError
+
+    def touches(self, rel: VPath) -> bool:
+        return VPath.of(rel).key == VPath.of(self.path).key
+
+    def context_rels(self, ctx) -> list[VPath]:
+        raise NotImplementedError
+
+    def pair(self, doc: Document, ident: str) -> tuple[Entry | None, Entry | None]:
+        """``(modificadores, lista)`` de ``ident``; None lo que falte."""
+        raise NotImplementedError
+
+    def entries(self, doc: Document, rel: VPath) -> Iterator[tuple[str, Block, Entry | None]]:
+        """Un registro por nombre, en el orden de su primera aparición: ``(nombre, bloque de modificadores,
+        su entrada)``. Un nombre que solo tiene la lista da un bloque vacío sin entrada (None)."""
+        raise NotImplementedError
+
+    def target_for_new(self, ctx: CheckContext, ident: str, values: dict) -> tuple[VPath, BlockPath]:
+        raise NotImplementedError
+
+    def insert(self, doc: Document, container: Block, ident: str, block: Block) -> Entry:
+        """Añade las dos entradas: ``ident = <block>`` tras la última de modificadores e ``ident = { }`` (la
+        lista, vacía) al final. Devuelve la de modificadores."""
+        raise NotImplementedError
 
 
 @dataclass(frozen=True)
@@ -367,22 +408,204 @@ class TypedEntries:
     merge: LoadMode = LoadMode.UNION_BY_PATH
 
 
+# Qué copia cuenta cuando una clave está en dos archivos de un ``KeyedFiles``: la primera por ``rel.key`` (la
+# misma que ``SymbolIndex`` da como efectiva). Cuál carga el juego es [verificar en juego] (wizard §23).
+KEYED_WINNER = "first"
+
+
+def ascii_name(text: str) -> str:
+    """``text`` como parte de un nombre de archivo en ASCII: los acentos se transliteran (``Córdoba`` →
+    ``Cordoba``), lo que no tiene equivalente se quita y el resultado pasa por ``rules.names.clean_file_name``
+    (sin caracteres vetados en Windows ni punto o espacio final). Vacío si no queda nada. El id es lo que
+    cuenta para el juego (H9); los acentos van en la localización (§23)."""
+    raise NotImplementedError
+
+
+@dataclass(frozen=True)
+class KeyedFiles:
+    """Un archivo por registro y el id es la **clave del nombre del archivo**: las historias de provincia,
+    ``history/provinces/<carpeta>/<id> - <Nombre>.txt``. Contrato de la iteración 5 (decisión 1).
+
+    El registro es **el documento entero** (su bloque es la raíz y no tiene entrada dueña), a diferencia de
+    ``OnePerFile``, cuyo registro es la única entrada ``<id> = { … }`` del archivo. La clave la da ``key``, por
+    defecto ``vfs.rules.leading_int_key`` (el entero inicial del nombre, sin ceros a la izquierda), la misma
+    función que usan la regla de carga ``history/provinces/**/*.txt`` y el extractor del índice: así las tres
+    capas ven el mismo id. Cubre las formas reales del nombre: «549 - Berlin.txt» (2 703 de 2 705 en vanilla) y
+    sin guion y con dos espacios (2: 1337 y 3246).
+
+    **Enumeración.** Todos los ``*.txt`` bajo ``folder`` a cualquier profundidad (vanilla: 2 705 archivos, todos
+    a un nivel, en 25 carpetas; si el juego baja más niveles o lee los sueltos de ``folder`` es [verificar en
+    juego]). Un archivo sin clave en el nombre no es un registro. Los nombres de las carpetas no significan nada
+    para el juego.
+
+    **Duplicados.** Si una clave está en dos rutas (1396 y 1397 en vanilla, en ``asia`` e ``indonesia``; las dos
+    copias de 1396 son distintas), cuenta la primera por ``rel.key`` (``KEYED_WINNER``, igual que el índice) y
+    las demás dan ``province_history_duplicate``. ``RecordRef.rel`` distingue las copias: sin ``rel`` es la
+    efectiva. El Studio nunca crea un duplicado: editar una historia del juego la copia al mod **en la misma
+    ruta y con las mismas mayúsculas** (``VirtualFS.mod_target``), donde sustituye a la del juego por ruta.
+
+    **Registro nuevo.** ``<folder>/<subcarpeta>/<new_name>``: la subcarpeta es ``values["folder"]``, o lo que
+    diga ``subfolder_of(ctx, id)`` (provincias: la carpeta donde están las historias de su región), o
+    ``default_subfolder``; el nombre usa ``values["name"]`` o ``name_of(ctx, id)`` pasado por ``ascii_name``
+    (``"<id>.txt"`` si queda vacío). ``merge`` es ``KEYED_UNION``.
+    """
+
+    folder: str
+    new_name: str = "{id} - {name}.txt"
+    default_subfolder: str = "studio"
+    subfolder_of: Callable[[CheckContext, str], str | None] | None = None
+    name_of: Callable[[CheckContext, str], str | None] | None = None
+    key: Callable[[VPath], str | None] = leading_int_key
+    merge: LoadMode = LoadMode.KEYED_UNION
+
+    def key_of(self, rel: VPath) -> str | None:
+        """La clave (id) del archivo ``rel``; None si su nombre no la tiene."""
+        return self.key(VPath.of(rel))
+
+    def touches(self, rel: VPath) -> bool:
+        rel = VPath.of(rel)
+        folder = tuple(part.lower() for part in self.folder.split("/"))
+        parts = tuple(part.lower() for part in rel.parts)
+        return (len(parts) > len(folder) and parts[:len(folder)] == folder and rel.name.lower().endswith(".txt")
+                and self.key_of(rel) is not None)
+
+    def files(self, vfs: VirtualFS) -> list[FileEntry]:
+        """Las historias efectivas (el ganador de la VFS por ruta), ordenadas por ``rel.key``; con las
+        duplicadas."""
+        raise NotImplementedError
+
+    def context_rels(self, ctx) -> list[VPath]:
+        raise NotImplementedError
+
+    def effective(self, rels: Iterable[VPath]) -> dict[str, VPath]:
+        """Clave → la copia que cuenta (``KEYED_WINNER``) entre ``rels``."""
+        raise NotImplementedError
+
+    def duplicates(self, rels: Iterable[VPath]) -> dict[str, list[VPath]]:
+        """Clave → todas sus rutas, ordenadas por ``rel.key``, solo de las claves con más de una."""
+        raise NotImplementedError
+
+    def entries(self, doc: Document, rel: VPath) -> Iterator[tuple[str, Block, Entry | None]]:
+        """``(key_of(rel), doc, None)``, una sola vez; nada si el nombre no tiene clave."""
+        raise NotImplementedError
+
+    def file_name(self, ident: str, name: str | None) -> str:
+        """Nombre del archivo nuevo de ``ident`` (ASCII; ``"<id>.txt"`` sin nombre)."""
+        raise NotImplementedError
+
+    def target_for_new(self, ctx: CheckContext, ident: str, values: dict) -> tuple[VPath, BlockPath]:
+        """Ruta del archivo nuevo (ver la clase) y ``BlockPath()`` (la raíz). No comprueba que el id esté libre:
+        lo hace ``Entities``."""
+        raise NotImplementedError
+
+    def insert(self, doc: Document, container: Block, ident: str, block: Block) -> None:
+        """Pasa las entradas de ``block`` a la raíz de ``doc`` (el documento nuevo), en su orden. Devuelve None:
+        el registro no tiene entrada dueña."""
+        raise NotImplementedError
+
+
 @dataclass(frozen=True)
 class KeyedAcross:
-    """Entidad repartida entre archivos (``history/pops/<fecha>/*.txt``): el ``RecordRef`` lleva
-    ``rel`` porque una misma entidad (provincia) aparece en varios documentos. Contrato (iteración 5)."""
+    """Entidad repartida en bloques ``<clave> = { … }`` de varios archivos agrupados en carpetas:
+    ``history/pops/<fecha>/<Zona>.txt`` (clave = id de provincia). Contrato de la iteración 5 (decisión 1).
+
+    ``glob`` tiene la forma ``<base>/*/<patrón>``: el comodín del medio es la **carpeta** (la fecha) y forma parte
+    del id. Cada bloque de la raíz cuya clave encaja entera con ``key_regex`` es un registro con id
+    ``"<carpeta>:<clave>"`` (el nombre del símbolo ``pop_block`` del índice); si la clave se repite en el mismo
+    archivo (2482 en ``1861.4.14/Australia.txt``), la aparición n-ésima (n ≥ 2) es ``"<carpeta>:<clave>#n"``
+    (``core.domain.pops.pop_ident``). ``RecordRef.rel`` dice el archivo; sin ``rel``, el primero por ``rel.key``
+    que tenga ese id. ``merge`` es ``UNION_BY_PATH``, como su regla de carga: editar un bloque copia su archivo
+    entero al mod, a la misma ruta. Lo nuevo va a ``<base>/<carpeta>/<new_file>`` con el prefijo del proyecto.
+    """
 
     glob: str
-    key_regex: str
-    merge: LoadMode = LoadMode.KEYED_UNION
+    key_regex: str = r"\d+"
+    new_file: str = "00_{prefix}_pops.txt"
+    merge: LoadMode = LoadMode.UNION_BY_PATH
+
+    def _base(self) -> tuple[str, ...]:
+        return tuple(part.lower() for part in self.glob.split("/")[:-2])
+
+    def folder_of(self, rel: VPath) -> str | None:
+        """La carpeta (fecha) de ``rel`` tal como está escrita; None si ``rel`` no es de esta disposición."""
+        rel = VPath.of(rel)
+        return rel.parts[-2] if self.touches(rel) else None
+
+    def touches(self, rel: VPath) -> bool:
+        rel = VPath.of(rel)
+        base = self._base()
+        parts = tuple(part.lower() for part in rel.parts)
+        return (len(parts) == len(base) + 2 and parts[:len(base)] == base
+                and fnmatch.fnmatch(parts[-1], self.glob.rsplit("/", 1)[-1].lower()))
+
+    def files(self, vfs: VirtualFS) -> list[FileEntry]:
+        raise NotImplementedError
+
+    def context_rels(self, ctx) -> list[VPath]:
+        raise NotImplementedError
+
+    def entries(self, doc: Document, rel: VPath) -> Iterator[tuple[str, Block, Entry | None]]:
+        """``(id, bloque, entrada)`` de cada bloque con clave válida, en orden de archivo."""
+        raise NotImplementedError
+
+    def target_for_new(self, ctx: CheckContext, ident: str, values: dict) -> tuple[VPath, BlockPath]:
+        """``<base>/<carpeta del id>/<new_file>`` y la raíz. ``ValueError`` si el id no es ``carpeta:clave``."""
+        raise NotImplementedError
+
+    def insert(self, doc: Document, container: Block, ident: str, block: Block) -> Entry:
+        """Añade ``<clave> = <block>`` al final del documento (la clave es la parte del id tras la carpeta)."""
+        raise NotImplementedError
+
+
+@dataclass(frozen=True)
+class WholeFile:
+    """Un archivo que es un único registro: ``map/default.map``. Su bloque es la raíz del documento, no tiene
+    entrada dueña y su id es fijo (``ident``). No se crea ni se borra. Contrato de la iteración 5."""
+
+    path: str
+    ident: str
+    merge: LoadMode = LoadMode.MAP_BUNDLE
+
+    def touches(self, rel: VPath) -> bool:
+        return VPath.of(rel).key == VPath.of(self.path).key
+
+    def files(self, vfs: VirtualFS) -> list[FileEntry]:
+        raise NotImplementedError
+
+    def context_rels(self, ctx) -> list[VPath]:
+        raise NotImplementedError
+
+    def entries(self, doc: Document, rel: VPath) -> Iterator[tuple[str, Block, Entry | None]]:
+        """``(ident, doc, None)``."""
+        raise NotImplementedError
+
+    def target_for_new(self, ctx: CheckContext, ident: str, values: dict) -> tuple[VPath, BlockPath]:
+        raise NotImplementedError
+
+    def insert(self, doc: Document, container: Block, ident: str, block: Block) -> None:
+        raise NotImplementedError
 
 
 @dataclass(frozen=True)
 class Table:
-    """Filas de un CSV (``map/definition.csv``), una por registro. Contrato (iteración 5)."""
+    """Filas de un CSV del mapa (``map/adjacencies.csv``), una por registro. Contrato de la iteración 5.
+
+    Declara dónde viven (para la referencia, la navegación y la validación), pero ``Entities`` no sirve
+    registros de tabla: un ``Record`` es una vista sobre un bloque Clausewitz. Las filas se leen y se editan
+    con su modelo sin pérdidas (``core.map.adjacency.AdjacencyTable``, ``core.map.definition.DefinitionTable``)."""
 
     path: str
     columns: tuple[str, ...]
+    merge: LoadMode = LoadMode.MAP_BUNDLE
+
+    def touches(self, rel: VPath) -> bool:
+        return VPath.of(rel).key == VPath.of(self.path).key
+
+    def files(self, vfs: VirtualFS) -> list[FileEntry]:
+        raise NotImplementedError
+
+    def context_rels(self, ctx) -> list[VPath]:
+        raise NotImplementedError
 
 
 @dataclass(frozen=True)

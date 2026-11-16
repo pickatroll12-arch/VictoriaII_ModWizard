@@ -1,0 +1,17 @@
+{
+  "schema.adjacency.title": "Straits and crossings",
+  "schema.adjacency.name": "Crossing",
+  "schema.adjacency.doc": "Rows of map/adjacencies.csv: straits (two land provinces joined through a sea one), closed crossings between neighbours, and canals.",
+  "schema.adjacency.section.row": "Row",
+  "schema.adjacency.field.from": "From",
+  "schema.adjacency.field.to": "To",
+  "schema.adjacency.field.type": "Type",
+  "schema.adjacency.field.through": "Through",
+  "schema.adjacency.field.through.help": "The sea province crossed by a strait or a canal.",
+  "schema.adjacency.field.data": "Data",
+  "schema.adjacency.field.data.help": "For a canal, its number.",
+  "schema.adjacency.field.comment": "Comment",
+  "schema.adjacency.enum.type.sea": "Strait",
+  "schema.adjacency.enum.type.impassable": "Closed crossing",
+  "schema.adjacency.enum.type.canal": "Canal"
+}

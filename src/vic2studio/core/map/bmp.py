@@ -9,6 +9,10 @@ escribir solo se regeneran los píxeles (I3).
 ``BmpImage.pixels`` tiene la fila 0 arriba, como ``numpy.asarray(PIL.Image.open(...))``: en los mapas del juego
 esa fila es la ``y`` del motor (H1); la vista se voltea en un solo sitio (``raster.to_display_row``, iteración 5).
 Sin E/S: trabaja con bytes, sin bucles por píxel en Python.
+
+**Único lector de BMP del proyecto** (decisión 3 del contrato de la iteración 5): quien necesite el tamaño usa
+``read_bmp_header`` o ``bmp_size`` (con los primeros ``HEADER_BYTES`` bytes basta) y quien necesite los píxeles,
+``read_bmp``; el censo de colores es ``raster.color_counts``. Ningún otro módulo interpreta la cabecera a mano.
 """
 
 from __future__ import annotations
@@ -25,6 +29,7 @@ BMP_SHAPE = "bmp_shape"
 
 FILE_HEADER_SIZE = 14
 INFO_HEADER_SIZE = 40
+HEADER_BYTES = 30                    # lo que lee ``read_bmp_header`` (hasta los bits por píxel)
 BI_RGB = 0
 PIXELS_PER_METER = 2834      # la de los BMP de vanilla (72 ppp)
 
@@ -80,6 +85,12 @@ def read_bmp_header(data: bytes) -> tuple[int, int, int]:
     if len(data) < FILE_HEADER_SIZE + 16 or data[:2] != b"BM":
         raise BmpError(BMP_NOT_BMP, "no empieza por «BM»" if data[:2] != b"BM" else "cabecera incompleta")
     return _i32(data, 18), abs(_i32(data, 22)), _u16(data, 28)
+
+
+def bmp_size(data: bytes) -> tuple[int, int]:
+    """(ancho, alto) de un BMP con solo su cabecera (``HEADER_BYTES``); ``BmpError`` si no es un BMP."""
+    width, height, _ = read_bmp_header(data)
+    return width, height
 
 
 def read_bmp(data: bytes) -> BmpImage:

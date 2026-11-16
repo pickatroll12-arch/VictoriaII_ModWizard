@@ -1,0 +1,10 @@
+{
+  "schema.terrain.title": "Terrenos",
+  "schema.terrain.name": "Terreno",
+  "schema.terrain.doc": "Categorías de terreno de map/terrain.txt (bloque «categories»). Solo se leen: dan el modo de mapa de terreno y el selector de terreno.",
+  "schema.terrain.section.general": "Aspecto",
+  "schema.terrain.section.effects": "Efectos",
+  "schema.terrain.field.color": "Color en el mapa",
+  "schema.terrain.field.is_water": "Es agua",
+  "schema.terrain.dynamic.effects": "Efectos del terreno"
+}

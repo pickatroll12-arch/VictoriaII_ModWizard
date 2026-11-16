@@ -10,6 +10,12 @@ Desde la iteración 4, las secciones de entidades salen del **registro de esquem
 esquema editable con ``hall`` y ``section`` da una ``SectionSpec`` (una por ``View`` si tiene vistas) con el
 ``EntityEditorPage`` como ``factory``. Si la sala ya declara una sección con esa clave (la tarjeta planificada de
 reserva), la del esquema la sustituye. Añadir un esquema no toca ningún archivo de ``ui/`` (criterio 6).
+
+Desde la iteración 5, una sección declarada puede **alojar** esquemas (``SectionSpec.hosts``): la sala Mapa edita
+varios esquemas en una misma página hecha a mano (el lienzo con la ficha de la provincia, el árbol de regiones…),
+así que sus esquemas no generan un ``EntityEditorPage`` aunque sean editables y nombren esa sección. La navegación
+(``MainWindow.open_entity``) sigue llegando a ella por ``hall`` y ``section`` del esquema y llama a su
+``focus_field(ref, field)``.
 """
 
 from __future__ import annotations
@@ -52,6 +58,7 @@ class SectionSpec:
     badge: Callable[[Session], int | None] | None = None   # contador del índice lateral
     iteration: int | None = None # si aún no existe: la iteración en que llega (tarjeta «en desarrollo»)
     planned_keys: tuple[str, ...] = ()   # textos de la tarjeta «en desarrollo» (lo que hará)
+    hosts: tuple[str, ...] = ()  # ``kind`` de los esquemas que esta sección edita en su propia página (iteración 5)
 
     @property
     def planned(self) -> bool:
@@ -136,10 +143,25 @@ def schema_sections(hall: str, schemas=None) -> list[SectionSpec]:
     return specs
 
 
+def hosting_section(kind: str) -> str | None:
+    """``"sala:sección"`` de la sección declarada que aloja el esquema ``kind`` (``SectionSpec.hosts``); None si
+    ninguna lo aloja. Vale también para esquemas de solo lectura (``terrain``, ``adjacency``), que no tienen
+    sección generada."""
+    for hall, sections in discover_halls():
+        for section in sections:
+            if kind in section.hosts:
+                return f"{hall.key}:{section.key}"
+    return None
+
+
 def merge_schema_sections(declared: list[SectionSpec], generated: list[SectionSpec]) -> list[SectionSpec]:
     """Las secciones de la sala con las de los esquemas encima: una generada sustituye a la declarada con la misma
-    clave (la tarjeta planificada de reserva); el resto se añade. Ordenadas por ``order``."""
-    by_key = {spec.key: spec for spec in generated}
+    clave (la tarjeta planificada de reserva); el resto se añade. Ordenadas por ``order``.
+
+    Una generada cuyo esquema está en los ``hosts`` de una declarada se descarta: ese esquema se edita en la página
+    de esa sección (o se verá en ella cuando exista: mientras tanto sigue su tarjeta «en desarrollo»)."""
+    hosted = {kind for spec in declared for kind in spec.hosts}
+    by_key = {spec.key: spec for spec in generated if spec.schema_kind not in hosted}
     merged = [by_key.pop(spec.key, spec) for spec in declared]
     merged.extend(by_key.values())
     return sorted(merged, key=lambda s: s.order)

@@ -36,6 +36,16 @@ SMOKE_KEYS = (
     "schema.culture.field.color",      # core/schemas/texts/culture
     "schema.event_modifier.field.icon",      # core/schemas/texts/event_modifier
     "schema.technology.field.year",    # core/schemas/texts/readonly
+    "schema.province_history.field.owner",   # core/schemas/texts/province_history
+    "schema.pops.title",               # core/schemas/texts/pops
+    "schema.region.title",             # core/schemas/texts/region
+    "schema.region_sea.title",         # core/schemas/texts/region_sea
+    "schema.continent.field.provinces",      # core/schemas/texts/continent
+    "schema.climate.title",            # core/schemas/texts/climate
+    "schema.terrain.field.is_water",   # core/schemas/texts/terrain
+    "schema.default_map.field.sea_starts",   # core/schemas/texts/default_map
+    "schema.adjacency.field.through",  # core/schemas/texts/adjacency
+    "undo.province_set",               # core/domain/texts
 )
 
 

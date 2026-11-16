@@ -394,15 +394,17 @@ class MiniGame:
 
 def build_minigame(root: Path | None = None, *, mod: bool = True, mod_name: str = "TestMod",
                    mod_copies: Iterable[str] = (), mod_files: Mapping[str, bytes | str] | None = None,
-                   game_files: Mapping[str, bytes | str] | None = None) -> MiniGame:
+                   game_files: Mapping[str, bytes | str] | None = None, drop: Iterable[str] = ()) -> MiniGame:
     """Juego y mod en ``root`` (una carpeta temporal propia si es None; ``cleanup`` la borra).
 
     ``mod=False``: mod vacío. ``mod_copies``: archivos del juego que el mod trae
     copiados tal cual (un mod copia completa, como VSM). ``mod_files`` y
-    ``game_files`` añaden o sustituyen archivos.
+    ``game_files`` añaden o sustituyen archivos; ``drop`` quita archivos del juego (iteración 5).
     """
     game = dict(GAME_FILES)
     game.update(game_files or {})
+    for rel in drop:
+        game.pop(rel, None)
     files: dict[str, bytes | str] = dict(MOD_FILES) if mod else {}
     for rel in mod_copies:
         files[rel] = game[rel]
@@ -457,3 +459,266 @@ unit_names = {
 	}
 }
 """)
+
+
+# --- ampliación de la iteración 5: el mapa completo (wizard §19.1) -------------------------------------------------
+# Como SCHEMA_GAME_FILES, no entra en GAME_FILES (otras pruebas cuentan sus archivos, sus símbolos y sus
+# problemas): las pruebas del mapa lo piden con ``build_map_minigame()``. Todo inventado y generado por código; lo
+# único «real» es la forma (los nombres de las claves y de las columnas). Coordenadas del juego: ``y`` es la fila de
+# la imagen leída de arriba abajo y el norte está en las ``y`` altas (H1): en la vista, las provincias 5–8 quedan
+# encima de las 1–4.
+
+MAP_BOOKMARK_DATES = ("1836.1.1", "1861.1.1")       # las de common/bookmarks.txt (GAME_FILES)
+
+# default.map con todas sus claves y un sea_start repetido (el 10, dos veces seguidas: como el de vanilla, decisión 4
+# del contrato de la iteración 5). ``SEA_STARTS`` es la lista tal cual, con el duplicado y en su orden.
+SEA_STARTS = (9, 10, 10, 11, 12)
+DEFAULT_MAP = _crlf(
+    "max_provinces = 13\nsea_starts = {\n\t" + " ".join(map(str, SEA_STARTS)) + "\n}\n"
+    'definitions = "definition.csv"\nprovinces = "provinces.bmp"\npositions = "positions.txt"\n'
+    'terrain = "terrain.bmp"\nrivers = "rivers.bmp"\nterrain_definition = "terrain.txt"\n'
+    'tree_definition = "trees.txt"\ncontinent = "continent.txt"\nadjacencies = "adjacencies.csv"\n'
+    'region = "region.txt"\nregion_sea = "region_sea.txt"\nprovince_flag_sprite = "province_flag_sprites"\n\n'
+    "border_heights = {\n\t40\n\t60\n\t80\n}\nterrain_sheet_heights = {\n\t50\n}\ntree = 35\n"
+    "border_cutoff = 90.0\n")
+
+# Índices de terrain.bmp: los de tierra apuntan a una categoría de terrain.txt; el mar usa el 254.
+TERRAIN_PLAINS, TERRAIN_HILLS, TERRAIN_PEAKS, TERRAIN_SHORE, TERRAIN_OCEAN = 0, 1, 2, 4, 254
+# Categoría mayoritaria de cada provincia según terrain.bmp (la 5 lleva además ``terrain = hills`` en su historia).
+TERRAIN_OF = {1: "plains", 2: "plains", 3: "plains", 4: "hills", 5: "plains", 6: "hills", 7: "plains",
+              8: "mountain", 9: "ocean", 10: "ocean", 11: "ocean", 12: "ocean"}
+TERRAIN_TXT = _crlf(
+    "terrain = 8\ncategories = {\n"
+    "\tocean = {\n\t\tis_water = yes\n\t\tmovement_cost = 1.0\n\t\tcolor = { 0 0 255 }\n\t}\n"
+    "\tplains = {\n\t\tmovement_cost = 1.0\n\t\tfarm_rgo_size = 0.1\n\t\tcolor = { 0 255 0 }\n\t}\n"
+    "\thills = {\n\t\tmovement_cost = 1.2\n\t\tdefence = 1\n\t\tcolor = { 120 120 0 }\n\t}\n"
+    "\tmountain = {\n\t\tmovement_cost = 1.5\n\t\tdefence = 2\n\t\tcolor = { 90 90 90 }\n\t}\n}\n\n"
+    f"mg_plains = {{\n\ttype = plains\n\tcolor = {{ {TERRAIN_PLAINS} }}\n\tpriority = 3\n}}\n"
+    f"mg_hills = {{\n\ttype = hills\n\tcolor = {{ {TERRAIN_HILLS} }}\n\tpriority = 2\n}}\n"
+    f"mg_peaks = {{\n\ttype = mountain\n\tcolor = {{ {TERRAIN_PEAKS} }}\n\tpriority = 1\n\thas_texture = no\n}}\n"
+    # Una entrada con varios índices (en vanilla hay una con 191).
+    f"mg_shore = {{\n\ttype = plains\n\tcolor = {{ 3 {TERRAIN_SHORE} 5 }}\n\tpriority = 4\n}}\n"
+    f"mg_ocean = {{\n\ttype = ocean\n\tcolor = {{ {TERRAIN_OCEAN} }}\n\tpriority = 0\n}}\n")
+
+# Índices de rivers.bmp: 0 nacimiento, 1 confluencia, 2–4 anchos; 255 tierra sin río y 254 mar.
+RIVER_SOURCE, RIVER_JOIN, RIVER_NARROW, RIVER_WIDE, RIVER_SEA, RIVER_NONE = 0, 1, 2, 3, 254, 255
+# El río nace en la provincia 5, baja por la fila 20 hasta la 8 y recibe un afluente de la 7 (4-conexo).
+RIVER_MAIN = tuple((x, 20) for x in range(4, 40))
+RIVER_BRANCH = tuple((24, y) for y in range(28, 20, -1))
+
+
+def terrain_index_at(x: int, y: int) -> int:
+    """Índice de ``terrain.bmp`` en el píxel. La 6 es de colinas por mayoría (60 de sus 160 px son llanura) y la 3
+    tiene una franja de costa (30 px con el índice 4, también llanura); el color sin provincia cuenta como llanura."""
+    province = province_at(x, y)
+    if province is None:
+        return TERRAIN_PLAINS
+    if province in SEA:
+        return TERRAIN_OCEAN
+    if province == 6:
+        return TERRAIN_PLAINS if y >= 26 else TERRAIN_HILLS
+    if province == 3 and y < 3:
+        return TERRAIN_SHORE
+    return {"plains": TERRAIN_PLAINS, "hills": TERRAIN_HILLS, "mountain": TERRAIN_PEAKS}[TERRAIN_OF[province]]
+
+
+def river_index_at(x: int, y: int) -> int:
+    """Índice de ``rivers.bmp`` en el píxel."""
+    if (x, y) == RIVER_MAIN[0] or (x, y) == RIVER_BRANCH[0]:
+        return RIVER_SOURCE
+    if (x, y) == (RIVER_BRANCH[-1][0], RIVER_MAIN[0][1]):
+        return RIVER_JOIN
+    if (x, y) in RIVER_MAIN:
+        return RIVER_WIDE if x > RIVER_BRANCH[0][0] else RIVER_NARROW
+    if (x, y) in RIVER_BRANCH:
+        return RIVER_NARROW
+    province = province_at(x, y)
+    return RIVER_SEA if province in SEA else RIVER_NONE
+
+
+def indexed_bmp(index_at) -> bytes:
+    """BMP de 8 bits con paleta de 256 colores (cabecera de 1 078 B, como los del juego), 64×32, de abajo arriba y
+    con 2 bytes de cola tras los píxeles (también como los del juego). La paleta es inventada."""
+    width, height = MAP_SIZE
+    stride = (width + 3) & ~3
+    palette = b"".join(bytes(((i * 7) % 256, (i * 3 + 40) % 256, 255 - i, 0)) for i in range(256))
+    rows = []
+    for y in range(height - 1, -1, -1):
+        row = bytes(index_at(x, y) for x in range(width))
+        rows.append(row + b"\0" * (stride - len(row)))
+    pixels = b"".join(rows)
+    offset = 54 + len(palette)
+    header = (b"BM" + (offset + len(pixels)).to_bytes(4, "little") + b"\0\0\0\0" + offset.to_bytes(4, "little")
+              + (40).to_bytes(4, "little") + width.to_bytes(4, "little") + height.to_bytes(4, "little")
+              + (1).to_bytes(2, "little") + (8).to_bytes(2, "little") + b"\0" * 4 + len(pixels).to_bytes(4, "little")
+              + (2835).to_bytes(4, "little") * 2 + b"\0" * 8)
+    return header + palette + pixels + b"\0\0"
+
+
+def province_pixels(province: int) -> list[tuple[int, int]]:
+    """Píxeles ``(x, y)`` de una provincia en coordenadas del juego."""
+    width, height = MAP_SIZE
+    return [(x, y) for y in range(height) for x in range(width) if province_at(x, y) == province]
+
+
+def province_centroid(province: int) -> tuple[float, float]:
+    """Centroide ``(x, y)`` exacto (media de los centros de sus píxeles, en coordenadas del juego)."""
+    pixels = province_pixels(province)
+    return (sum(x for x, _ in pixels) / len(pixels), sum(y for _, y in pixels) / len(pixels))
+
+
+# Vecinos por lado (4-conexos). El mapa es cíclico en horizontal: con ``wrap_x`` la columna 63 toca la 0.
+NEIGHBORS = {
+    1: {2, 5}, 2: {1, 3, 6}, 3: {2, 4, 7}, 4: {3, 8, 9, 10}, 5: {1, 6}, 6: {2, 5, 7}, 7: {3, 6, 8},
+    8: {4, 7, 11, 12}, 9: {4, 10}, 10: {4, 9, 11}, 11: {8, 10, 12}, 12: {8, 11},
+}
+NEIGHBORS_WRAP_X = {**NEIGHBORS, 1: {2, 5, 9, 10}, 5: {1, 6, 11, 12}, 9: {1, 4, 10}, 10: {1, 4, 9, 11},
+                    11: {5, 8, 10, 12}, 12: {5, 8, 11}}
+
+# Punto ``unit`` de cada provincia en positions.txt (dentro de ella, cerca del centroide). La 11 tiene el bloque
+# vacío y la 12 solo datos del rótulo, como pasa en vanilla.
+UNIT_POINTS = {p: (int(province_centroid(p)[0]), int(province_centroid(p)[1])) for p in range(1, 11)}
+
+
+def _positions_txt() -> str:
+    blocks = []
+    for province in sorted(PROVINCE_COLORS):
+        if province == 11:
+            blocks.append(f"{province} = {{\n}}\n")
+            continue
+        if province == 12:
+            blocks.append(f"{province} = {{\n\ttext_position = {{\n\t\tx = 52.000\n\t\ty = 28.000\n\t}}\n"
+                          "\ttext_rotation = 0.100\n\ttext_scale = 1.200\n}\n")
+            continue
+        x, y = UNIT_POINTS[province]
+        lines = [f"{province} = {{", f"\tunit = {{\n\t\tx = {x}.000\n\t\ty = {y}.000\n\t}}",
+                 f"\ttext_position = {{\n\t\tx = {x}.500\n\t\ty = {y + 2}.000\n\t}}", "\ttext_scale = 1.000"]
+        if province in LAND:
+            lines.append(f"\tbuilding_position = {{\n\t\tfort = {{\n\t\t\tx = {x + 1}.000\n\t\t\ty = {y - 2}.000\n"
+                         f"\t\t}}\n\t\trailroad = {{\n\t\t\tx = {x - 1}.000\n\t\t\ty = {y - 1}.000\n\t\t}}\n\t}}")
+            lines.append(f"\tfactory = {{\n\t\tx = {x + 2}.000\n\t\ty = {y + 1}.000\n\t}}")
+            lines.append(f"\tbuilding_construction = {{\n\t\tx = {x - 2}.000\n\t\ty = {y + 1}.000\n\t}}")
+            lines.append(f"\tmilitary_construction = {{\n\t\tx = {x}.000\n\t\ty = {y - 3}.000\n\t}}")
+        if province in (4, 8):          # las dos costeras: base naval con su giro
+            lines.append("\tbuilding_rotation = {\n\t\tnaval_base = 1.570\n\t}")
+        if province == 1:
+            lines.append(f"\tcity = {{\n\t\tx = {x + 1}.000\n\t\ty = {y + 1}.000\n\t}}")
+        lines.append("}")
+        blocks.append("\n".join(lines) + "\n")
+    return _crlf("".join(blocks))
+
+
+# adjacencies.csv: cabecera comentada, un estrecho (1–4 por el mar 9, vecinos de él solo con el mapa cíclico), un
+# paso infranqueable, un canal, una fila comentada, un comentario de sección y una línea en blanco.
+STRAIT = (1, 4, 9)
+IMPASSABLE = (2, 6)
+CANAL = (4, 8, 10, 1)                 # desde, hasta, a través de, número de canal
+ADJACENCIES_CSV = _crlf(
+    "#From;To;Type;Through;Data;Comment\n"
+    f"{STRAIT[0]};{STRAIT[1]};sea;{STRAIT[2]};0;Estrecho del Norte\n"
+    "#5;8;sea;12;0;Estrecho del Sur (desactivado)\n"
+    "\n"
+    "# Pasos cerrados\n"
+    f"{IMPASSABLE[0]};{IMPASSABLE[1]};impassable;0;0;Cordillera central\n"
+    f"{CANAL[0]};{CANAL[1]};canal;{CANAL[2]};{CANAL[3]};Canal del Este\n")
+
+
+def _pop(pop_type: str, culture: str, religion: str, size: int, *extra: str) -> str:
+    lines = [f"\t{pop_type} = {{", f"\t\tculture = {culture}", f"\t\treligion = {religion}", f"\t\tsize = {size}",
+             *(f"\t\t{line}" for line in extra), "\t}"]
+    return "\n".join(lines) + "\n"
+
+
+def _pops(*blocks: tuple[int, str]) -> str:
+    return _crlf("".join(f"{province} = {{\n{body}}}\n" for province, body in blocks))
+
+
+MAP_GAME_FILES: dict[str, str | bytes] = {
+    "map/default.map": DEFAULT_MAP,
+    "map/terrain.txt": TERRAIN_TXT,
+    "map/terrain.bmp": indexed_bmp(terrain_index_at),
+    "map/rivers.bmp": indexed_bmp(river_index_at),
+    "map/trees.txt": _crlf("# Arbolado del minijuego (inventado; el Studio no lo lee)\nterrain = 8\n"),
+    "map/positions.txt": _positions_txt(),
+    "map/adjacencies.csv": ADJACENCIES_CSV,
+    # Historias de las provincias 4–8 (las de 1–3 están en GAME_FILES). Fechas de inicio: 1836.1.1 y 1861.1.1.
+    # La 4 tiene un bloque dentro del intervalo del segundo bookmark, (1836.1.1, 1861.1.1]: editar en 1861.1.1
+    # escribe en él y no crea otro (criterio 5).
+    "history/provinces/north/4 - Colina.txt": _crlf(
+        "owner = AAA\ncontroller = AAA\nadd_core = AAA\nadd_core = BBB\ntrade_goods = grain\nlife_rating = 30\n"
+        "naval_base = 1\n\n1850.6.1 = {\n\towner = BBB\n\tcontroller = BBB\n}\n"),
+    # Dos bloques con la misma fecha (137 archivos de vanilla los tienen), uno posterior al último bookmark y una
+    # anulación de terreno.
+    "history/provinces/south/5 - Quinta.txt": _crlf(
+        "owner = BBB\ncontroller = BBB\nadd_core = BBB\ntrade_goods = grain\nlife_rating = 35\nrailroad = 1\n"
+        "terrain = hills\n\n1845.3.1 = { railroad = 2 }\n1845.3.1 = { add_core = CCC }\n"
+        "1870.1.1 = {\n\tfort = 1\n\tremove_core = CCC\n}\n"),
+    # Solo LF (325 historias de vanilla) y un bloque party_loyalty.
+    "history/provinces/south/6 - Bosque.txt": (
+        "owner = BBB\ncontroller = BBB\nadd_core = BBB\ntrade_goods = grain\nlife_rating = 20\n"
+        "party_loyalty = {\n\tideology = conservative\n\tloyalty_value = 10\n}\n"),
+    "history/provinces/east/7 - Vado.txt": _crlf(
+        "owner = CCC\ncontroller = CCC\nadd_core = CCC\ntrade_goods = fish\nlife_rating = 25\ncolonial = 1\n"
+        "is_slave = yes\n"),
+    # Un bloque justo en la fecha del segundo bookmark: cuenta en 1861.1.1 (el intervalo es cerrado por la derecha).
+    "history/provinces/east/8 - Cumbre.txt": _crlf(
+        "owner = CCC\ncontroller = CCC\nadd_core = CCC\ntrade_goods = fish\nlife_rating = 15\nfort = 1\n"
+        "naval_base = 1\n\n1861.1.1 = {\n\tcontroller = AAA\n}\n"),
+    # POPs del resto de provincias de tierra (las de 1 y 2 están en GAME_FILES, con la 1 repetida en 1836.1.1).
+    # Un mismo tipo de POP repetido en una provincia (7 713 veces en vanilla) y los campos opcionales.
+    "history/pops/1836.1.1/South.txt": _pops(
+        (3, _pop("farmers", "corlander", "moonfaith", 900)),
+        (4, _pop("farmers", "alander", "sunfaith", 700) + _pop("farmers", "borlander", "sunfaith", 300)
+            + _pop("soldiers", "alander", "sunfaith", 50)),
+        (5, _pop("farmers", "borlander", "sunfaith", 1500, "militancy = 2.5")),
+        (6, _pop("farmers", "borlander", "moonfaith", 400)),
+        (7, _pop("farmers", "corlander", "moonfaith", 600, "rebel_type = free_rebels")),
+        (8, _pop("soldiers", "dominer", "moonfaith", 80))),
+    # En la segunda fecha, la 7 aparece dos veces en el mismo archivo (como la 2482 de vanilla) y faltan la 3 y la 8.
+    "history/pops/1861.1.1/South.txt": _pops(
+        (4, _pop("farmers", "borlander", "sunfaith", 1100)),
+        (7, _pop("farmers", "corlander", "moonfaith", 650)),
+        (5, _pop("farmers", "borlander", "sunfaith", 1700)),
+        (6, _pop("farmers", "borlander", "moonfaith", 450)),
+        (7, _pop("soldiers", "corlander", "moonfaith", 40))),
+    "localisation/minigame_map.csv": _loc([
+        ("AAA_1", "Aland Lowlands", "Tierras Bajas de Alandia"), ("BBB_4", "Borland Hills", "Colinas de Borlandia"),
+        ("CCC_7", "Corland Heights", "Altos de Corlandia"), ("west_land", "Westland", "Poniente"),
+        ("east_land", "Eastland", "Levante"), ("mild_climate", "Mild", "Suave"), ("harsh_climate", "Harsh", "Duro"),
+        ("ocean", "Ocean", "Océano"), ("plains", "Plains", "Llanura"), ("hills", "Hills", "Colinas"),
+        ("mountain", "Mountain", "Montaña"),
+    ]),
+}
+
+# El id 3 está en dos carpetas (GAME_FILES, H9): con ``clean=True`` se quita la copia de west/ para tener un mapa
+# sin errores de coherencia (criterio 8). Los avisos conocidos se quedan: el color sin fila, el «50.», el sea_start
+# repetido, PROV12 sin texto y el nombre irregular de la provincia 2.
+MAP_CLEAN_DROPS = ("history/provinces/west/3 - Costa.txt",)
+
+# Dueño vigente de cada provincia de tierra en las dos fechas de inicio (lo que debe dar ProvinceFacts).
+OWNERS = {"1836.1.1": {1: "AAA", 2: "BBB", 3: "CCC", 4: "AAA", 5: "BBB", 6: "BBB", 7: "CCC", 8: "CCC"},
+          "1861.1.1": {1: "AAA", 2: "BBB", 3: "CCC", 4: "BBB", 5: "BBB", 6: "BBB", 7: "CCC", 8: "CCC"}}
+# Bloques de POP por (fecha, provincia): archivo y cuántos bloques tiene en él (2 = repetido).
+POP_BLOCKS = {
+    "1836.1.1": {1: ("North.txt", 2), 2: ("North.txt", 1), 3: ("South.txt", 1), 4: ("South.txt", 1),
+                 5: ("South.txt", 1), 6: ("South.txt", 1), 7: ("South.txt", 1), 8: ("South.txt", 1)},
+    "1861.1.1": {1: ("North.txt", 1), 4: ("South.txt", 1), 5: ("South.txt", 1), 6: ("South.txt", 1),
+                 7: ("South.txt", 2)},
+}
+# Población total por provincia en cada fecha (suma de ``size`` de todos sus bloques, también los repetidos).
+POPULATION = {
+    "1836.1.1": {1: 1100, 2: 800, 3: 900, 4: 1050, 5: 1500, 6: 400, 7: 600, 8: 80},
+    "1861.1.1": {1: 1200, 4: 1100, 5: 1700, 6: 450, 7: 690},
+}
+
+
+def build_map_minigame(root: Path | None = None, *, clean: bool = False,
+                       game_files: Mapping[str, bytes | str] | None = None, drop: Iterable[str] = (),
+                       **kwargs) -> MiniGame:
+    """El minijuego con el mapa completo de la iteración 5 (``GAME_FILES`` + ``MAP_GAME_FILES``).
+
+    ``clean=True`` quita ``MAP_CLEAN_DROPS`` (la historia duplicada). ``game_files`` añade o sustituye encima y
+    ``drop`` quita archivos; el resto de argumentos, como en ``build_minigame``."""
+    files: dict[str, bytes | str] = dict(MAP_GAME_FILES)
+    files.update(game_files or {})
+    return build_minigame(root, game_files=files, drop=(*(MAP_CLEAN_DROPS if clean else ()), *drop), **kwargs)

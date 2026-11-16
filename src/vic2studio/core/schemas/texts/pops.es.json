@@ -1,0 +1,14 @@
+{
+  "schema.pops.title": "Población",
+  "schema.pops.name": "Población de una provincia",
+  "schema.pops.doc": "Bloques de history/pops/<fecha>/*.txt: uno por provincia y fecha, con un grupo de población (POP) por cada tipo, cultura y religión. Su id es «<fecha>:<provincia>».",
+  "schema.pop.title": "Grupos de población",
+  "schema.pop.name": "Grupo de población",
+  "schema.pop.doc": "Un grupo de población dentro del bloque de su provincia: la clave es su tipo.",
+  "schema.pop.section.pop": "Grupo",
+  "schema.pop.field.culture": "Cultura",
+  "schema.pop.field.religion": "Religión",
+  "schema.pop.field.size": "Personas",
+  "schema.pop.field.militancy": "Militancia",
+  "schema.pop.field.rebel_type": "Tipo de rebeldes"
+}

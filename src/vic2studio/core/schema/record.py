@@ -492,8 +492,9 @@ class Record:
         """Árbol de guion de ``key`` (lo edita ``core.script``, iteración 7)."""
         raise NotImplementedError
 
-    def at(self, date):  # ClausewitzDate | None
-        """Vista de historia en la fecha ``date`` (§10.6, iteración 5)."""
+    def at(self, date, bookmarks=None):  # ClausewitzDate | None, Sequence[ClausewitzDate] | None
+        """``HistoryView`` de este registro en ``date`` (§10.6, iteración 5). ``bookmarks``: las fechas de
+        inicio; None = las de los símbolos ``bookmark`` del índice del registro (``attrs["date"]``)."""
         raise NotImplementedError
 
     def unknown(self) -> list[Entry]:

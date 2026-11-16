@@ -13,7 +13,18 @@ from __future__ import annotations
 from .companions import ActivateUnit, AppendToList, MappingTable, UnitNamesSlot
 from .entity import EntitySchema
 from .fields import MISSING, OPEN_CATALOG, Children, DynamicKeys, Field, Group, Opaque, Script, Section, field_text_key
-from .layouts import GroupedIn, NestedIn, OnePerFile, RepeatedKey, SingleFile
+from .layouts import (
+    GroupedIn,
+    KeyedAcross,
+    KeyedFiles,
+    NestedIn,
+    OnePerFile,
+    PairedKeys,
+    RepeatedKey,
+    SingleFile,
+    Table,
+    WholeFile,
+)
 from .registry import registry
 
 
@@ -59,9 +70,22 @@ def _layout_text(schema: EntitySchema, t: _Texts) -> tuple[str, str]:
     if isinstance(layout, GroupedIn):
         return layout.path, t(f"docgen.layout.grouped_in_{min(layout.level, 1)}")
     if isinstance(layout, NestedIn):
+        if layout.container:
+            return layout.glob, t("docgen.layout.nested_in_container", container=layout.container)
         return layout.glob, t("docgen.layout.nested_in")
     if isinstance(layout, SingleFile):
         return layout.path, t("docgen.layout.single_file")
+    # Disposiciones del mapa (iteración 5).
+    if isinstance(layout, KeyedFiles):
+        return f"{layout.folder}/*/{layout.new_name}", t("docgen.layout.keyed_files")
+    if isinstance(layout, KeyedAcross):
+        return layout.glob, t("docgen.layout.keyed_across")
+    if isinstance(layout, PairedKeys):
+        return layout.path, t("docgen.layout.paired_keys")
+    if isinstance(layout, WholeFile):
+        return layout.path, t("docgen.layout.whole_file")
+    if isinstance(layout, Table):
+        return layout.path, t("docgen.layout.table", columns=";".join(layout.columns))
     return "?", type(layout).__name__
 
 
@@ -69,6 +93,14 @@ def _ident_text(schema: EntitySchema, t: _Texts) -> str:
     mode = schema.ident.mode
     if mode == "field":
         return t("docgen.ident.field", field=schema.ident.value)
+    if isinstance(schema.layout, KeyedFiles):
+        return t("docgen.ident.file_key")
+    if isinstance(schema.layout, KeyedAcross):
+        return t("docgen.ident.folder_key")
+    if isinstance(schema.layout, WholeFile):
+        return t("docgen.ident.fixed", ident=schema.layout.ident)
+    if isinstance(schema.layout, Table):
+        return t("docgen.ident.row")
     if mode == "file" or isinstance(schema.layout, OnePerFile):
         return t("docgen.ident.file")
     return t("docgen.ident.key")

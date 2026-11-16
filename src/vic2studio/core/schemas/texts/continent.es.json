@@ -1,0 +1,9 @@
+{
+  "schema.continent.title": "Continentes",
+  "schema.continent.name": "Continente",
+  "schema.continent.doc": "Continentes de map/continent.txt: la lista de provincias va en «provinces» y el resto del bloque son sus efectos. Toda provincia de tierra debe estar en uno.",
+  "schema.continent.section.provinces": "Provincias",
+  "schema.continent.section.effects": "Efectos",
+  "schema.continent.field.provinces": "Provincias del continente",
+  "schema.continent.dynamic.effects": "Efectos del continente"
+}

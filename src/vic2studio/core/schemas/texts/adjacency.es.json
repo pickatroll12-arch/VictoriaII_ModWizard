@@ -1,0 +1,17 @@
+{
+  "schema.adjacency.title": "Estrechos y pasos",
+  "schema.adjacency.name": "Paso",
+  "schema.adjacency.doc": "Filas de map/adjacencies.csv: estrechos (dos provincias de tierra unidas a través de una de mar), pasos cerrados entre vecinas y canales.",
+  "schema.adjacency.section.row": "Fila",
+  "schema.adjacency.field.from": "Desde",
+  "schema.adjacency.field.to": "Hasta",
+  "schema.adjacency.field.type": "Tipo",
+  "schema.adjacency.field.through": "A través de",
+  "schema.adjacency.field.through.help": "La provincia de mar que se cruza en un estrecho o un canal.",
+  "schema.adjacency.field.data": "Dato",
+  "schema.adjacency.field.data.help": "En un canal, su número.",
+  "schema.adjacency.field.comment": "Comentario",
+  "schema.adjacency.enum.type.sea": "Estrecho",
+  "schema.adjacency.enum.type.impassable": "Paso cerrado",
+  "schema.adjacency.enum.type.canal": "Canal"
+}
