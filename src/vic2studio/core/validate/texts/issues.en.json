@@ -369,5 +369,20 @@
  "explain.outcome.war_dates_order": "The game applies events by date: leaving before joining is ignored and {tag} will stay at war.",
  "issue.war_inactive_at_bookmarks": "“{war}” ({start} – {end}) is not active on any start date ({dates}).",
  "explain.title.war_inactive_at_bookmarks": "Why: “{war}” is not active on any start date",
- "explain.outcome.war_inactive_at_bookmarks": "Nobody will see it: when the game starts it has already ended or has not started yet."
+ "explain.outcome.war_inactive_at_bookmarks": "Nobody will see it: when the game starts it has already ended or has not started yet.",
+ "issue.gui_sprite_missing": "The window names sprite «{sprite}» ({key}), but no .gfx defines it.",
+ "explain.title.gui_sprite_missing": "Why: Sprite «{sprite}» is missing",
+ "explain.outcome.gui_sprite_missing": "The element shows without a picture (or the game complains when it loads the window). Define it in a .gfx or pick another sprite.",
+ "issue.texture_missing": "Sprite «{sprite}» uses texture «{texture}», which exists neither as .tga nor as .dds.",
+ "explain.title.texture_missing": "Why: The texture of sprite «{sprite}» is missing",
+ "explain.outcome.texture_missing": "Everything that uses «{sprite}» shows empty. Import the picture or fix the sprite's path.",
+ "issue.sprite_duplicate": "Sprite «{sprite}» is defined {count} times (also in «{other}»).",
+ "explain.title.sprite_duplicate": "Why: «{sprite}» is defined more than once",
+ "explain.outcome.sprite_duplicate": "The game keeps one of the definitions (which one is not checked in game); the others are unused.",
+ "issue.gui_orientation_unknown": "«{element}» has orientation «{orientation}», which the game does not know; it treats it as UPPER_LEFT.",
+ "explain.title.gui_orientation_unknown": "Why: «{orientation}» is not an orientation",
+ "explain.outcome.gui_orientation_unknown": "The element is anchored to the top left. If you wanted another anchor, pick one from the list (UPPER_LEFT, UPPER_RIGHT, LOWER_LEFT, LOWER_RIGHT, CENTER, CENTER_UP, CENTER_DOWN).",
+ "issue.gui_named_element_removed": "Your copy of the window no longer has «{element}», which the original has ({original}, line {original_line}).",
+ "explain.title.gui_named_element_removed": "Why: «{element}» is missing from your copy of the window",
+ "explain.outcome.gui_named_element_removed": "The game looks up many elements by name: without it, the window can break or crash the game. To take it out of sight, hide it (move it off screen) instead of deleting it."
 }

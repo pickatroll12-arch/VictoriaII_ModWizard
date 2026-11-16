@@ -369,5 +369,20 @@
  "explain.outcome.war_dates_order": "El juego aplica los sucesos por fecha: una salida antes de la entrada se ignora y {tag} seguirá en guerra.",
  "issue.war_inactive_at_bookmarks": "«{war}» ({start} – {end}) no está activa en ninguna fecha de inicio ({dates}).",
  "explain.title.war_inactive_at_bookmarks": "Por qué: «{war}» no está activa en ninguna fecha de inicio",
- "explain.outcome.war_inactive_at_bookmarks": "Nadie la verá: cuando empieza la partida ya ha terminado o aún no ha empezado."
+ "explain.outcome.war_inactive_at_bookmarks": "Nadie la verá: cuando empieza la partida ya ha terminado o aún no ha empezado.",
+ "issue.gui_sprite_missing": "La ventana nombra el sprite «{sprite}» ({key}), pero ningún .gfx lo define.",
+ "explain.title.gui_sprite_missing": "Por qué: Falta el sprite «{sprite}»",
+ "explain.outcome.gui_sprite_missing": "El elemento sale sin imagen (o el juego avisa al cargar la ventana). Defínelo en un .gfx o elige otro sprite.",
+ "issue.texture_missing": "El sprite «{sprite}» usa la textura «{texture}», que no existe ni con .tga ni con .dds.",
+ "explain.title.texture_missing": "Por qué: Falta la textura del sprite «{sprite}»",
+ "explain.outcome.texture_missing": "Todo lo que use «{sprite}» sale vacío. Importa la imagen o corrige la ruta del sprite.",
+ "issue.sprite_duplicate": "El sprite «{sprite}» está definido {count} veces (también en «{other}»).",
+ "explain.title.sprite_duplicate": "Por qué: «{sprite}» está definido más de una vez",
+ "explain.outcome.sprite_duplicate": "El juego se queda con una de las definiciones (cuál, sin comprobar en el juego); las demás no se usan.",
+ "issue.gui_orientation_unknown": "«{element}» tiene la orientación «{orientation}», que el juego no conoce; la trata como UPPER_LEFT.",
+ "explain.title.gui_orientation_unknown": "Por qué: «{orientation}» no es una orientación",
+ "explain.outcome.gui_orientation_unknown": "El elemento se ancla arriba a la izquierda. Si querías otro anclaje, elige uno de la lista (UPPER_LEFT, UPPER_RIGHT, LOWER_LEFT, LOWER_RIGHT, CENTER, CENTER_UP, CENTER_DOWN).",
+ "issue.gui_named_element_removed": "Tu copia de la ventana ya no tiene «{element}», que sí está en el original ({original}, línea {original_line}).",
+ "explain.title.gui_named_element_removed": "Por qué: Falta «{element}» en tu copia de la ventana",
+ "explain.outcome.gui_named_element_removed": "El juego busca muchos elementos por su nombre: sin él, la ventana puede fallar o cerrar el juego. Para quitarlo de la vista, ocúltalo (muévelo fuera de la pantalla) en vez de borrarlo."
 }

@@ -23,6 +23,7 @@ from .layouts import (
     RepeatedKey,
     SingleFile,
     Table,
+    GuiElements,
     TypedEntries,
     WholeFile,
 )
@@ -87,8 +88,13 @@ def _layout_text(schema: EntitySchema, t: _Texts) -> tuple[str, str]:
         return layout.path, t("docgen.layout.whole_file")
     if isinstance(layout, Table):
         return layout.path, t("docgen.layout.table", columns=";".join(layout.columns))
-    if isinstance(layout, TypedEntries):           # eventos (iteración 7)
+    if isinstance(layout, TypedEntries):           # eventos (iteración 7), sprites (iteración 8)
+        if layout.container:
+            return layout.glob, t("docgen.layout.typed_entries_in", keys=" / ".join(layout.keys),
+                                  container=layout.container)
         return layout.glob, t("docgen.layout.typed_entries", keys=" / ".join(layout.keys))
+    if isinstance(layout, GuiElements):            # elementos de los .gui (iteración 8)
+        return layout.glob, t("docgen.layout.gui_elements", keys=" / ".join(layout.keys))
     return "?", type(layout).__name__
 
 
@@ -104,9 +110,19 @@ def _ident_text(schema: EntitySchema, t: _Texts) -> str:
         return t("docgen.ident.fixed", ident=schema.layout.ident)
     if isinstance(schema.layout, Table):
         return t("docgen.ident.row")
+    if isinstance(schema.layout, GuiElements):
+        return t("docgen.ident.gui_path")
     if mode == "file" or isinstance(schema.layout, OnePerFile):
         return t("docgen.ident.file")
     return t("docgen.ident.key")
+
+
+def _editable_text(schema: EntitySchema, t: _Texts) -> str:
+    if not schema.editable:
+        return t("docgen.editable.no")
+    if isinstance(schema.layout, GuiElements):
+        return t("docgen.editable.edit_only")
+    return t("docgen.editable.yes")
 
 
 def _default_text(field: Field, t: _Texts) -> str:
@@ -223,7 +239,7 @@ def _render(schema: EntitySchema, t: _Texts) -> str:
     path, layout = _layout_text(schema, t)
     lines += [f"- **{t('docgen.files')}:** `{path}`", f"- **{t('docgen.layout')}:** {layout}",
               f"- **{t('docgen.ident')}:** {_ident_text(schema, t)}",
-              f"- **{t('docgen.editable')}:** {t('docgen.editable.yes') if schema.editable else t('docgen.editable.no')}"]
+              f"- **{t('docgen.editable')}:** {_editable_text(schema, t)}"]
     if schema.hall and schema.section and schema.editable:
         lines.append(f"- **{t('docgen.section_in_app')}:** `{schema.hall}:{schema.section}`")
     lines += ["", f"## {t('docgen.fields')}", "",

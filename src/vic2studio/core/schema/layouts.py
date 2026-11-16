@@ -484,6 +484,11 @@ class TypedEntries:
     campo del bloque y no se escribe. El id se escribe en ``id_field``, el primero del bloque. Editar un
     registro de un archivo del juego copia el archivo entero a la misma ruta al guardar
     (``UNION_BY_PATH``). ``Record.entity_key`` da la clave de la entrada de un registro leído.
+
+    ``container`` (iteración 8): las entradas no están en la raíz sino dentro de uno o varios bloques con esa
+    clave, sin distinguir mayúsculas (``spriteTypes = { spriteType = { name = … } }`` en los ``.gfx``). Lo nuevo
+    va al final del último contenedor, que se crea si el archivo no lo tiene. ``ignore_case_id``: el id se
+    compara sin mayúsculas (el ejecutable busca así los sprites).
     """
 
     glob: str
@@ -492,6 +497,7 @@ class TypedEntries:
     new_file: str
     type_field: str = "type"
     merge: LoadMode = LoadMode.UNION_BY_PATH
+    container: str = ""
 
     def _folder_pattern(self) -> tuple[str, str]:
         folder, _, pattern = self.glob.rpartition("/")
@@ -512,14 +518,29 @@ class TypedEntries:
         lowered = key.lower()
         return any(lowered == candidate.lower() for candidate in self.keys)
 
+    def _roots(self, doc: Document) -> list[Block]:
+        if not self.container:
+            return [doc]
+        return [entry.value for entry in doc.entries
+                if entry.key is not None and isinstance(entry.value, Block)
+                and entry.key.text.lower() == self.container.lower()]
+
     def entries(self, doc: Document, rel: VPath) -> Iterator[tuple[str, Block, Entry | None]]:
-        for entry in doc.entries:
-            if entry.key is None or not isinstance(entry.value, Block) or not self.is_key(entry.key.text):
-                continue
-            found = entry.value.find(self.id_field, ignore_case=True)
-            if found is None or not isinstance(found.value, Scalar):
-                continue
-            yield found.value.text, entry.value, entry
+        for root in self._roots(doc):
+            for entry in root.entries:
+                if entry.key is None or not isinstance(entry.value, Block) or not self.is_key(entry.key.text):
+                    continue
+                found = entry.value.find(self.id_field, ignore_case=True)
+                if found is None or not isinstance(found.value, Scalar):
+                    continue
+                yield found.value.text, entry.value, entry
+
+    def ensure_container(self, doc: Document) -> Block:
+        """El bloque donde va lo nuevo: la raíz o el último ``container`` (creado al final si falta). Mutación."""
+        roots = self._roots(doc)
+        if roots:
+            return roots[-1]
+        return doc.append(self.container, Block()).value
 
     def target_for_new(self, ctx: CheckContext, ident: str, values: dict) -> tuple[VPath, BlockPath]:
         return VPath.of(_with_prefix(self.new_file, ctx)), BlockPath()
@@ -535,6 +556,52 @@ class TypedEntries:
 
     def insert(self, doc: Document, container: Block, ident: str, block: Block, key: str | None = None) -> Entry:
         return container.append(key or self.keys[0], block)
+
+
+@dataclass(frozen=True)
+class GuiElements:
+    """Elementos de un tipo dentro de los ``.gui`` (``interface/*.gui``), a cualquier profundidad (iteración 8).
+
+    Un ``.gui`` es ``guiTypes = { windowType = { … guiButtonType = { … } } }``: los elementos se anidan dentro de
+    ventanas, diálogos y barras. Cada registro es un elemento cuya clave (sin mayúsculas) es una de ``keys``; su
+    id es su ruta (``ventana/hijo``, con ``#n`` entre hermanos del mismo nombre, ``core.gui.element_path``), que
+    es única dentro del archivo, así que una ``RecordRef`` de un elemento lleva siempre su ``rel``. No se crean
+    elementos desde aquí (el ejecutable no abriría ventanas nuevas, §17.4): ``target_for_new`` lanza
+    ``ValueError``. Editar un ``.gui`` del juego copia el archivo entero al mod (``UNION_BY_PATH``).
+    """
+
+    glob: str
+    keys: tuple[str, ...]
+    merge: LoadMode = LoadMode.UNION_BY_PATH
+
+    def _folder_pattern(self) -> tuple[str, str]:
+        folder, _, pattern = self.glob.rpartition("/")
+        return folder, pattern
+
+    def files(self, vfs: VirtualFS) -> list[FileEntry]:
+        folder, pattern = self._folder_pattern()
+        return [entry for entry in vfs.list(folder, pattern, recursive=False) if self.touches(entry.rel)]
+
+    def touches(self, rel: VPath) -> bool:
+        return _glob_touches(self.glob, VPath.of(rel))
+
+    def context_rels(self, ctx) -> list[VPath]:
+        folder, pattern = self._folder_pattern()
+        return [rel for rel in ctx.rels(folder, pattern) if self.touches(rel)]
+
+    def entries(self, doc: Document, rel: VPath) -> Iterator[tuple[str, Block, Entry | None]]:
+        from ..gui.guimodel import GuiDocument, element_path
+
+        wanted = {key.lower() for key in self.keys}
+        for element in GuiDocument(doc).elements():
+            if element.type in wanted:
+                yield element_path(element), element.block, element.entry
+
+    def target_for_new(self, ctx: CheckContext, ident: str, values: dict) -> tuple[VPath, BlockPath]:
+        raise ValueError("los elementos de un .gui no se crean desde el Studio")
+
+    def insert(self, doc: Document, container: Block, ident: str, block: Block) -> Entry | None:
+        raise ValueError("los elementos de un .gui no se crean desde el Studio")
 
 
 # Qué copia cuenta cuando una clave está en dos archivos de un ``KeyedFiles``: la primera por ``rel.key`` (la

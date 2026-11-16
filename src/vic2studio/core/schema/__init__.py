@@ -68,6 +68,7 @@ from .layouts import (
     SingleFile,
     Table,
     TypedEntries,
+    GuiElements,
     WholeFile,
 )
 from .placement import SchemaOrder, insertion_index, registry_index
@@ -191,6 +192,7 @@ __all__ = [
     "Registry",
     "NestedIn",
     "TypedEntries",
+    "GuiElements",
     "KeyedAcross",
     "KeyedFiles",
     "WholeFile",

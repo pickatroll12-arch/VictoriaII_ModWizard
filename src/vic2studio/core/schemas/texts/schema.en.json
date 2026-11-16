@@ -159,5 +159,9 @@
   "undo.duplicate_decision": "Duplicate decision {ident}",
   "undo.delete_decision": "Delete decision {ident}",
   "undo.rename_decision": "Rename decision {ident} to {new}",
-  "schema.ident.out_of_range": "The id “{ident}” is outside the project’s id range."
+  "schema.ident.out_of_range": "The id “{ident}” is outside the project’s id range.",
+  "docgen.layout.typed_entries_in": "entries inside the {container} blocks of each file keyed {keys}",
+  "docgen.layout.gui_elements": "{keys} elements at any depth of each file's guiTypes",
+  "docgen.ident.gui_path": "its path inside the file (window/element)",
+  "docgen.editable.edit_only": "edited from the Studio (neither created nor deleted: the game looks elements up by name)"
 }

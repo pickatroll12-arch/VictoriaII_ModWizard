@@ -32,7 +32,16 @@ from ..vfs.model import LayerKind
 from ..vfs.paths import VPath
 from .entity import EntitySchema, LocSpec
 from .fields import MISSING, OPEN_CATALOG, REST, Children, DynamicKeys, Field, Group, Opaque, Script, Section
-from .layouts import GroupedIn, OnePerFile, Registry, TypedEntries, entry_path, follow_path, parent_block
+from .layouts import (
+    GroupedIn,
+    GuiElements,
+    OnePerFile,
+    Registry,
+    TypedEntries,
+    entry_path,
+    follow_path,
+    parent_block,
+)
 from .placement import SchemaOrder, dynamic_insert_index, first_dated_index, insertion_index
 from .registry import registry
 from .types import Int
@@ -261,12 +270,20 @@ class Record:
         return tuple(fields)
 
     def _field_of(self, key: str) -> Field | None:
-        return self._index_schema()[0].get(key)
+        fields = self._index_schema()[0]
+        found = fields.get(key)
+        if found is None and self.schema.ignore_case:
+            lowered = key.lower()
+            found = next((field for name, field in fields.items() if name.lower() == lowered), None)
+        return found
+
+    def _ignore_case(self, field: Field | None = None) -> bool:
+        """Sin mayúsculas si lo pide el campo o el esquema entero (``.gui``/``.gfx``, H23)."""
+        return self.schema.ignore_case or (field is not None and field.ignore_case)
 
     def _find_entry(self, key: str) -> Entry | None:
         field = self._field_of(key)
-        return self.block.find(key, ignore_case=field.ignore_case) if field is not None \
-            else self.block.find(key)
+        return self.block.find(key, ignore_case=self._ignore_case(field))
 
     def _rebind(self, handle) -> None:
         """Pasa a ``handle`` siguiendo el mismo bloque por su posición (misma forma de árbol)."""
@@ -317,8 +334,7 @@ class Record:
     def get_all(self, key: str) -> list:
         """Todos los valores de una clave repetible, en orden."""
         field = self._field_of(key)
-        entries = self.block.find_all(key, ignore_case=field.ignore_case) if field is not None \
-            else self.block.find_all(key)
+        entries = self.block.find_all(key, ignore_case=self._ignore_case(field))
         if field is not None:
             values = []
             for entry in entries:
@@ -378,7 +394,7 @@ class Record:
 
     def group(self, key: str, index: int = 0) -> Record:
         """Vista del bloque anidado ``key`` (la repetición ``index``)."""
-        entries = self.block.find_all(key)
+        entries = self.block.find_all(key, ignore_case=self._ignore_case())
         if index >= len(entries) or not isinstance(entries[index].value, Block):
             raise KeyError(f"no hay grupo {key!r} #{index}")
         view = Record(self.schema, self.ref, self.handle, entries[index].value, self.origin,
@@ -391,7 +407,8 @@ class Record:
         """Vistas de todas las repeticiones del grupo ``key``."""
         views = [Record(self.schema, self.ref, self.handle, entry.value, self.origin, ws=self._ws,
                         index=self._index, entry=entry, document=self._document, entity_key=self.entity_key)
-                 for entry in self.block.find_all(key) if isinstance(entry.value, Block)]
+                 for entry in self.block.find_all(key, ignore_case=self._ignore_case())
+                 if isinstance(entry.value, Block)]
         for view in views:
             view._group_view = True
         return views
@@ -626,11 +643,14 @@ class Record:
         """
         fields, groups, dynamics = self._index_schema()
         found: list[Entry] = []
+        fold = self.schema.ignore_case
         covered_root = set(fields) | set(groups) | self._opaque_keys()
+        if fold:
+            covered_root = {key.lower() for key in covered_root}
         children = _children_spec(self._effective_fields())
         root_specs = [spec for spec, container in dynamics.values() if container is None]
         for entry in self.block.entries:
-            if entry.key is None or entry.key.text in covered_root:
+            if entry.key is None or (entry.key.text.lower() if fold else entry.key.text) in covered_root:
                 continue
             if children is not None and isinstance(entry.value, Block):
                 continue
@@ -641,14 +661,15 @@ class Record:
                 continue
             found.append(entry)
         for key, group in groups.items():
-            entry = self.block.find(key)
+            entry = self.block.find(key, ignore_case=fold)
             if entry is None or not isinstance(entry.value, Block):
                 continue
-            covered = frozenset(field.key for field in group.fields if isinstance(field, Field))
+            covered = frozenset(field.key.lower() if fold else field.key
+                                for field in group.fields if isinstance(field, Field))
             dynamic_spec = next((spec for name, (spec, container) in dynamics.items()
                                  if container == key), None)
             for sub in entry.value.entries:
-                if sub.key is None or sub.key.text in covered:
+                if sub.key is None or (sub.key.text.lower() if fold else sub.key.text) in covered:
                     continue
                 if dynamic_spec is not None and self._in_catalog(dynamic_spec, self._catalog(dynamic_spec),
                                                                  sub.key.text):
@@ -664,7 +685,7 @@ class Record:
         fields, _, _ = self._index_schema()
         problems: list[Problem] = []
         for key, field in fields.items():
-            entries = self.block.find_all(key, ignore_case=field.ignore_case)
+            entries = self.block.find_all(key, ignore_case=self._ignore_case(field))
             if len(entries) > 1 and not field.repeat:
                 problems.append(make_issue("duplicate_field", self, field=(key,), key=key))
             for entry in entries:
@@ -945,6 +966,8 @@ class Entities:
         index = self.index
         if index is None or isinstance(schema.layout, Registry):
             return False   # los símbolos ``tag`` del registro son líneas escalares, no registros que abrir
+        if isinstance(schema.layout, GuiElements):
+            return False   # el índice nombra las ventanas por su nombre; aquí el id es la ruta del elemento
         try:
             return self._provides(schema) in index.kinds()
         except Exception:  # noqa: BLE001 - un índice falso puede no saberlo
