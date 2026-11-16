@@ -228,6 +228,24 @@ class WindowsPageTests(InterfaceWindowCase):
         self.assertEqual(page.element_path, ALT_ICON)
         self.assertEqual(page.current_form().ref.ident, ALT_ICON)
 
+    def test_a_problem_in_the_second_window_selects_that_window(self):
+        two = "interface/mg_two.gui"
+        text = ("guiTypes = {\r\n"
+                "\twindowType = {\r\n\t\tname = \"mg_first\"\r\n\t\tposition = { x = 0 y = 0 }\r\n"
+                "\t\tsize = { x = 100 y = 100 }\r\n\t}\r\n"
+                "\twindowType = {\r\n\t\tname = \"mg_second\"\r\n\t\tposition = { x = 200 y = 0 }\r\n"
+                "\t\tsize = { x = 100 y = 100 }\r\n"
+                "\t\ticonType = {\r\n\t\t\tname = \"mg_second_icon\"\r\n\t\t\tspriteType = \"GFX_mg_alt\"\r\n"
+                "\t\t\tposition = { x = 10 y = 10 }\r\n\t\t\torientation = \"UPPER_LEFT\"\r\n\t\t}\r\n"
+                "\t}\r\n}\r\n")
+        self.open_interface("images", game_files={two: text})
+        self.assertTrue(self.window.open_entity("gui_icon", "mg_second/mg_second_icon", ("orientation",),
+                                                VPath.of(two)))
+        page = self.window.current_page()
+        self.assertIsInstance(page, WindowsPage)
+        self.assertEqual(page.window_path, "mg_second", "el problema elige la ventana que contiene el elemento")
+        self.assertEqual(page.element_path, "mg_second/mg_second_icon")
+
     def test_the_form_edits_the_element(self):
         page = self.open_panel()
         page.select_element(ALT_ICON)

@@ -113,7 +113,20 @@ arreglarlo, deja una prueba de regresión que falle sin el arreglo y pasa la bat
   editan con el constructor (`ScriptFieldEditor`). Pruebas nuevas: `test_script_core`, `test_ui_event_studio` y
   `test_ui_decisions` (con corpus: ida y vuelta de vanilla, censo ≥ 95 %, las 2 decisiones rotas del usuario y
   la frase de AUSFlavor 31502).
-- **Lo siguiente: la iteración 8, suite de interfaces (.gui/.gfx) e imágenes** (wizard.md §22).
+- **Iteración 8 (suite de interfaces): hecha** (16-11-2026, mismo hilo). Núcleo en `core/gui/{guimodel,gfxdb,
+  layout,bmfont,textures,render,source,sprites,event_window}.py` y `core/gfx/images.py` (familias de imagen con su
+  tamaño, encuadre y codificación TGA/DDS); esquemas `sprite` (`core/schemas/gfx.py`) y uno por tipo de elemento de
+  `.gui` (`core/schemas/gui_elements.py`, disposición `GuiElements`: el id es la ruta `ventana/hijo`, no se crean ni
+  se renombran elementos y el formulario bloquea su `name`); reglas `core/validate/rules/interface.py`
+  (`gui_sprite_missing`, `texture_missing`, `sprite_duplicate`, `gui_orientation_unknown`,
+  `gui_named_element_removed`). Interfaz en `ui/interface/**` (lienzo con arrastre, asa, imán y resolución; árbol;
+  catálogo de sprites; importador con encuadre; gestor de imágenes y banderas) y `ui/halls/interface/**`
+  (Ventanas, Sprites, Imágenes y banderas). La vista previa de eventos usa la ventana real del `.gui` cuando hay
+  arte del juego y la procedural si no (o con `VIC2STUDIO_NO_GAME_ART=1`). Vanilla medido: 59 `.gui`, 66 `.gfx`,
+  1264 sprites, 432 texturas con la otra extensión, 26 que faltan y 13 duplicados (el diseño decía 434 y 27; las
+  pruebas usan lo medido). Pruebas nuevas: `test_gui_core`, `test_gui_corpus`, `test_gfx_dds` y
+  `test_ui_interface`.
+- **Lo siguiente: la iteración 9a, taller de mapas** (wizard.md §18 y §22).
 - **Segunda tanda de Gemini (G4–G7): hecha por Claude.** La plataforma de Gemini se cayó y el usuario pidió
   asumirlas. Son piezas del núcleo para iteraciones futuras, en archivos nuevos:
   - G4 (`8c33ae6`): `core/tablecsv.py` y `core/map/definition.py`;
