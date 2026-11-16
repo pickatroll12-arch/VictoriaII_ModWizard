@@ -15,6 +15,7 @@ from PySide6.QtWidgets import QComboBox, QHBoxLayout, QLabel, QWidget
 from ...core.clausewitz.nodes import ClausewitzDate
 from ...core.schema.record import bookmark_dates
 from ...i18n import tr, translator
+from ..widgets import mark_data
 
 
 def _rules(session):
@@ -39,7 +40,7 @@ class WorkingDateSelector(QWidget):
         row.setContentsMargins(0, 0, 0, 0)
         row.setSpacing(6)
         self.label = QLabel()
-        self.combo = QComboBox()
+        self.combo = mark_data(QComboBox())    # fechas: datos, no textos que traducir
         self.combo.setObjectName("workingDateCombo")
         self.combo.setEditable(True)
         self.combo.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
