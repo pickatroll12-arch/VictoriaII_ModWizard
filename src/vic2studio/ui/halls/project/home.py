@@ -56,7 +56,7 @@ FLOWS = (
     (N_("home.flow.unit"), "helmet", None, "war:land"),           # iteración 4: ya existen
     (N_("home.flow.government"), "crown", None, "nations:governments"),
     (N_("home.flow.culture"), "culture", None, "nations:cultures"),
-    (N_("home.flow.provinces"), "map", 5, "map:world"),
+    (N_("home.flow.provinces"), "map", None, "map:world"),
     (N_("home.flow.country"), "countries", 6, "nations:countries"),
     (N_("home.flow.war"), "swords", 6, "war:wars"),
     (N_("home.flow.event"), "events", 7, "events:events"),

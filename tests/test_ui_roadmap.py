@@ -22,7 +22,7 @@ from vic2studio.ui.widgets import RoadmapStrip  # noqa: E402
 # Iteración 4: las secciones de entidades (Culturas, Gobiernos, Fechas de inicio, Casus belli, Unidades terrestres y
 # navales, y Modificadores, que llega con el esquema event_modifier) ya existen: salen del registro de esquemas.
 PLAN = {
-    "map:world": 5, "map:regions": 5, "map:climates": 5, "map:straits": 5, "map:forge": 9,
+    "map:forge": 9,
     "nations:countries": 6,
     "war:wars": 6, "war:diplomacy": 6,
     "events:events": 7, "events:decisions": 7,
@@ -33,7 +33,8 @@ PLAN = {
 READY = {"project:home", "project:descriptor", "project:files", "project:validation", "project:pending",
          "localisation:all", "localisation:pending", "localisation:csv",
          "nations:cultures", "nations:governments", "war:bookmarks", "war:cb", "war:land", "war:naval",
-         "events:modifiers"}
+         "events:modifiers",
+         "map:world", "map:regions", "map:climates", "map:straits"}   # iteración 5
 
 
 class ColumnsTests(unittest.TestCase):

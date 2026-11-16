@@ -25,6 +25,7 @@ SMOKE_KEYS = (
     "forms.undo_edit",                 # i18n/<idioma>/forms.json
     "entity.tab.form",                 # i18n/<idioma>/entity.json
     "pickers.goods.add",               # i18n/<idioma>/pickers.json
+    "map.hover",                       # i18n/<idioma>/map.json
     "project.save_outside_mod",        # core/project/texts
     "issue.unclosed_block",            # core/validate/texts
     "issue.definition_bad_row",        # core/map/texts

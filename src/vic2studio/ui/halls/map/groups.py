@@ -426,11 +426,11 @@ class GroupsPage(BasePage):
 
     def _edit_group(self, action: str) -> None:
         if action == "create":
-            name = self.ask_name("map.groups.new_title")
+            name = self.ask_name(N_("map.groups.new_title"))
             if name:
                 self.edit_group("create", name)
         elif action == "rename" and self._group:
-            name = self.ask_name("map.groups.rename_title", self._group)
+            name = self.ask_name(N_("map.groups.rename_title"), self._group)
             if name and name != self._group:
                 self.edit_group("rename", self._group, name)
         elif action == "delete" and self._group:

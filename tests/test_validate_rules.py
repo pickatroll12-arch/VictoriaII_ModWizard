@@ -431,6 +431,10 @@ class ExpectedCleanTests(unittest.TestCase):
             # iteración 5: «50.» en la fila 5 y el estado BBB_4, cuyas provincias 5 y 6 no tocan a la 4.
             ("definition_bad_number", "map/definition.csv"),
             ("region_not_contiguous", "map/region.txt"),
+            # la provincia de tierra sin historia del minijuego y «2  Llanura.txt», con el nombre sin guion
+            # (la forma de 1337 y 3246 en vanilla).
+            ("missing_history", "history/provinces"),
+            ("province_file_name", "history/provinces/south/2  Llanura.txt"),
         })
         self.assertTrue(all(p.inherited for p in report.problems))
         self.assertTrue(report.baseline_ready)
