@@ -1,15 +1,21 @@
 """Compañeros y recetas (wizard §10.8).
 
 Un compañero es un archivo o conjunto de claves que acompaña a la entidad: se
-mantiene al crearla o borrarla (dentro de la misma transacción, I5) y puede
-añadir problemas al validarla. ``EditContext`` da lo que un compañero necesita
-sin tocar disco por su cuenta.
+mantiene al crearla, renombrarla o borrarla (dentro de la misma transacción, I5)
+y puede añadir problemas al validarla. ``EditContext`` da lo que un compañero
+necesita sin tocar disco por su cuenta.
 
 Tienen lógica ``AppendToList`` (``peace_order`` de los CB), ``MappingTable``
 (la matriz de rebeldes, H16), ``ActivateUnit`` y ``UnitNamesSlot``. ``own_roles``
 de un compañero son los papeles de sus propias referencias en el índice: no
-bloquean el borrado porque el compañero las quita. ``RegisterTag`` y los
-``on_rename`` llegan con los países y el renombrado.
+bloquean el borrado porque el compañero las quita. ``RegisterTag`` llega con los
+países.
+
+``on_rename`` (§15) cambia solo el token del id en lo que el compañero mantiene y
+se basta solo: no depende de que ``Entities.rename`` haya reescrito antes los usos
+del índice (que también cubren ``peace_order``, la matriz y ``activate_unit``). Lo
+que el índice no conoce (las listas de ``unit_names``) lo declara el compañero con
+``rename_uses``, opcional y de solo lectura, para que salga en el plan.
 """
 
 from __future__ import annotations
@@ -17,7 +23,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Protocol
 
-from ..clausewitz.nodes import Block
+from ..clausewitz.nodes import Block, Scalar
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
@@ -27,6 +33,17 @@ if TYPE_CHECKING:
     from ..validate.model import Problem
     from .record import Record
     from .validate import CheckContext
+
+
+def _entries_under(block: Block):
+    """Todas las entradas bajo ``block``, a cualquier profundidad y sin recursión."""
+    stack = [block]
+    while stack:
+        current = stack.pop()
+        for entry in current.entries:
+            yield entry
+            if isinstance(entry.value, Block):
+                stack.append(entry.value)
 
 
 class EditContext:
@@ -52,7 +69,7 @@ class Companion(Protocol):
         ...
 
     def on_rename(self, ctx: EditContext, rec: Record, old: str, new: str) -> None:
-        """``rec`` pasó de ``old`` a ``new``: mueve lo suyo."""
+        """``rec`` pasó de ``old`` a ``new`` (ya lleva el id nuevo): cambia el id en lo suyo."""
         ...
 
     def check(self, ctx: CheckContext, rec: Record) -> Iterable[Problem]:
@@ -170,7 +187,20 @@ class AppendToList:
             block.remove_entry(entry)
 
     def on_rename(self, ctx: EditContext, rec: Record, old: str, new: str) -> None:
-        raise NotImplementedError("renombrar llega con «Renombrar» (wizard §15)")
+        """Cada aparición de ``old`` en la lista pasa a ser ``new``, en su sitio (misma línea y sangría)."""
+        try:
+            handle = ctx.ws.open(self.rel)
+        except (FileNotFoundError, OSError):
+            return
+        block = self._list(ctx)
+        found = [] if block is None else [
+            entry for entry in block.entries
+            if entry.key is None and isinstance(entry.value, Scalar) and entry.value.text == old]
+        if not found:
+            return
+        ctx.ws.touch(handle)
+        for entry in found:
+            entry.value = Scalar(new, entry.value.quoted)
 
     def check(self, ctx: CheckContext, rec: Record) -> Iterable[Problem]:
         return ()
@@ -273,7 +303,22 @@ class MappingTable:
                 table.remove_entry(entry)
 
     def on_rename(self, ctx: EditContext, rec: Record, old: str, new: str) -> None:
-        raise NotImplementedError
+        """En cada tabla, la fila ``old = …`` pasa a ``new = …`` y los destinos ``… = old`` a ``… = new``
+        (también los de las filas de otros gobiernos). Sin el archivo no hay nada que cambiar (no se crea)."""
+        try:
+            handle = ctx.ws.open(self.rel)
+        except (FileNotFoundError, OSError):
+            return
+        rows = [entry for table in self._tables(ctx) for entry in table.entries if entry.key is not None]
+        keys = [entry for entry in rows if entry.key.text == old]
+        targets = [entry for entry in rows if isinstance(entry.value, Scalar) and entry.value.text == old]
+        if not keys and not targets:
+            return
+        ctx.ws.touch(handle)
+        for entry in keys:
+            entry.key = Scalar(new, entry.key.quoted)
+        for entry in targets:
+            entry.value = Scalar(new, entry.value.quoted)
 
     def check(self, ctx: CheckContext, rec: Record) -> Iterable[Problem]:
         """``government_missing_in_rebel_map`` (código de core/validate) por cada tipo de rebelde cuya tabla no
@@ -351,7 +396,25 @@ class ActivateUnit:
         return None
 
     def on_rename(self, ctx: EditContext, rec: Record, old: str, new: str) -> None:
-        raise NotImplementedError("renombrar llega con «Renombrar» (wizard §15)")
+        """Las tecnologías e invenciones que activaban ``old`` (según el índice) pasan a activar ``new``: cambia
+        el valor de cada ``activate_unit = old`` de esos archivos, a cualquier profundidad."""
+        if ctx.index is None:
+            return
+        kind = rec.schema.provides or rec.schema.kind
+        rels = {use.rel.key: use.rel for use in ctx.index.refs_to(kind, old) if use.role == ROLE_ACTIVATE_UNIT}
+        for key in sorted(rels):
+            try:
+                handle = ctx.ws.open(rels[key])
+            except (FileNotFoundError, OSError):
+                continue
+            found = [entry for entry in _entries_under(handle.model.document)
+                     if entry.key is not None and entry.key.text.lower() == ROLE_ACTIVATE_UNIT
+                     and isinstance(entry.value, Scalar) and entry.value.text == old]
+            if not found:
+                continue
+            ctx.ws.touch(handle)
+            for entry in found:
+                entry.value = Scalar(new, entry.value.quoted)
 
     def check(self, ctx: CheckContext, rec: Record) -> Iterable[Problem]:
         from .validate import issue
@@ -415,8 +478,65 @@ class UnitNamesSlot:
     def on_delete(self, ctx: EditContext, rec: Record) -> None:
         return None
 
+    def _named_in(self, ctx, ident: str) -> list[tuple]:
+        """``(archivo, línea, columna)`` de la clave ``ident`` en el ``unit_names`` de cada archivo de país que
+        la tiene. Leer no escribe (I4): lo abierto se mira en su documento (con lo sin guardar) y lo demás, en
+        sus bytes, que solo se analizan si citan el id (vanilla trae cientos de archivos de país)."""
+        from ..project.codecs import parse_bytes
+        from ..vfs.model import DocKind
+        from ..vfs.paths import VPath
+
+        found: list[tuple] = []
+
+        def look(rel, document) -> None:
+            names = document.find("unit_names")
+            row = names.value.find(ident) if names is not None and isinstance(names.value, Block) else None
+            if row is not None:
+                found.append((VPath.of(rel), row.line, row.column))
+
+        seen: set[str] = set()
+        needle = ident.encode("cp1252", "ignore")
+        for entry in ctx.ws.vfs.list(self.folder, "*.txt", recursive=False):
+            seen.add(entry.rel.key)
+            handle = ctx.ws.peek(entry.rel)
+            if handle is not None:
+                if not handle.deleted and handle.kind is DocKind.CLAUSEWITZ:
+                    look(handle.rel, handle.model.document)
+                continue
+            try:
+                data = entry.path.read_bytes()
+            except OSError:
+                continue
+            if needle in data:
+                look(entry.rel, parse_bytes(data).document)
+        folder = self.folder.lower()
+        for handle in ctx.ws.documents():   # archivos de país nuevos, aún sin guardar
+            if handle.rel.key in seen or handle.deleted or handle.kind is not DocKind.CLAUSEWITZ:
+                continue
+            if "/".join(handle.rel.parts[:-1]).lower() == folder and handle.rel.suffix == ".txt":
+                look(handle.rel, handle.model.document)
+        return found
+
+    def rename_uses(self, ctx, rec: Record, old: str) -> list:
+        """Lo que ``on_rename`` cambiará y el índice no conoce (para el plan del renombrado): un ``SymbolRef``
+        con papel ``unit_names`` por archivo de país que nombra la unidad. Leer no escribe (I4)."""
+        from ..index.model import SymbolRef
+
+        kind = rec.schema.provides or rec.schema.kind
+        return [SymbolRef(kind, old, rel, line, column, "unit_names")
+                for rel, line, column in self._named_in(ctx, old)]
+
     def on_rename(self, ctx: EditContext, rec: Record, old: str, new: str) -> None:
-        raise NotImplementedError("renombrar llega con «Renombrar» (wizard §15)")
+        """La lista de nombres ``old = { … }`` de cada país pasa a llamarse ``new``; los nombres no se tocan.
+        Si un país ya tiene una lista ``new``, la vieja se deja como está (no se mezclan)."""
+        for rel, _, _ in self._named_in(ctx, old):
+            handle = ctx.ws.open(rel)
+            names = handle.model.document.find("unit_names")
+            if names.value.find(new) is not None:
+                continue
+            ctx.ws.touch(handle)
+            row = names.value.find(old)
+            row.key = Scalar(new, row.key.quoted)
 
     def check(self, ctx: CheckContext, rec: Record) -> Iterable[Problem]:
         return ()
