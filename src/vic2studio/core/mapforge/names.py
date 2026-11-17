@@ -124,6 +124,40 @@ def cp1252_ok(text: str) -> bool:
         return False
 
 
+# Letras sin descomposición Unicode que tienen una equivalente clara en cp1252.
+_FOLD = {"Ł": "L", "ł": "l", "Đ": "D", "đ": "d", "Ħ": "H", "ħ": "h", "ı": "i", "Ŀ": "L", "ŀ": "l", "Ŧ": "T",
+         "ŧ": "t", "Ŋ": "N", "ŋ": "n", "ĸ": "k", "Ə": "E", "ə": "e", "Ɛ": "E", "ɛ": "e", "ſ": "s"}
+
+
+def cp1252_text(text: str) -> str:
+    """``text`` con solo caracteres que el juego sabe escribir (cp1252): las letras que no caben pierden el acento
+    que no existe ('Ő' → 'O', 'Ŝ' → 'S', 'ș' → 's') o se cambian por la más parecida ('Ł' → 'L'); lo demás
+    (otras escrituras, emojis) se quita. Lo que ya cabe no cambia."""
+    out = []
+    for ch in unicodedata.normalize("NFC", str(text)):
+        if cp1252_ok(ch):
+            out.append(ch)
+            continue
+        if ch in _FOLD:
+            out.append(_FOLD[ch])
+            continue
+        if unicodedata.category(ch).startswith("L"):
+            base = "".join(c for c in unicodedata.normalize("NFKD", ch)
+                           if unicodedata.category(c).startswith("L") and cp1252_ok(c))
+            out.append(base)
+        elif unicodedata.category(ch).startswith("Z"):
+            out.append(" ")
+    return re.sub(r"\s+", " ", "".join(out)).strip()
+
+
+def cp1252_name(text, fallback: str | None = None) -> str | None:
+    """Un nombre que cabe en cp1252 (``cp1252_text``) o ``fallback`` si no le queda ninguna letra (un nombre solo
+    en otra escritura, como '東京'). Los nombres que vienen de fuera (JSON de Azgaar) pasan por aquí: antes
+    llegaban tal cual y la exportación fallaba sin aviso al escribir sus textos."""
+    clean = cp1252_text(text) if text is not None else ""
+    return clean if any(ch.isalpha() for ch in clean) else fallback
+
+
 def ascii_name(s: str) -> str:
     t = unicodedata.normalize("NFKD", s).encode("ascii", "ignore").decode("ascii")
     t = re.sub(r"[^A-Za-z0-9 _-]", "", t).strip()

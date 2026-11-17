@@ -33,6 +33,7 @@ from PIL import Image, ImageDraw
 from ...cancel import CancelCheck, raise_if_cancelled
 from ..validate import ForgeIssue
 from ..world import SEA_LEVEL
+from ..names import cp1252_name
 from .bitmaps import ImportReport, ImportSet
 
 KNOWN_VERSION = (1, 108)          # la última versión de FMG con la que se comprobó la forma del JSON
@@ -411,7 +412,7 @@ def _apply_fmg(world, fmg: FmgWorld, rep: ImportReport, extra: dict):
     names = []
     for key in sorted(by_key, key=lambda k: (isinstance(k, tuple), k if not isinstance(k, tuple) else k[1])):
         provs = sorted(by_key[key])
-        base = fmg.provinces.get(key, {}).get("name") if not isinstance(key, tuple) else None
+        base = cp1252_name(fmg.provinces.get(key, {}).get("name")) if not isinstance(key, tuple) else None
         for j, part in enumerate(_state_split(provs, pairs, MAX_STATE)):
             state[part] = len(names)
             names.append(base if base and j == 0 else (f"{base} {j + 1}" if base else None))
@@ -484,12 +485,11 @@ def _fmg_countries(world, fmg: FmgWorld, rep: ImportReport, extra: dict, t, ent,
     civ_order = np.argsort(-sizes, kind="stable")
     k_civ = sum(1 for c in data["countries"] if c["civilized"])
     for i, s in enumerate(order):
-        name = str(fmg.states[s].get("name") or countries[i]["name"]).strip()
+        name = cp1252_name(fmg.states[s].get("name"), countries[i]["name"])
         countries[i]["name"] = name
         countries[i]["civilized"] = bool(i in civ_order[:k_civ].tolist())
         cul = fmg.cultures.get(int(fmg.states[s].get("culture") or 0), {})
-        if cul.get("name"):
-            cultures[i]["name"] = str(cul["name"]).strip()
+        cultures[i]["name"] = cp1252_name(cul.get("name"), cultures[i]["name"])
     ent["world"] = dict(data, countries=countries, cultures=cultures)
     ent["civilized"] = [c["civilized"] for c in countries]
     rel = np.asarray(t.religion) if t.religion is not None else np.zeros(t.count, np.int64)

@@ -232,6 +232,90 @@ class WorldExportTests(unittest.TestCase):
         self.assertNotIn(f"owner = {first}\r\n".encode(), hist)
         self.assertIn(f"owner = {new}".encode(), hist)
 
+    def fmg_world(self, level):
+        """El JSON de FMG inventado con nombres que el juego no sabe escribir (otras escrituras, letras sin cp1252 y
+        un emoji), importado al nivel ``level``."""
+        import json
+
+        from _mapforge_fixtures import fmg_json_full
+        from vic2studio.core.mapforge.imports import fmg_json as fj
+
+        data = json.loads(fmg_json_full())
+        pack = data["pack"]
+        states = {1: "Łódź", 2: "東京", 3: "Ŝtato 🙂"}
+        provinces = {1: "Ősz", 2: "Łęczyca", 3: "大阪", 5: "Ŝkolo", 6: "🙂 Fenna"}
+        cultures = {1: "Ślązak", 2: "日本人"}
+        for item, names in ((pack["states"], states), (pack["provinces"], provinces), (pack["cultures"], cultures)):
+            for x in item:
+                if isinstance(x, dict) and x.get("i") in names:
+                    x["name"] = names[x["i"]]
+                    if "fullName" in x:
+                        x["fullName"] = names[x["i"]]
+        fmg = fj.read_fmg_json(json.dumps(data, ensure_ascii=False).encode("utf-8"))
+        world, _ = fj.fmg_to_world(fmg, tiny_params(level=level, land_provinces=30, sea_provinces=10), self.profile)
+        return world
+
+    def test_azgaar_names_the_game_cannot_write_export_without_failing(self):
+        """Regresión (la vio el tutorial): un mundo de Azgaar con letras que el juego no tiene hacía fallar la
+        exportación de «Mundo» sin ningún mensaje (``UnencodableTextError`` al escribir los textos de los países), y
+        dos nombres de otra escritura daban el mismo archivo ``common/countries/x.txt``. Ahora los nombres se pasan a
+        cp1252 al importar ('Łódź' → 'Lódz'), lo que no tiene letras usa el nombre generado y cada país tiene su
+        archivo."""
+        from vic2studio.core.mapforge.names import cp1252_ok
+
+        p = self.project
+        w = self.fmg_world(Level.WORLD)
+        data = w.entities["world"]
+        for c in data["countries"]:
+            self.assertTrue(cp1252_ok(c["name"]) and cp1252_ok(c["adjective"]), c)
+            self.assertTrue(any(ch.isalpha() for ch in c["name"]), c)
+        for c in data["cultures"]:
+            self.assertTrue(cp1252_ok(c["name"]), c)
+        self.assertIn("Lódz", [c["name"] for c in data["countries"]])
+        self.assertIn("Slazak", [c["name"] for c in data["cultures"]])
+        inputs = ex.gather_inputs(p, w, index=self.index)
+        files, _ = ex.render_files(w, inputs)
+        loc = files[f"localisation/00_{inputs.prefix}_map.csv"]
+        self.assertNotIn(b"?", loc)
+        self.assertIn("Osz".encode("cp1252"), loc)
+        touched = ex.apply_export(p, files, inputs, world=w, domain=self.domain)
+        countries = [t for t in touched if t.startswith("common/countries/")]
+        self.assertEqual(len(countries), len(set(t.lower() for t in countries)))
+        self.assertEqual(len(countries), len(data["countries"]))
+
+    def test_azgaar_state_names_are_transliterated_at_the_map_level(self):
+        """En «Solo mapa» no fallaba, pero los nombres perdían letras sin avisar: 'Ősz' salía como '?sz'."""
+        w = self.fmg_world(Level.MAP)
+        inputs = ex.gather_inputs(self.project, w, index=self.index)
+        files, _ = ex.render_files(w, inputs)
+        loc = files[f"localisation/00_{inputs.prefix}_map.csv"]
+        self.assertNotIn(b"?", loc)
+        self.assertIn(b";Osz;", loc)
+        self.assertIn(b";Leczyca;", loc)
+
+    def test_a_hand_rename_the_game_cannot_write_is_transliterated_not_lost(self):
+        """Un nombre puesto a mano en la tabla de nombres ('Łódź東京;') salía como '?ód??;' y su ';' partía la fila."""
+        w = world_of(3, countries=3, install_profile=self.profile)
+        names = list(w.entities["province_names"])
+        names[:3] = ["Łódź東京;", "大阪", "Ŝkolo"]
+        w = pipeline.run_raster(w.evolve(entities=dict(w.entities, province_names=names)), scale=1,
+                                with_textures=False)
+        self.assertIn("Łódź東京;", w.raster.names)
+        inputs = ex.gather_inputs(self.project, w, index=self.index)
+        files, _ = ex.render_files(w, inputs)
+        loc = files[f"localisation/00_{inputs.prefix}_map.csv"]
+        self.assertNotIn(b"?", loc)
+        rows = [r for r in loc.split(b"\r\n") if r.startswith(b"PROV")]
+        self.assertTrue(all(r.count(b";") == 14 for r in rows), "cada fila conserva sus columnas")
+        self.assertIn(";Lódz,;".encode("cp1252"), loc)
+        self.assertIn(b";Skolo;", loc)
+
+    def test_country_file_names_are_unique_and_avoid_existing_files(self):
+        countries = [{"tag": "AAA", "name": "Ææ"}, {"tag": "BBB", "name": "東京"}, {"tag": "CCC", "name": "大阪"},
+                     {"tag": "DDD", "name": "Kaldun"}, {"tag": "EEE", "name": "kaldun"}, {"tag": "FFF", "name": "Prussia"}]
+        names = nations.country_file_names(countries, lambda rel: rel.lower() == "common/countries/prussia.txt")
+        self.assertEqual(names, ["AAA", "BBB", "CCC", "Kaldun", "kaldun_EEE", "Prussia_FFF"])
+
     def test_overlay_is_not_exported(self):
         w = pipeline.run_all(tiny_params(level=Level.OVERLAY), tiny_install())
         with self.assertRaises(NotImplementedError):

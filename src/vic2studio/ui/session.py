@@ -264,10 +264,16 @@ def with_schema_problems(report, context, *, cancelled=None):
 
 
 def document_overrides(project) -> dict[VPath, bytes | None]:
-    """Bytes (``snapshot`` del códec) de los documentos sin guardar: lo que ven el índice y la validación (I7).
+    """Bytes (``snapshot`` del códec) de los documentos sin guardar: lo que ven el índice, la validación (I7) y el
+    mapa (``MapSession``).
 
     Un documento borrado sin guardar va como ``None`` (contrato de ``build_index`` y ``build_context``): sin él, el
     índice y la validación seguían viendo el archivo del disco (un arreglo que lo manda a la papelera no se notaba).
+
+    Los binarios sin guardar también van (con sus bytes tal cual): no se editan por partes, pero el taller de mapas,
+    las banderas o un autoguardado los ponen enteros (``project.binary.put_bytes``). Sin ellos, tras «Exportar al
+    mod» el editor de mapa y la validación leían el ``provinces.bmp`` viejo del disco junto al ``definition.csv``
+    nuevo, y el mapa del taller no se veía hasta guardar.
     """
     overrides: dict[VPath, bytes | None] = {}
     for handle in project.ws.dirty():
@@ -276,12 +282,9 @@ def document_overrides(project) -> dict[VPath, bytes | None]:
         if handle.deleted:
             overrides[handle.rel] = None
             continue
-        codec = codec_for(handle.kind)
-        if not codec.writable:
-            continue
         try:
-            overrides[handle.rel] = codec.snapshot(handle.model)
-        except (ValueError, LookupError):
+            overrides[handle.rel] = codec_for(handle.kind).snapshot(handle.model)
+        except (ValueError, LookupError, TypeError):
             continue
     return overrides
 
@@ -721,11 +724,11 @@ class Session(QObject):
                 if layer is not LayerKind.MOD:
                     removed.append((handle.rel, LayerKind.MOD))   # vuelve a ser el del juego: fuera lo del mod
                     continue
-                if not codec.writable:
-                    continue
+                # Un binario sin guardar (una imagen del taller o una bandera nueva) también se reindexa, como en
+                # ``document_overrides``: la reconstrucción completa y la incremental ven lo mismo.
                 try:
                     items.append((handle.rel, layer, codec.snapshot(handle.model), None))
-                except (ValueError, LookupError):
+                except (ValueError, LookupError, TypeError):
                     continue
                 continue
             entry = project.vfs.resolve(rel)

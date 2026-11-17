@@ -25,7 +25,7 @@ from dataclasses import replace
 import numpy as np
 
 from ..domain.tags import check_tag, suggest_tags
-from .names import MarkovNames, ascii_name, key_name
+from .names import MarkovNames, ascii_name, cp1252_name, key_name
 
 N_NAMES = 60                       # nombres y apellidos por cultura (el criterio pide ≥ 50)
 WORLD_LOC_AREA = "forge_world"
@@ -258,8 +258,11 @@ def country_specs(project, world) -> list:
             o = int(r.owner[pid])
             if o >= 0 and o not in religion_of and 0 <= int(r.religion[pid]) < len(religions):
                 religion_of[o] = religions[int(r.religion[pid])]
+    files = country_file_names(data["countries"], lambda rel: _file_exists(project, rel))
     specs = []
     for i, c in enumerate(data["countries"]):
+        name = cp1252_name(c["name"], c["tag"])
+        adjective = cp1252_name(c["adjective"], name)
         model = models.get(c["civilized"]) or models.get(not c["civilized"]) or {}
         parties = tuple(replace(party, texts=_party_texts(party)) for party in party_template(c["tag"],
                                                                                                project.index))
@@ -267,9 +270,9 @@ def country_specs(project, world) -> list:
         cap = int(r.capitals[i]) if r is not None and r.capitals is not None and i < len(r.capitals) else None
         colors = flag_colors(c["color"])
         specs.append(NewCountrySpec(
-            tag=c["tag"], name={"en": c["name"], "es": c["name"]},
-            adjective={"en": c["adjective"], "es": c["adjective"]},
-            file_name=ascii_name(c["name"]).replace(" ", ""), color=tuple(c["color"]),
+            tag=c["tag"], name={"en": name, "es": name},
+            adjective={"en": adjective, "es": adjective},
+            file_name=files[i], color=tuple(c["color"]),
             graphical_culture=c["graphical_culture"], flags=procedural_flag_set(int(c["flag_seed"]), colors),
             uniform_colors=colors,
             primary_culture=c["culture"], religion=religion_of.get(i) or (religions[0] if religions else None),
@@ -325,27 +328,60 @@ def apply_world(project, world) -> None:
     project.ws.replace_text(handle, text.encode(state.encoding or GAME_ENCODING, errors="replace"))
     texts = {}
     for g in data["groups"]:
-        texts[g["key"]] = {"en": g["name"], "es": g["name"]}
+        name = cp1252_name(g["name"], g["key"])
+        texts[g["key"]] = {"en": name, "es": name}
     for c in data["cultures"]:
-        texts[c["key"]] = {"en": c["name"], "es": c["name"]}
+        name = cp1252_name(c["name"], c["key"])
+        texts[c["key"]] = {"en": name, "es": name}
     if getattr(project, "loc", None) is not None:
         project.loc.ensure(texts, area=WORLD_LOC_AREA)
 
 
-def world_plan_rows(world) -> list[tuple[str, str]]:
+def _file_exists(project, rel: str) -> bool:
+    """Si ``rel`` existe en el proyecto, con lo sin guardar (un documento borrado sin guardar ya no cuenta)."""
+    ws = getattr(project, "ws", None)
+    handle = ws.peek(rel) if ws is not None else None
+    if handle is not None:
+        return not handle.deleted
+    vfs = getattr(project, "vfs", None)
+    return vfs is not None and vfs.resolve(rel) is not None
+
+
+def country_file_names(countries, exists=None) -> list[str]:
+    """El nombre de archivo (sin ``.txt``) de cada país nuevo: su nombre en ASCII, o el TAG si no le queda ninguna
+    letra ASCII o si repite el de otro país nuevo o el de un archivo que ya existe (``exists(rel)``). Antes, dos
+    nombres que se quedaban en lo mismo (todos los de otra escritura daban «x») hacían fallar la exportación."""
+    from ..rules.names import country_file_name
+
+    used: set[str] = set()
+    out = []
+    for c in countries:
+        tag = str(c["tag"])
+        base = country_file_name(ascii_name(c["name"]).replace(" ", ""))[:-4]
+        candidates = [base, f"{base}_{tag}", tag, f"{tag}_{len(out)}"] if base and base != "x" else \
+            [tag, f"{tag}_{len(out)}"]
+        for name in candidates:
+            if name.lower() in used or (exists is not None and exists(f"common/countries/{name}.txt")):
+                continue
+            break
+        used.add(name.lower())
+        out.append(name)
+    return out
+
+
+def world_plan_rows(world, exists=None) -> list[tuple[str, str]]:
     """(ruta, acción) de lo que añade «Mundo» al plan de cambios."""
     data = (world.entities or {}).get("world")
     if not data:
         return []
 
     rows = [("common/countries.txt", "M"), (CULTURES_REL, "M")]
-    for c in data["countries"]:
-        base = ascii_name(c["name"]).replace(" ", "")
+    for c, base in zip(data["countries"], country_file_names(data["countries"], exists)):
         rows += [(f"common/countries/{base}.txt", "G"), (f"history/countries/{c['tag']} - {base}.txt", "G")]
         rows += [(f"gfx/flags/{c['tag']}{s}.tga", "G") for s in ("", "_communist", "_fascist", "_monarchy",
                                                                    "_republic")]
     return rows
 
 
-__all__ = ["apply_world", "assign_tags", "country_specs", "cultures_block", "name_world", "retag",
-           "world_plan_rows"]
+__all__ = ["apply_world", "assign_tags", "country_file_names", "country_specs", "cultures_block", "name_world",
+           "retag", "world_plan_rows"]

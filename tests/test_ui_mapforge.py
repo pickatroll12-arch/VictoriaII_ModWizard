@@ -21,7 +21,8 @@ from vic2studio.i18n import set_language, tr  # noqa: E402
 from vic2studio.ui.halls.map.forge import ForgePage  # noqa: E402
 from vic2studio.ui.main_window import UNSAVED_DISCARD  # noqa: E402
 from vic2studio.ui.mapforge.preview import MODES, render  # noqa: E402
-from vic2studio.ui.mapforge.wizard import SCREEN_KEYS, SIZES  # noqa: E402
+from vic2studio.ui.mapforge.wizard import MAP_NOT_IN_MOD, MAP_SAVED, MAP_UNSAVED, SCREEN_KEYS, SIZES  # noqa: E402
+from vic2studio.ui.session_map import RASTER_READY  # noqa: E402
 
 
 class ForgeCase(EntityWindowCase):
@@ -121,6 +122,213 @@ class WizardFlowTests(ForgeCase):
         step = session.undo()
         self.assertEqual(step.label, ex.UNDO_EXPORT)
         self.assertFalse(session.project.ws.can_undo())
+
+    def map_raster(self):
+        """El ráster del editor de mapa (Mapa › Mundo) cuando termina de cargar."""
+        ms = self.window.session.map
+        self.assertTrue(_qt.wait_until(lambda: ms.raster_state == RASTER_READY and ms.raster is not None, WAIT_MS))
+        _qt.process_events(50)
+        self.assertTrue(_qt.wait_until(lambda: ms.raster_state == RASTER_READY and ms.raster is not None, WAIT_MS))
+        return ms.raster
+
+    def test_the_exported_map_is_the_one_the_map_editor_shows_before_saving(self):
+        """Regresión del vídeo del usuario: tras «Exportar al mod», «Abrir en el editor de mapa» enseñaba el mapa de
+        antes hasta guardar, porque el editor (y la validación) leían el ``provinces.bmp`` del disco: los binarios
+        sin guardar no iban en ``document_overrides``. Deshacer la exportación devuelve el mapa de antes."""
+        from vic2studio.core.map.bmp import read_bmp
+
+        self.open_forge()
+        self.window.show_page("map:world")
+        old_shape = self.map_raster().ids.shape
+        self.window.show_page("forge")
+        self.idle()
+        self.small_world()
+        self.wiz.go("review")
+        self.idle()
+        self.assertTrue(self.wiz.review.export_button.isEnabled(), [i.code for i in self.wiz.review.blocking()])
+        self.wiz.review.export_button.click()
+        self.assertEqual(self.wiz.current(), "done")
+        self.assertEqual(self.wiz.map_state(), MAP_UNSAVED)
+        self.assertFalse(self.wiz.open_editor.isHidden())
+        self.wiz.open_editor.click()
+        session = self.window.session
+        exported = read_bmp(bytes(session.project.ws.peek("map/provinces.bmp").model)).pixels
+        raster = self.map_raster()
+        self.assertNotEqual(exported.shape[:2], old_shape)
+        self.assertEqual(raster.ids.shape, exported.shape[:2], "el editor enseña el mapa exportado, sin guardar")
+        self.assertEqual(raster.max_id, self.wiz.final.raster.count, "con las provincias del taller")
+        step = session.undo()
+        self.assertEqual(step.label, ex.UNDO_EXPORT)
+        _qt.process_events(50)
+        self.assertTrue(_qt.wait_until(lambda: session.map.raster is not None
+                                       and session.map.raster.ids.shape == old_shape, WAIT_MS),
+                        "deshecha la exportación, vuelve el mapa de antes")
+
+    def test_the_done_screen_only_says_done_when_the_map_is_in_the_mod(self):
+        """Regresión del vídeo: «13. Hecho» se abría desde la lista sin haber exportado, decía que el mapa ya era
+        del mod y ofrecía «Abrir en el editor de mapa», que enseñaba el mapa viejo. Ahora dice que falta exportar
+        y lleva a la revisión; tras exportar, guardar o deshacer, dice lo que hay de verdad."""
+        self.open_forge()
+        self.small_world()
+        self.wiz.name_edit.setText("mundotest")
+        self.wiz.save_project()
+        self.wiz.go("done")
+        self.assertEqual(self.wiz.map_state(), MAP_NOT_IN_MOD)
+        self.assertEqual(self.wiz.done_text.text(), tr("forge.done.not_exported"))
+        self.assertTrue(self.wiz.open_editor.isHidden(), "sin exportar no abre el mapa de antes")
+        self.assertFalse(self.wiz.go_review.isHidden())
+        self.wiz.go_review.click()
+        self.idle()
+        self.assertEqual(self.wiz.current(), "review")
+        self.wiz.export()
+        self.assertEqual(self.wiz.current(), "done")
+        self.assertTrue(self.wiz.go_review.isHidden())
+        self.assertFalse(self.wiz.open_editor.isHidden())
+        self.assertIn(str(self.wiz.final.raster.count), self.wiz.done_text.text())
+        # «Guardar proyecto» después de exportar no olvida lo exportado (se anota en el proyecto del taller).
+        self.wiz.save_project()
+        session = self.window.session
+        session.save()
+        _qt.process_events(50)
+        self.assertEqual(self.wiz.map_state(), MAP_SAVED)
+        self.assertEqual(self.wiz.done_text.text(), tr("forge.done.saved", name="mundotest"))
+        # Al volver a abrir el proyecto del taller guardado, sigue sabiendo que su mapa es el del mod.
+        self.wiz.on_project_opened(session.project)
+        self.assertEqual(self.wiz.map_state(), MAP_NOT_IN_MOD)
+        self.wiz._refresh_saved()
+        names = [self.wiz.saved_list.item(i).text() for i in range(self.wiz.saved_list.count())]
+        self.wiz.saved_list.setCurrentRow(names.index("mundotest"))
+        self.wiz.open_saved()
+        self.idle()
+        self.assertEqual(self.wiz.map_state(), MAP_SAVED)
+
+    def test_undoing_the_export_takes_the_done_screen_back(self):
+        self.open_forge()
+        self.small_world()
+        self.wiz.go("review")
+        self.idle()
+        self.wiz.export()
+        self.assertEqual(self.wiz.map_state(), MAP_UNSAVED)
+        self.window.session.undo()
+        _qt.process_events(20)
+        self.assertEqual(self.wiz.map_state(), MAP_NOT_IN_MOD)
+        self.assertEqual(self.wiz.done_text.text(), tr("forge.done.not_exported"))
+        self.assertTrue(self.wiz.open_editor.isHidden())
+
+    def test_a_failed_export_says_why_and_leaves_the_mod_as_it_was(self):
+        """Regresión: si la exportación lanzaba, la excepción se perdía en la consola (el botón no hacía nada) y el
+        usuario acababa en «13. Hecho» a mano con el mapa viejo. Ahora la revisión y la barra de estado lo dicen."""
+        self.open_forge()
+        self.small_world()
+        self.wiz.go("review")
+        self.idle()
+        statuses = []
+        self.wiz.status_requested.connect(lambda key, args: statuses.append((key, dict(args))))
+        session = self.window.session
+        from vic2studio.core.project import binary
+
+        real, calls = binary.put_bytes, []
+
+        def put_then_fail(ws, rel, data):
+            calls.append(rel)
+            if len(calls) > 20:              # a medias: ya hay archivos puestos en la transacción
+                raise ValueError("carácter que el juego no tiene en «Łódź»")
+            return real(ws, rel, data)
+
+        with mock.patch.object(binary, "put_bytes", put_then_fail), \
+                self.assertLogs("vic2studio.ui.mapforge.wizard", "ERROR"):
+            self.wiz.review.export_button.click()
+        self.assertGreater(len(calls), 20)
+        self.assertEqual(self.wiz.exported, [])
+        self.assertEqual(self.wiz.current(), "review", "no salta a «Hecho»")
+        self.assertEqual(self.wiz.review.state_label.text(),
+                         tr("forge.export.failed", error="carácter que el juego no tiene en «Łódź»"))
+        self.assertEqual([k for k, _ in statuses], ["forge.export.failed"])
+        self.assertFalse(session.project.ws.can_undo(), "la transacción se revirtió entera")
+        self.assertEqual(list(session.project.ws.dirty()), [])
+
+    def test_coming_back_to_the_review_after_a_change_exports_the_map_you_see(self):
+        """Regresión del vídeo (lo que más probablemente le pasó al usuario): tras el render final, cambiar un valor y
+        volver a «12» mientras el trabajador regeneraba dejaba el plan viejo con «Exportar al mod» activo, pero sin
+        render final: el clic no hacía nada, sin aviso, y «13. Hecho» enseñaba después el mapa de antes. Ahora el
+        botón se desactiva hasta rehacer la revisión, que se rehace sola, y entonces exporta el mapa de ahora."""
+        self.open_forge()
+        self.small_world()
+        wiz = self.wiz
+        wiz.go("review")
+        self.idle()
+        self.assertIsNotNone(wiz.final)
+        old_digest = wiz.final.world_digest()
+        wiz.go("relief")
+        field = wiz._widgets[("relief", "land_fraction")]
+        field.setValue(field.value() + 0.05)
+        wiz._debounce.stop()
+        wiz._regenerate_pending()
+        self.assertTrue(wiz.client.busy)
+        wiz.go("review")
+        self.assertFalse(wiz.review.export_button.isEnabled(), "sin revisión al día no se ofrece exportar")
+        self.assertEqual(wiz.review.state_label.text(), tr("forge.review.stale"))
+        self.assertEqual(wiz.export(), [], "a mano tampoco: dice por qué y vuelve a preparar")
+        self.idle()
+        self.assertIsNotNone(wiz.final, "la revisión se rehízo sola al acabar de regenerar")
+        self.assertNotEqual(wiz.final.world_digest(), old_digest)
+        self.assertAlmostEqual(wiz.final.params.land_fraction, wiz.params.land_fraction)
+        self.assertTrue(wiz.review.export_button.isEnabled(), [i.code for i in wiz.review.blocking()])
+        wiz.review.export_button.click()
+        self.assertEqual(wiz.current(), "done")
+        self.assertIn("map/provinces.bmp", wiz.exported)
+        self.assertEqual(wiz.map_state(), MAP_UNSAVED)
+
+    def test_regenerating_at_the_review_disables_export_until_it_is_ready_again(self):
+        self.open_forge()
+        self.small_world()
+        wiz = self.wiz
+        wiz.go("review")
+        self.idle()
+        wiz.regen_from.click()
+        self.assertFalse(wiz.review.export_button.isEnabled())
+        self.idle()
+        self.assertIsNotNone(wiz.final)
+        self.assertTrue(wiz.review.export_button.isEnabled())
+        self.assertIn("map/provinces.bmp", wiz.export())
+
+    def test_a_late_final_render_of_an_older_world_is_ignored(self):
+        """Con el trabajador en otro proceso, el render final pedido antes de un cambio podía llegar después y
+        quedarse como el «final»: se habría exportado el mapa de antes del cambio."""
+        self.open_forge()
+        self.small_world()
+        wiz = self.wiz
+        old_world = wiz.world
+        wiz.go("review")
+        self.idle()
+        stale_final = wiz.final
+        wiz.go("relief")
+        field = wiz._widgets[("relief", "land_fraction")]
+        field.setValue(field.value() + 0.05)
+        self.idle()
+        self.assertIsNot(wiz.world, old_world)
+        wiz._on_finished("final", type("R", (), {"world": stale_final})())
+        self.assertIsNone(wiz.final, "la respuesta vieja no se toma como el final de ahora")
+
+    def test_fields_show_the_real_parameters_on_first_show(self):
+        """Regresión (lo vio el tutorial): al abrir el taller, cada campo enseñaba el mínimo de su rango (0
+        provincias, 5 % de tierra, 1 000 000 de habitantes) y tocar uno lo metía en los parámetros: un clic arriba y
+        otro abajo en las provincias daba un mundo de 13. Sin ``small_world``, que al cambiar el tamaño lo ocultaba."""
+        self.open_forge()
+        wiz = self.wiz
+        p = wiz.params
+        want = {"land_provinces": p.land_target(), "sea_provinces": p.sea_target()}
+        for (screen, field), widget in wiz._widgets.items():
+            with self.subTest(screen=screen, field=field):
+                self.assertAlmostEqual(widget.value(), want.get(field, getattr(p, field)), places=4)
+        self.assertEqual(wiz.template_combo.currentData(), p.template)
+        wiz.go("canvas")
+        land = wiz._widgets[("canvas", "land_provinces")]
+        land.stepUp()
+        land.stepDown()
+        self.idle()
+        self.assertEqual(wiz.params.land_target(), want["land_provinces"])
+        self.assertGreater(wiz.world.raster.count, 1000)
 
     def test_world_level_creates_countries_on_export(self):
         """Iteración 9b: «Mundo» enseña sus campos, reparte la tierra entre países nuevos y la exportación los crea

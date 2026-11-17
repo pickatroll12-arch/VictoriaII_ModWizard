@@ -14,6 +14,7 @@ del proyecto (``undo.mapforge_export``), o con «Guardar proyecto» (``undo.mapf
 
 from __future__ import annotations
 
+import logging
 import random
 
 import numpy as np
@@ -40,6 +41,8 @@ from .preview import MODE_LABELS, MODES, PreviewView, render, to_qimage
 from .review import ReviewPanel
 from .worker_client import ForgeClient
 
+log = logging.getLogger(__name__)
+
 # (clave, número visible, título, paso del pipeline desde el que regenerar)
 SCREENS = (
     ("start", "0", N_("forge.screen.start"), None),
@@ -63,6 +66,10 @@ STATUS_LABELS = {"pending": N_("forge.status.pending"), "computed": N_("forge.st
                  "edited": N_("forge.status.edited"), "imported": N_("forge.status.imported"),
                  "locked": N_("forge.status.locked")}
 SIZES = ((5616, 2160), (2808, 1080), (1404, 540))
+# El archivo que dice si el mapa del taller es el del mod (la exportación siempre lo escribe con este nombre).
+EXPORTED_MAP = "map/provinces.bmp"
+# Dónde está el mapa del proyecto del taller (``ForgeWizard.map_state``).
+MAP_NOT_IN_MOD, MAP_UNSAVED, MAP_SAVED = "none", "unsaved", "saved"
 # Nombre visible de cada plantilla de relieve (las de FMG, con su nombre en inglés como clave).
 TEMPLATE_LABELS = {
     "volcano": N_("forge.template.name.volcano"),
@@ -164,9 +171,17 @@ class ForgeWizard(QWidget):
         self.world = None              # vista previa: etapa de celdas + ráster a W/s
         self.final = None              # ráster final (escala 1) para la revisión
         self.files = None
+        # (mundo, parámetros) con los que se pidió el render final, y el final del que salieron ``files``: si el
+        # mundo o los parámetros cambian después, la revisión ya no es la de lo que se ve y no se deja exportar.
+        self._final_for: tuple[object, ForgeParams] | None = None
+        self._files_for = None
         self.inputs = None
         self.import_report = None
         self.exported: list[str] = []
+        # rel → sha256 de lo que exportó este proyecto del taller (de ``export`` o del proyecto guardado): con él la
+        # pantalla 13 sabe si el mapa del mod es este, también tras guardar, deshacer o volver a abrir el proyecto.
+        self._exported_hashes: dict[str, str] = {}
+        self._digest_memo: tuple[object, str] | None = None
         self._undo: list[tuple] = []
         self._redo: list[tuple] = []
         self._stroke: list[list[float]] = []
@@ -180,8 +195,16 @@ class ForgeWizard(QWidget):
         self._debounce.setInterval(450)
         self._debounce.timeout.connect(self._regenerate_pending)
         self._build()
+        # Los campos se crean en el mínimo de su rango (0 provincias, 5 % de tierra, 1 000 000 de habitantes…): sin
+        # esto, al abrir el taller enseñaban esos mínimos y tocar uno los metía en los parámetros (mapas de 13
+        # provincias).
+        self._load_params_into_widgets()
         self.retranslate()
         self._apply_level_visibility()
+        for name in ("documentsChanged", "saved"):
+            signal = getattr(session, name, None)
+            if signal is not None:
+                signal.connect(self._on_mod_changed)
         self.go("start")
 
     # --- construcción -------------------------------------------------------------------------------------
@@ -609,10 +632,16 @@ class ForgeWizard(QWidget):
         self.open_editor.setObjectName("forgeOpenEditor")
         self.open_editor.setIcon(make_icon("map", "gold_light"))
         self.open_editor.clicked.connect(lambda: self.navigate_requested.emit("map:world"))
+        # Sin exportar, la pantalla 13 no abre el editor (enseñaría el mapa de antes): lleva a «Exportar al mod».
+        self.go_review = QPushButton()
+        self.go_review.setObjectName("forgeGoReview")
+        self.go_review.setIcon(make_icon("check", "gold_light"))
+        self.go_review.clicked.connect(lambda: self.go("review"))
         self.keep_going = QPushButton()
         self.keep_going.setObjectName("forgeKeepGoing")
         self.keep_going.clicked.connect(lambda: self.go("canvas" if self.origin == "generate" else "import"))
         layout.addWidget(self.open_editor)
+        layout.addWidget(self.go_review)
         layout.addWidget(self.keep_going)
         layout.addStretch(1)
         return w
@@ -711,6 +740,7 @@ class ForgeWizard(QWidget):
         self.names_hint.setText(tr("forge.names.hint"))
         self.details_note.setText(tr("forge.details.note"))
         self.open_editor.setText(tr("forge.done.open_editor"))
+        self.go_review.setText(tr("forge.done.go_review"))
         self.keep_going.setText(tr("forge.done.keep_going"))
         self.seed_label.setText(tr("forge.seed"))
         self.random_button.setText(tr("forge.seed.random"))
@@ -720,12 +750,14 @@ class ForgeWizard(QWidget):
         self.redo_button.setText(tr("forge.redo"))
         self.cancel_button.setText(tr("forge.cancel"))
         self.save_button.setText(tr("forge.save_project"))
+        self.save_button.setToolTip(tr("forge.save_project.tooltip"))
         self.advanced_box.setText(tr("forge.advanced"))
         self.names_table.retranslate()
         self.straits_table.retranslate()
         self.review.retranslate()
         self.import_panel.retranslate()
         self._refresh_all()
+        self._on_mod_changed()
 
     def _screen_help(self, key: str, num: str, title_key: str) -> str:
         helps = {
@@ -769,6 +801,8 @@ class ForgeWizard(QWidget):
             self.mode_combo.setCurrentIndex(MODES.index(defaults[key]))
         if key == "review" and self.world is not None and self.final is None and not self.client.busy:
             self.render_final()
+        if key == "done":
+            self._refresh_done()
         self._refresh_all()
 
     WIDE = ("import", "names", "details", "review")
@@ -1114,7 +1148,7 @@ class ForgeWizard(QWidget):
             return
         if self._wait_install(self.generate):
             return
-        self.final = None
+        self._drop_final()
         args = {"params": self.params, **self._cmd_params()}
         if self.origin == "heightmap" and self.import_panel.files.get("heightmap") is not None:
             args["heightmap"] = self.import_panel.import_set().data("heightmap")
@@ -1134,7 +1168,7 @@ class ForgeWizard(QWidget):
         if step is None:
             step = dict((s[0], s[3]) for s in SCREENS).get(self.current()) or "relief"
         world = self.world.evolve(params=self.params) if hasattr(self.world, "evolve") else self.world
-        self.final = None
+        self._drop_final()
         self.client.run("cells", ForgeCommand("run_cells", {"world": world, "from_step": step,
                                                             "until": step if only else None}))
 
@@ -1146,6 +1180,7 @@ class ForgeWizard(QWidget):
     def render_final(self) -> None:
         if self.world is None:
             return
+        self._final_for = (self.world, self.params)
         self.review.set_state(tr("forge.review.rendering"))
         if self.world.raster is not None and self.world.raster.scale == 1 and self.origin in IMPORTED:
             self._on_finished("final", type("R", (), {"world": self.world})())
@@ -1263,6 +1298,12 @@ class ForgeWizard(QWidget):
             self._refresh_all()
             return
         if tag == "final":
+            if self._final_for is None or self._final_stale():
+                # Un render pedido antes de cambiar el mundo o los parámetros (el trabajador va por detrás): no es
+                # el mapa que se ve. Se pide otro si la revisión está a la vista.
+                self._final_for = None
+                self._ensure_final()
+                return
             self.final = reply.world
             project = self.session.project
             from ...core.mapforge import export as ex
@@ -1270,9 +1311,12 @@ class ForgeWizard(QWidget):
             self.inputs = ex.gather_inputs(project, self.final, index=getattr(self.session, "index", None)) \
                 if project is not None else ex.ExportInputs()
             self.review.set_state(tr("forge.review.preparing"))
+            self._files_for = self.final
             self.client.run("files", ForgeCommand("export_bytes", {"world": self.final, "inputs": self.inputs}))
             return
         if tag == "files":
+            if self.final is None or self._files_for is not self.final:
+                return                         # archivos de un final que ya se soltó
             self.files = reply.files
             self._update_review(reply.report)
             return
@@ -1310,7 +1354,7 @@ class ForgeWizard(QWidget):
             self.params = new
             self._load_params_into_widgets()
             self.world = None
-            self.final = None
+            self._drop_final()
             self.generate()
             return
         if fix == "discard_edit" and self.world is not None:
@@ -1321,40 +1365,113 @@ class ForgeWizard(QWidget):
         return
 
     def export(self) -> list[str]:
+        """«Exportar al mod»: el mapa y sus recursos en **una** transacción. Si algo falla, la transacción ya se ha
+        revertido entera (el mod queda como estaba) y se dice por qué en la revisión y en la barra de estado, en
+        vez de perderse en la consola. Devuelve las rutas tocadas (vacío si no se exportó)."""
         project = self.session.project
-        if project is None or self.files is None or self.final is None:
+        if project is None:
+            return []
+        if self.files is None or self.final is None or self._final_stale():
+            # El mundo cambió después de la revisión (o aún se prepara): exportar ahora no haría nada o pondría un
+            # mapa que ya no es el que se ve. Se vuelve a preparar y se dice, en vez de no hacer nada.
+            if self._final_stale():
+                self._drop_final()
+            self.review.set_state(tr("forge.review.stale"))
+            self._ensure_final()
             return []
         from ...core.mapforge import export as ex
         from ...core.mapforge.project import MapForgeProject, sha256
 
-        proj = MapForgeProject(self.project_name, self.params, edits=list(self.final.edits),
-                               exported={rel: sha256(data) for rel, data in self.files.items()})
+        hashes = {rel: sha256(data) for rel, data in self.files.items()}
+        proj = MapForgeProject(self.project_name, self.params, edits=list(self.final.edits), exported=hashes)
         domain = None
-        if self.final.params.level is Level.WORLD:
-            from ..countries import domain_context
+        try:
+            if self.final.params.level is Level.WORLD:
+                from ..countries import domain_context
 
-            domain = domain_context(self.session)
-        touched = ex.apply_export(project, self.files, self.inputs, extra=proj.files(self.world),
-                                  transaction=self.session.edit, world=self.final, domain=domain)
+                domain = domain_context(self.session)
+            touched = ex.apply_export(project, self.files, self.inputs, extra=proj.files(self.world),
+                                      transaction=self.session.edit, world=self.final, domain=domain)
+        except Exception as exc:  # noqa: BLE001 - la transacción ya se revirtió: se enseña el motivo
+            log.exception("no se pudo exportar el mapa del taller")
+            error = str(exc) or type(exc).__name__
+            self.review.set_state(tr("forge.export.failed", error=error))
+            self.status_requested.emit(N_("forge.export.failed"), {"error": error})
+            return []
         if domain is not None and domain.loc is not None:
             domain.loc.invalidate()
         self.exported = touched
-        self.done_text.setText(tr("forge.done.text", files=len(self.files), name=self.project_name,
-                                  provinces=self.final.raster.count))
+        self._exported_hashes = hashes
         self.go("done")
         return touched
 
     def save_project(self) -> None:
+        """«Guardar proyecto»: los parámetros, los retoques y la etapa de celdas del taller (para seguir otro día).
+        No toca el mapa del mod; lo exportado antes con este proyecto sigue anotado en él."""
         project = self.session.project
         if project is None or self.world is None:
             return
         from ...core.mapforge.project import MapForgeProject
 
-        proj = MapForgeProject(self.project_name, self.params, edits=list(self.world.edits))
+        proj = MapForgeProject(self.project_name, self.params, edits=list(self.world.edits),
+                               exported=dict(self._exported_hashes))
         with self.session.edit("undo.mapforge_save", name=self.project_name):
             proj.save(project.ws, self.world)
         self.status_requested.emit(N_("forge.saved"), {"name": self.project_name})
         self._refresh_saved()
+
+    # --- pantalla 13 ---------------------------------------------------------------------------------------
+
+    def map_state(self) -> str:
+        """Dónde está el mapa de este proyecto del taller: ``MAP_NOT_IN_MOD`` (sin exportar, exportación deshecha
+        o mapa cambiado después), ``MAP_UNSAVED`` (exportado, sin guardar) o ``MAP_SAVED`` (escrito en el mod).
+        Compara el ``map/provinces.bmp`` efectivo (con lo sin guardar) con la huella de lo exportado."""
+        project = self.session.project
+        want = self._exported_hashes.get(EXPORTED_MAP)
+        if project is None or not want:
+            return MAP_NOT_IN_MOD
+        from ...core.mapforge.project import sha256, workspace_reader
+        from ...core.project.codecs import codec_for
+
+        handle = project.ws.peek(EXPORTED_MAP)
+        if handle is not None and handle.deleted:
+            return MAP_NOT_IN_MOD
+        if handle is not None:
+            data, dirty = codec_for(handle.kind).snapshot(handle.model), bool(handle.dirty)
+        else:
+            data, dirty = workspace_reader(project)(EXPORTED_MAP), False
+        if data is None:
+            return MAP_NOT_IN_MOD
+        memo = self._digest_memo
+        if memo is not None and memo[0] is data:
+            digest = memo[1]
+        else:
+            digest = sha256(data)
+            self._digest_memo = (data, digest)
+        if digest != want:
+            return MAP_NOT_IN_MOD
+        return MAP_UNSAVED if dirty else MAP_SAVED
+
+    def _refresh_done(self) -> None:
+        """El texto y los botones de la pantalla 13 según ``map_state``: «Hecho» solo si el mapa está en el mod."""
+        state = self.map_state()
+        if state == MAP_NOT_IN_MOD:
+            text = tr("forge.done.not_exported")
+        elif state == MAP_SAVED:
+            text = tr("forge.done.saved", name=self.project_name)
+        elif self.files is not None and self.final is not None and self.final.raster is not None:
+            text = tr("forge.done.text", files=len(self.files), name=self.project_name,
+                      provinces=self.final.raster.count)
+        else:
+            text = tr("forge.done.unsaved", name=self.project_name)
+        self.done_text.setText(text)
+        self.open_editor.setVisible(state != MAP_NOT_IN_MOD)
+        self.go_review.setVisible(state == MAP_NOT_IN_MOD)
+
+    def _on_mod_changed(self, *args) -> None:
+        """Guardar, deshacer o rehacer la exportación cambian lo que dice la pantalla 13 si está a la vista."""
+        if getattr(self, "_screen", "start") == "done":
+            self._refresh_done()
 
     def open_saved(self) -> None:
         item = self.saved_list.currentItem()
@@ -1368,6 +1485,7 @@ class ForgeWizard(QWidget):
         self.project_name = name
         self.name_edit.setText(name)
         self.params = proj.params
+        self._exported_hashes = dict(proj.exported)
         self._load_params_into_widgets()
         self._undo.clear()
         self._redo.clear()
@@ -1386,6 +1504,8 @@ class ForgeWizard(QWidget):
         self.install = None
         self._learning = False
         self.world = self.final = self.files = None
+        self._final_for = self._files_for = None
+        self._exported_hashes, self._digest_memo = {}, None
         self._refresh_saved()
         self._refresh_all()
         if self.isVisible():
@@ -1400,6 +1520,8 @@ class ForgeWizard(QWidget):
         self.client.cancel()
         self.install = None
         self.world = self.final = self.files = None
+        self._final_for = self._files_for = None
+        self._exported_hashes, self._digest_memo = {}, None
         self._refresh_saved()
         self._refresh_all()
 
@@ -1415,7 +1537,31 @@ class ForgeWizard(QWidget):
 
     # --- refresco -----------------------------------------------------------------------------------------
 
+    def _final_stale(self) -> bool:
+        """True si el render final se pidió para otro mundo u otros parámetros que los de ahora."""
+        made = self._final_for
+        return made is not None and (made[0] is not self.world or made[1] != self.params)
+
+    def _drop_final(self) -> None:
+        """Suelta el render final y sus archivos: la revisión deja de ofrecer «Exportar al mod» (su plan se vacía)
+        hasta rehacerlos. Antes, el botón seguía activo con el plan viejo y no hacía nada."""
+        had = self.final is not None or self.files is not None or bool(self.review.plan)
+        self.final = self.files = None
+        self._final_for = self._files_for = None
+        if had:
+            self.review.set_plan([])
+            self.review.set_state(tr("forge.review.stale"))
+
+    def _ensure_final(self) -> None:
+        """Con la revisión a la vista y sin render final al día, lo pide en cuanto el trabajador está libre."""
+        if getattr(self, "_screen", "start") == "review" and self.world is not None and self.final is None \
+                and self._final_for is None and not self.client.busy:
+            self.render_final()
+
     def _refresh_all(self) -> None:
+        if self._final_stale():
+            self._drop_final()
+        self._ensure_final()
         self._refresh_steps()
         self._refresh_preview()
         self._refresh_stats()

@@ -467,6 +467,25 @@ class IndexSessionTests(ServicesCase):
         self.assertTrue(_qt.wait_until(lambda: self.session.index is not None
                                        and "NEW" in self.session.index.names("tag"), 5000))
 
+    def test_an_unsaved_binary_reaches_the_overrides_and_the_incremental_index(self):
+        """Regresión (el mapa del taller no llegaba al editor de mapa): un binario puesto entero sin guardar
+        (``put_bytes``: el ``provinces.bmp`` de «Exportar al mod», una bandera nueva) está en
+        ``document_overrides`` con sus bytes y se reindexa como cualquier documento; abrirlo sin cambiarlo, no."""
+        from vic2studio.core.project.binary import put_bytes
+        from vic2studio.core.vfs import LayerKind, VPath
+        from vic2studio.ui.session import document_overrides
+
+        project = self.open()
+        rel = "gfx/flags/SIL.tga"
+        data = bytes(range(256)) * 4
+        with self.session.edit("pending.undo_revert", name=rel):
+            put_bytes(project.ws, rel, data)
+        self.assertEqual(document_overrides(project), {VPath.of(rel): data})
+        self.assertTrue(_qt.wait_until(lambda: (VPath.of(rel), LayerKind.MOD) in self.engines["index"].extracted,
+                                       3000), self.engines["index"].extracted)
+        self.session.undo()
+        self.assertEqual(document_overrides(project), {}, "deshecho, ya no hay nada sin guardar")
+
     def test_search_and_display_use_the_effective_localisation(self):
         self.open()
         found = [(s.kind, s.name) for s in self.session.search("alandia")]

@@ -21,7 +21,7 @@ from ..map.bmp import new_bmp
 from ..map.positions import generated_text
 from . import nations
 from .economy import presence
-from .names import ascii_name, key_name
+from .names import ascii_name, cp1252_text, key_name
 from .params import Level
 from .world import CLIMATES, ForgeWorld
 
@@ -59,7 +59,35 @@ class PlannedFile:
 
 
 def _enc(text: str) -> bytes:
-    return text.encode("cp1252", errors="replace")
+    """En cp1252, el juego. Lo que no cabe se translitera ('Ő' → 'O') en vez de quedar como '?'."""
+    return cp1252_text_lines(text).encode("cp1252", errors="replace")
+
+
+def cp1252_text_lines(text: str) -> str:
+    """``cp1252_text`` línea a línea (conserva los saltos y las tabulaciones); lo que ya cabe no se toca."""
+    try:
+        text.encode("cp1252")
+        return text
+    except UnicodeEncodeError:
+        return "".join(part if part in ("\r", "\n", "\t") or not part else _fold_part(part)
+                       for part in re.split(r"([\r\n\t])", text))
+
+
+def _fold_part(part: str) -> str:
+    """Un trozo sin saltos: lo que cabe se deja igual (con sus espacios) y solo se pliegan los caracteres que no."""
+    out = []
+    for ch in part:
+        try:
+            ch.encode("cp1252")
+            out.append(ch)
+        except UnicodeEncodeError:
+            out.append(cp1252_text(ch) or ("" if not ch.isspace() else " "))
+    return "".join(out)
+
+
+def _loc(name: str) -> str:
+    """Un nombre para una celda de la localización: en cp1252 y sin ';' ni saltos, que partirían la fila."""
+    return cp1252_text(str(name)).replace(";", ",")
 
 
 def _lines(lines: list[str]) -> bytes:
@@ -215,12 +243,13 @@ def localisation(world: ForgeWorld, prefix: str) -> bytes:
     r = world.raster
     rows = []
     for i in range(1, r.count + 1):
-        n = r.names[i]
+        n = _loc(r.names[i])
         rows.append(f"PROV{i};{n};{n};{n};;{n};;;;;;;;;x")
     sn = world.entities.get("state_names") or []
     st = r.state[1:r.land_count + 1]
     for s in np.unique(st[st >= 0]).tolist():
-        n = sn[s] if s < len(sn) else state_key(prefix, s)
+        n = _loc(sn[s]) if s < len(sn) else ""
+        n = n or state_key(prefix, s)
         rows.append(f"{state_key(prefix, s)};{n};{n};{n};;{n};;;;;;;;;x")
     return _lines(rows)
 
@@ -468,7 +497,7 @@ def export_plan(files: dict[str, bytes], inputs: ExportInputs, exists, world: Fo
             plan.append(PlannedFile("@descriptor.mod", ACTION_MODIFY, "A", 0))
     if world is not None and world.params.level is Level.WORLD:
         retagged, _ = nations.retag(world, set(inputs.taken_tags))
-        for rel, action in nations.world_plan_rows(retagged):
+        for rel, action in nations.world_plan_rows(retagged, exists):
             if rel not in files:
                 plan.append(PlannedFile(rel, ACTION_MODIFY if action == "M" else ACTION_GENERATE, "C", 0))
     return plan
