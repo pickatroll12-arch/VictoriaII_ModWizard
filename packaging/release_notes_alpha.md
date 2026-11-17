@@ -1,6 +1,23 @@
 **Victoria II Mod Studio 0.1.0, alfa (iteración 10).** Editor visual de mods de Victoria II con todo lo hecho
 hasta la iteración 10. No es una versión estable: **prueba primero con una copia de tu mod.**
 
+## Novedades de esta actualización
+
+**El taller de mapas ya pone el mapa nuevo en el mod.**
+
+- Pulsa **«Exportar al mod»** (paso «12. Revisión y exportación»). El editor de mapa enseña enseguida el mapa nuevo,
+  con su mar y sus dueños, aunque no hayas guardado. Guarda el mod con Ctrl+S.
+- **«Guardar proyecto»** solo guarda tu trabajo del taller para seguir otro día. No cambia el mapa del mod, y ahora
+  lo dice.
+- **«13. Hecho»** dice la verdad: si el mapa todavía no está en el mod o ha cambiado desde que lo exportaste, te
+  lleva al paso 12.
+- Las historias de provincias, POPs, unidades, guerras y diplomacia del juego base dejan de contar nada más
+  exportar, sin volver a abrir el mod.
+- **«Exportar al mod» ya no se queda sin hacer nada.** Si la exportación falla, dice por qué.
+- Los campos del taller ya no salen a cero al abrirlo.
+- Los nombres de Azgaar con letras que el juego no tiene ya no rompen la exportación.
+- Puedes volver a exportar sin guardar entre medias.
+
 ## Descargas
 
 | Archivo | Para |
@@ -67,7 +84,11 @@ guarda su `.bak` y, la primera vez, el original en `<mod>/.vic2studio/originals/
 
 ---
 
-**English.** Alpha build of Victoria II Mod Studio 0.1.0, with everything up to iteration 10. It covers the
+**English.** This update fixes the map workshop: “Export to the mod” now puts the new map in the mod and the map
+editor shows it right away, without saving or reopening the mod. “Save project” only stores the workshop work, and
+the last step now tells whether the map really is in the mod.
+
+Alpha build of Victoria II Mod Studio 0.1.0, with everything up to iteration 10. It covers the
 project, text, map (including the map forge, with FMG import), nations, war, events and interface halls, adds
 export-to-zip, and comes with journaled saving, undo, crash recovery, and Spanish and English.
 

@@ -9,11 +9,13 @@
 # - Lanzado a mano (workflow_dispatch) o con una etiqueta v*, además los publica en una versión previa de GitHub con
 #   las notas de packaging/release_notes_alpha.md, y antes borra la release de la entrada «borrar» si existe.
 #   La release se crea como borrador, cada sistema sube su paquete con su .sha256 y al final se hace pública.
+#   Lanzado a mano con la etiqueta de una release que ya existe, la sustituye y conserva su título y si es una versión
+#   previa o no (lo que se haya cambiado a mano en GitHub).
 name: Ejecutables
 
 on:
   push:
-    branches: [claude/project-thread-xjs4k1]
+    branches: [claude/project-thread-xjs4k1, claude/project-thread-nrukjw]
     tags: ["v*"]
   workflow_dispatch:
     inputs:
@@ -60,17 +62,28 @@ jobs:
       - name: Crear el borrador
         run: |
           VERSION="$(PYTHONPATH=src python3 -c 'import vic2studio; print(vic2studio.__version__)')"
+          TITLE="Victoria II Mod Studio $VERSION (alfa, $TAG)"
+          PRERELEASE=(--prerelease)
           if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
-            # Publicar otra vez la misma etiqueta a mano sustituye la release y la etiqueta.
+            # Publicar otra vez la misma etiqueta a mano sustituye la release y la etiqueta, con el título que tenía y
+            # sin marcarla como versión previa si ya no lo era.
             if gh release view "$TAG" > /dev/null 2>&1; then
+              NAME="$(gh release view "$TAG" --json name --jq .name)"
+              if [ -n "$NAME" ]; then
+                TITLE="$NAME"
+              fi
+              if [ "$(gh release view "$TAG" --json isPrerelease --jq .isPrerelease)" = "false" ]; then
+                PRERELEASE=()
+              fi
               gh release delete "$TAG" --cleanup-tag --yes
             fi
             TARGET=(--target "$GITHUB_SHA")
           else
             TARGET=(--verify-tag)
           fi
-          gh release create "$TAG" "${TARGET[@]}" --draft --prerelease \
-            --title "Victoria II Mod Studio $VERSION (alfa, $TAG)" \
+          echo "Título: $TITLE; previa: ${#PRERELEASE[@]}"
+          gh release create "$TAG" "${TARGET[@]}" --draft "${PRERELEASE[@]}" \
+            --title "$TITLE" \
             --notes-file packaging/release_notes_alpha.md
 
   windows:
