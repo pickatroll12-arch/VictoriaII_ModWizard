@@ -590,6 +590,23 @@ class WizardFlowTests(ForgeCase):
         self.assertTrue(touched)
         self.assertEqual(wiz.current(), "done")
 
+    def test_the_plan_names_dropped_edits_apart_from_the_trash(self):
+        """Las ediciones sin guardar de archivos del juego que la exportación descarta no van a la papelera (el archivo
+        del juego no se toca): su fila dice «Descartar cambios» y el resumen lo cuenta aparte."""
+        from vic2studio.core.mapforge.export import ACTION_DISCARD, ACTION_TRASH, PlannedFile
+        from vic2studio.ui.mapforge.review import human_size
+
+        self.open_forge()
+        review = self.wiz.review
+        review.set_plan([PlannedFile("history/provinces/north/1 - Capital.txt", ACTION_DISCARD, "A", 0),
+                         PlannedFile("history/provinces/north/9 - Vieja.txt", ACTION_TRASH, "A", 0)])
+        self.assertEqual(review.plan_table.item(0, 1).text(), tr("forge.plan.action.discard"))
+        self.assertEqual(review.plan_table.item(1, 1).text(), tr("forge.plan.action.trash"))
+        summary = review.plan_summary.text()
+        self.assertIn(tr("forge.plan.summary.discard", count=1), summary)
+        self.assertIn(tr("forge.plan.summary", generate=0, modify=0, trash=1, empty=0, size=human_size(0)),
+                      summary)
+
     def test_save_and_reopen_a_workshop_project(self):
         self.open_forge()
         self.small_world()

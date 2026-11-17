@@ -355,11 +355,18 @@ class Workspace:
         ``create`` revive vacío, lo que es una mutación: va dentro de una transacción.
         Con errores de sintaxis se abre con ``read_only_reason="parse_errors"`` (D17).
         Un documento limpio de un archivo del juego que ``replace_path`` oculta ahora (``_shadowed``) no cuenta como
-        abierto: se suelta (deshacer y rehacer lo recuperan, ``_ghosts``) y se busca en el disco como cualquier otro.
+        abierto: sin ``create`` se busca ``rel`` en el disco como si no lo estuviera (``FileNotFoundError`` si el mod
+        no tiene otro). Con ``create`` se reutiliza ese mismo documento, como hacía antes: deshacer y rehacer siguen
+        sobre él (uno nuevo en su lugar dejaba, al deshacerlo todo, el estado del juego en un documento sin origen que
+        se guardaba en el mod).
         """
         self._check()
         rel = VPath.of(rel)
-        handle = self._effective_handle(rel)
+        handle = self._store.get(rel)
+        if handle is not None and not create and self._shadowed(handle):
+            if self._disk_entry(rel) is None:
+                raise FileNotFoundError(str(rel))
+            handle = self._effective_handle(rel)   # el mod tiene su archivo en esa ruta: se lee ese
         if handle is not None:
             if handle.deleted:
                 if create:
@@ -404,12 +411,13 @@ class Workspace:
         suelta) o porque nadie lo ha mirado desde que cambiaron las carpetas. Uno sucio sí cuenta: se escribirá en el
         mod."""
         origin = handle.origin
-        return (origin is not None and not handle.dirty and not handle.deleted
-                and self._vfs.hidden_by_replace_path(origin))
+        return (origin is not None and origin.layer.kind is LayerKind.GAME and handle.version == handle.saved_version
+                and not handle.deleted and self._vfs.hidden_by_replace_path(origin))
 
     def _effective_handle(self, rel: VPath) -> DocHandle | None:
         """El documento de ``rel`` en el almacén salvo uno oculto (``_shadowed``), que se suelta: deshacer y rehacer
-        lo recuperan de ``_ghosts`` (como uno que se quitó), y quien llama busca ``rel`` en el disco."""
+        lo recuperan de ``_ghosts`` (como uno que se quitó), y quien llama lee el archivo que el mod tiene en
+        ``rel``."""
         handle = self._store.get(rel)
         if handle is not None and self._shadowed(handle):
             self._store.discard(handle.rel)
@@ -429,6 +437,8 @@ class Workspace:
         archivo del juego que ``replace_path`` oculta ahora (``_shadowed``) no está: el juego no lo carga, y la vista
         efectiva de los registros (``core.schema.Entities``) y de los textos (``LocSync``) lo seguían contando."""
         self._check()
+        if not self._vfs.replace_paths:            # sin replace_path no hay nada oculto (y es lo habitual)
+            return sorted(self._store, key=lambda h: h.rel.key)
         return sorted((h for h in self._store if not self._shadowed(h)), key=lambda h: h.rel.key)
 
     def forget_hidden(self) -> list[VPath]:
@@ -583,10 +593,14 @@ class Workspace:
         rel = VPath.of(rel)
         self._require_writable_workspace(rel)
         codec = codec_for(kind)
-        handle = self._effective_handle(rel)
-        if not codec.writable and not (isinstance(codec, BinaryCodec) and handle is not None and handle.deleted):
+        handle = self._store.get(rel)
+        # Uno limpio del juego que replace_path oculta ahora no es un archivo de la vista efectiva: se revive en el
+        # mismo documento, como una lápida, para que deshacer y rehacer sigan sobre él (``open``).
+        hidden = handle is not None and self._shadowed(handle)
+        revivable = handle is not None and (handle.deleted or hidden)
+        if not codec.writable and not (isinstance(codec, BinaryCodec) and revivable):
             raise ReadOnlyDocumentError(rel, READ_ONLY_BINARY)
-        if handle is not None and not handle.deleted and not (handle.is_new and not handle.dirty):
+        if handle is not None and not revivable and not (handle.is_new and not handle.dirty):
             raise FileExistsError(str(rel))
         if handle is None and self._disk_entry(rel) is not None:
             raise FileExistsError(str(rel))

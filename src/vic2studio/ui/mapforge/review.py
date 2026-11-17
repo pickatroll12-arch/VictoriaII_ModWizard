@@ -18,7 +18,8 @@ from ...i18n import N_, tr
 from ..widgets import make_icon
 
 ACTION_LABELS = {"G": N_("forge.plan.action.generate"), "M": N_("forge.plan.action.modify"),
-                 "T": N_("forge.plan.action.trash"), "E": N_("forge.plan.action.empty")}
+                 "T": N_("forge.plan.action.trash"), "E": N_("forge.plan.action.empty"),
+                 "D": N_("forge.plan.action.discard")}
 PLAN_COLUMNS = (N_("forge.plan.col.file"), N_("forge.plan.col.action"), N_("forge.plan.col.class"),
                 N_("forge.plan.col.size"))
 AUDIT_COLUMNS = (N_("forge.audit.col.folder"), N_("forge.audit.col.role"), N_("forge.audit.col.files"),
@@ -217,9 +218,12 @@ class ReviewPanel(QWidget):
                 self.plan_table.setItem(r, c, item)
         counts = {a: sum(1 for f in self.plan if f.action == a) for a in ACTION_LABELS}
         total = sum(f.size for f in self.plan)
-        self.plan_summary.setText(tr("forge.plan.summary", generate=counts["G"], modify=counts["M"],
-                                     trash=counts["T"], empty=counts["E"], size=human_size(total)) if self.plan
-                                  else tr("forge.plan.empty"))
+        summary = tr("forge.plan.summary", generate=counts["G"], modify=counts["M"], trash=counts["T"],
+                     empty=counts["E"], size=human_size(total)) if self.plan else tr("forge.plan.empty")
+        if counts["D"]:
+            # Ediciones sin guardar de archivos del juego que la exportación descarta: no van a la papelera.
+            summary += " " + tr("forge.plan.summary.discard", count=counts["D"])
+        self.plan_summary.setText(summary)
         self.tabs.setTabText(2, tr("forge.review.tab.plan", count=len(self.plan)))
         self._update_buttons()
 

@@ -35,6 +35,7 @@ DEF_HEADER = "province;red;green;blue;x;x"
 UNDO_EXPORT = "undo.mapforge_export"
 
 ACTION_GENERATE, ACTION_MODIFY, ACTION_TRASH, ACTION_EMPTY = "G", "M", "T", "E"
+ACTION_DISCARD = "D"          # una edición sin guardar de un archivo del juego que la exportación descarta
 
 
 @dataclass
@@ -497,18 +498,24 @@ def _mod_trash(project) -> list[str]:
 
 
 def _dropped_edits(project) -> list[str]:
-    """Los documentos de archivos del juego (o de una dependencia) cambiados sin guardar bajo las carpetas
-    reemplazadas (y ``map/cache``): la historia de una provincia pintada en el mapa del juego antes de exportar. No se
-    pueden borrar (``Workspace.delete`` lanza con un archivo del juego) y, al guardar, se copiaban al mod junto a lo
-    exportado: dos historias para una provincia. Son cambios del mapa viejo, así que la exportación los descarta
-    (``Workspace.revert``) y deshacerla los devuelve."""
+    """Los documentos de archivos del juego cambiados sin guardar bajo las carpetas que la exportación reemplaza: la
+    historia de una provincia pintada en el mapa del juego antes de exportar. No se pueden borrar
+    (``Workspace.delete`` lanza con un archivo del juego) y, al guardar, se copiaban al mod junto a lo exportado: dos
+    historias para una provincia. Son cambios del mapa viejo, que la ``replace_path`` oculta, así que la exportación
+    los descarta (``Workspace.revert``) y deshacerla los devuelve.
+
+    Solo los que la exportación va a ocultar: sin descriptor no se añade ninguna ``replace_path`` (el archivo del
+    juego sigue contando y la edición vale), y ``replace_path`` no oculta los de una dependencia; descartarlos solo
+    perdía el cambio sin evitar nada."""
     from ..vfs.model import LayerKind
 
-    folders = tuple(f"{folder}/".upper() for folder in (*REPLACED_FOLDERS, "map/cache"))
     ws = getattr(project, "ws", None)
-    return sorted(str(handle.rel) for handle in (ws.dirty() if ws is not None else ())
+    if ws is None or _live_descriptor(project) is None:
+        return []
+    folders = tuple(f"{folder}/".upper() for folder in REPLACED_FOLDERS)
+    return sorted(str(handle.rel) for handle in ws.dirty()
                   if not handle.deleted and handle.rel.key.startswith(folders) and handle.origin is not None
-                  and handle.origin.layer.kind is not LayerKind.MOD)
+                  and handle.origin.layer.kind is LayerKind.GAME)
 
 
 def _live_bytes(project, rel) -> bytes | None:
@@ -559,10 +566,11 @@ def export_plan(files: dict[str, bytes], inputs: ExportInputs, exists, world: Fo
     """Archivo · acción · clase · tamaño. ``exists(rel)`` dice si la ruta ya existe en la vista efectiva. Con un
     ``world`` de «Mundo», también los archivos de los países y las culturas nuevas (tamaño 0: se escriben al
     aplicar)."""
-    # Una edición sin guardar de un archivo del juego que la exportación descarta (``dropped_edits``) va con la
-    # papelera: lo cambiado no llegará al mod.
-    plan = [PlannedFile(rel, ACTION_TRASH, "A", 0)
-            for rel in sorted({*inputs.mod_trash, *inputs.dropped_edits}) if rel not in files]
+    plan = [PlannedFile(rel, ACTION_TRASH, "A", 0) for rel in sorted(inputs.mod_trash) if rel not in files]
+    # Una edición sin guardar de un archivo del juego que la exportación descarta (``dropped_edits``): el archivo del
+    # juego no se toca ni va a la papelera, solo se pierde ese cambio (deshacer la exportación lo devuelve).
+    plan += [PlannedFile(rel, ACTION_DISCARD, "A", 0) for rel in sorted(inputs.dropped_edits)
+             if rel not in files and rel not in inputs.mod_trash]
     for rel in sorted(files):
         data = files[rel]
         if rel in inputs.oob_paths:

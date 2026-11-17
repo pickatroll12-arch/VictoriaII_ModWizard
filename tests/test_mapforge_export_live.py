@@ -182,7 +182,8 @@ class DirtyGameEditsUnderReplacedFoldersTests(LiveExportCase):
         self.assertNotIn(CAPITAL, inputs.mod_trash, "no es un archivo del mod: no se borra")
         self.assertNotIn(CAPITAL, files)
         plan = ex.export_plan(files, inputs, lambda rel: self.effective(rel) is not None)
-        self.assertIn(ex.PlannedFile(CAPITAL, ex.ACTION_TRASH, "A", 0), plan)
+        self.assertIn(ex.PlannedFile(CAPITAL, ex.ACTION_DISCARD, "A", 0), plan, "descartar, no la papelera")
+        self.assertNotIn(ex.PlannedFile(CAPITAL, ex.ACTION_TRASH, "A", 0), plan)
         ex.apply_export(p, files, inputs, extra=extra)
         handle = ws.peek(CAPITAL)
         self.assertFalse(handle.dirty, "descartada: ni sucia ni una copia idéntica por guardar")
@@ -198,6 +199,40 @@ class DirtyGameEditsUnderReplacedFoldersTests(LiveExportCase):
         self.assertEqual(self.on_disk(), histories(files))
         ids = Counter(int(rel.rsplit("/", 1)[1].split(" ")[0]) for rel in self.on_disk(("history/provinces",)))
         self.assertEqual(set(ids.values()), {1}, "una historia por provincia")
+
+    def test_without_a_descriptor_the_edits_of_the_game_are_kept(self):
+        """Regresión (tercera revisión): sin descriptor la exportación no añade ``replace_path``, así que la historia
+        del juego sigue contando y su edición sin guardar vale; descartarla solo perdía el cambio del usuario."""
+        p = self.project
+        p.close(discard=True)
+        self.game.descriptor.unlink()
+        self.project = p = Project.open(self.game.game_root, self.game.mod_root)
+        self.edit(CAPITAL, "owner", "BBB")
+        _, inputs, files, extra = self.review(3)
+        self.assertFalse(inputs.has_descriptor)
+        self.assertEqual(inputs.dropped_edits, [])
+        self.assertNotIn(CAPITAL, [f.rel for f in ex.export_plan(files, inputs, lambda rel: False)])
+        ex.apply_export(p, files, inputs, extra=extra)
+        self.assertTrue(p.ws.peek(CAPITAL).dirty, "la edición sigue")
+        self.assertIn(b"owner = BBB", self.effective(CAPITAL))
+
+    def test_only_edits_of_game_files_are_dropped(self):
+        """``replace_path`` oculta los archivos del juego, no los de una dependencia: descartar la edición de uno de
+        estos solo perdía el cambio (el archivo de la dependencia sigue contando). Con un ``Workspace`` de mentira:
+        el minijuego no abre dependencias como proyecto."""
+        from types import SimpleNamespace
+
+        from vic2studio.core.vfs.model import LayerKind
+        from vic2studio.core.vfs.paths import VPath
+
+        def handle(rel, kind):
+            return SimpleNamespace(rel=VPath.of(rel), deleted=False, origin=SimpleNamespace(layer=SimpleNamespace(
+                kind=kind)))
+
+        dirty = [handle("history/provinces/east/77 - Dep.txt", LayerKind.DEPENDENCY), handle(CAPITAL, LayerKind.GAME),
+                 handle("history/provinces/east/78 - Mod.txt", LayerKind.MOD)]
+        project = SimpleNamespace(ws=SimpleNamespace(dirty=lambda: dirty), current_descriptor=lambda: object())
+        self.assertEqual(ex._dropped_edits(project), [CAPITAL])
 
     def test_a_game_unit_edited_before_a_second_export(self):
         """La papelera solo borra lo del mod (``handle.origin is None`` o de la capa MOD): un documento del juego
@@ -250,6 +285,21 @@ class LiveDescriptorTests(LiveExportCase):
         self.assertIsNone(p.vfs.resolve(CAPITAL), "la historia del juego ya no cuenta")
         self.assertTrue(p.save().ok)
         self.assertEqual(read_descriptor(p.vfs.descriptor_path).replace_paths, ex.REPLACED_FOLDERS)
+
+    def test_a_descriptor_created_after_the_review_still_gets_the_replace_paths(self):
+        """La revisión se hizo sin descriptor y «Crear el descriptor» llega antes de «Exportar al mod»: la exportación
+        mira el de ahora (``_add_replace_paths`` no depende de ``inputs.has_descriptor``, el de la revisión)."""
+        from vic2studio.core.modfile import DescriptorSpec, render_descriptor
+
+        self.project.close(discard=True)
+        self.game.descriptor.unlink()
+        self.project = p = Project.open(self.game.game_root, self.game.mod_root)
+        _, inputs, files, extra = self.review(3)
+        self.assertFalse(inputs.has_descriptor)
+        name = self.game.mod_root.name
+        self.set_descriptor(render_descriptor(DescriptorSpec(name, name, name)))
+        ex.apply_export(p, files, inputs, extra=extra)
+        self.assertEqual(p.current_replace_paths(), ex.REPLACED_FOLDERS)
 
     def test_a_descriptor_deleted_without_saving_does_not_break_the_export(self):
         """Regresión (MEDIO): con el descriptor borrado sin guardar (una lápida), ``_live_descriptor`` daba el de al
@@ -332,6 +382,63 @@ class ContinentLocalisationTests(unittest.TestCase):
         for k, key in enumerate(keys):
             self.assertEqual(key in found, k in filled, key)
         self.assertIn(keys[gone], rows(world), "con provincias sí la tenía")
+
+
+
+class HiddenAndBinaryDocumentTests(LiveExportCase):
+    """Lo que el ``Workspace`` hace con un documento del juego oculto por ``replace_path`` y con los binarios."""
+
+    def test_creating_at_the_path_of_a_hidden_document_of_the_undo_stack_reuses_it(self):
+        """``Workspace.create`` en la ruta de un documento del juego que ``replace_path`` oculta y la pila nombra lo
+        revive (como una lápida) en vez de dejarlo en el aire con otro documento sin origen."""
+        from vic2studio.core.vfs.model import DocKind
+
+        p = self.project
+        ws = p.ws
+        capital = ws.open(CAPITAL)
+        with ws.transaction("pending.undo_revert", name="1"):
+            ws.touch(capital)
+            capital.model.document.set("owner", "CCC")
+        ws.undo()
+        self.assertTrue(p.vfs.set_replace_paths(["history/provinces"]))
+        with ws.transaction("pending.undo_revert", name="1"):
+            created = ws.create(CAPITAL, DocKind.CLAUSEWITZ)
+        self.assertIs(created, capital)
+        self.assertTrue(capital.dirty)
+        ws.undo()
+        ws.undo()
+        self.assertEqual([str(h.rel) for h in ws.dirty()], [])
+
+    def test_a_binary_that_is_not_a_tombstone_still_cannot_be_created(self):
+        from vic2studio.core.project.workspace import ReadOnlyDocumentError
+        from vic2studio.core.vfs.model import DocKind
+
+        ws = self.project.ws
+        with self.assertRaises(ReadOnlyDocumentError), ws.transaction("pending.undo_revert", name="x"):
+            ws.create("gfx/flags/ZZZ.tga", DocKind.BINARY, b"\x01" * 64)
+
+    def test_restoring_an_autosave_over_a_deleted_binary(self):
+        """Restaurar el trabajo sin guardar de otra sesión con un binario cambiado que en esta se ha borrado: antes,
+        ReadOnlyDocumentError (la lápida de un binario no revivía)."""
+        from vic2studio.core.project.binary import put_bytes
+
+        rel = "gfx/flags/ZZZ.tga"
+        (self.game.mod_root / "gfx/flags").mkdir(parents=True, exist_ok=True)
+        (self.game.mod_root / rel).write_bytes(b"\x00" * 64)
+        self.project.close(discard=True)
+        self.project = p = Project.open(self.game.game_root, self.game.mod_root)
+        with p.ws.transaction("pending.undo_revert", name=rel):
+            put_bytes(p.ws, rel, b"\x01" * 64)
+        p.close()                                   # deja el autoguardado con el binario sin guardar
+        self.project = p = Project.open(self.game.game_root, self.game.mod_root)
+        with p.ws.transaction("pending.undo_revert", name=rel):
+            p.ws.delete(rel)
+        p.restore_session(p.orphan_sessions[0])
+        handle = p.ws.peek(rel)
+        self.assertFalse(handle.deleted)
+        self.assertEqual(bytes(handle.model), b"\x01" * 64)
+        self.assertTrue(p.save().ok)
+        self.assertEqual((self.game.mod_root / rel).read_bytes(), b"\x01" * 64)
 
 
 if __name__ == "__main__":

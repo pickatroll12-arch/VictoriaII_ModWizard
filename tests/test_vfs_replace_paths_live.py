@@ -169,6 +169,35 @@ class ProjectSyncReplacePathsTests(unittest.TestCase):
         self.assertEqual(ws.forget_hidden(), [], "lo nombra la pila de rehacer")
         self.assertIs(ws.peek(CAPITAL), capital)
 
+    def test_writing_at_the_path_of_a_hidden_document_of_the_undo_stack_reuses_it(self):
+        """Regresión (tercera revisión): escribir (``put_bytes``, una exportación) en la ruta de un documento del juego
+        oculto que la pila nombra creaba otro documento, sin origen. Al deshacerlo todo, los estados del juego caían en
+        ese documento nuevo: quedaba sucio y guardar copiaba la historia del juego en el mod."""
+        from vic2studio.core.project.binary import put_bytes
+
+        project = self.project
+        ws = project.ws
+        capital = ws.open(CAPITAL)
+        with ws.transaction("pending.undo_revert", name="1"):
+            ws.touch(capital)
+            capital.model.document.set("owner", "CCC")
+        with ws.transaction("pending.undo_revert", name="1"):
+            ws.revert(CAPITAL)
+        self.assertFalse(capital.dirty)
+        self.set_replace(("history/provinces",))
+        self.assertTrue(project.sync_replace_paths())
+        with ws.transaction("pending.undo_revert", name="1"):
+            put_bytes(ws, CAPITAL, b"owner = BBB\r\n")
+        self.assertIs(ws.peek(CAPITAL), capital, "el mismo documento")
+        self.assertTrue(capital.dirty)
+        for _ in range(4):
+            ws.undo()
+            project.sync_replace_paths()
+        self.assertFalse(ws.can_undo())
+        self.assertEqual([str(h.rel) for h in ws.dirty()], [])
+        self.assertTrue(project.save().ok)
+        self.assertFalse((self.game.mod_root / CAPITAL).exists(), "nada del juego copiado al mod")
+
     def test_a_hidden_document_of_the_undo_stack_is_not_effective(self):
         """Regresión (BAJO): un documento limpio del juego que la pila de deshacer nombra sigue en el ``Workspace``
         al quedar oculto (``forget_hidden`` no lo suelta), pero no es de la vista efectiva: ``open`` lo daba, la
