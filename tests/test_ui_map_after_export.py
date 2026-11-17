@@ -180,6 +180,55 @@ class MapRulesEditedByHandTests(MapCase):
         self.assertEqual(facts_sea(ms), OLD_SEA)
 
 
+class MapWithTrashedCopiesTests(MapCase):
+    """«Mandar a la papelera las copias idénticas» (sin guardar) en un mod que copia archivos del mapa del juego: el
+    archivo del juego vuelve a ser el efectivo, como en la validación."""
+
+    def trash_identical_copies(self) -> list:
+        from vic2studio.core.validate.fixes import identical_copies
+
+        session = self.window.session
+        project = session.project
+        rels = identical_copies(project)
+        with session.edit("undo.fix_trash_identical_copies", count=len(rels)):
+            project.ws.delete_many(rels)
+        return [str(rel) for rel in rels]
+
+    def test_the_map_rules_come_from_the_game_after_trashing_the_mod_copy(self):
+        """Regresión (segunda revisión): el editor de mapa daba por inexistente el ``default.map`` borrado sin guardar
+        en vez de leer el del juego: se quedaba sin mar (la brocha pintaba el mar) ni marcadores."""
+        from _minigame import MAP_GAME_FILES
+
+        self.open_window(game_files=MAP_GAME_FILES, mod_copies=("map/default.map", "common/bookmarks.txt"))
+        self.window.show_page("map:world")
+        ms = map_ready(self)
+        self.assertEqual(facts_sea(ms), OLD_SEA)
+        bookmarks = ms.rules().bookmarks
+        self.assertTrue(bookmarks)
+        self.assertIn("map/default.map", self.trash_identical_copies())
+        ms = map_ready(self)
+        self.assertEqual(ms.rules().sea, frozenset(OLD_SEA))
+        self.assertEqual(ms.rules().bookmarks, bookmarks)
+        self.assertTrue(ms.provinces.is_sea(9), "la brocha no pinta el mar")
+        self.assertEqual(facts_sea(ms), OLD_SEA)
+
+    def test_the_raster_comes_from_the_game_after_trashing_the_mod_copy(self):
+        """Regresión (segunda revisión): con ``provinces.bmp`` y ``definition.csv`` borrados sin guardar, el ráster se
+        recargaba sin ellos y fallaba («no hay provinces.bmp») aunque el juego los tiene."""
+        from _minigame import MAP_GAME_FILES
+
+        self.open_window(game_files=MAP_GAME_FILES, mod_copies=("map/provinces.bmp", "map/definition.csv"))
+        self.window.show_page("map:world")
+        ms = map_ready(self)
+        shape = ms.raster.ids.shape
+        self.assertIn("map/provinces.bmp", self.trash_identical_copies())
+        self.assertTrue(_qt.wait_until(lambda: ms.raster_state != "loading" and not ms._raster_runner.is_busy(),
+                                       WAIT_MS))
+        _qt.process_events(150)
+        self.assertEqual(ms.raster_state, RASTER_READY, ms.raster_error)
+        self.assertEqual(ms.raster.ids.shape, shape)
+
+
 class MapFactsWhileTheyRebuildTests(MapCase):
     """Lo que se edita mientras los hechos se construyen enteros (en segundo plano, con una copia del índice)."""
 
@@ -262,6 +311,48 @@ class MapFactsWhileTheyRebuildTests(MapCase):
         last = tags[11 % 3]
         self.assertEqual(self.owners(ms, (1, 2, 3)), {1: last, 2: last, 3: last})
         self.assertLessEqual(len(builds), 2, builds)
+
+    def test_a_pop_edit_while_the_facts_rebuild_is_kept(self):
+        """Regresión (segunda revisión): escalar los POPs de una provincia mientras los hechos se rehacían enteros
+        ponía la población en los de antes; los nuevos, hechos con una copia del índice anterior, la perdían."""
+        from test_ui_map import D1861
+
+        page = self.open_map()
+        session = self.window.session
+        ms = map_ready(self)
+        page.select_province(4)
+        _qt.process_events(50)
+        builds = self.slow_builds(0.8)
+        session.set_working_date(D1861)
+        _qt.process_events(150)
+        self.assertTrue(ms._facts_runner.is_busy())
+        page.scale_spin.setValue(200)
+        page._scale_pops()
+        ms = map_ready(self)
+        want = ms.provinces.pops().total(4, session.working_date)
+        self.assertGreater(want, 0)
+        self.assertEqual(int(ms.facts.population[4]), want)
+        self.assertLessEqual(len(builds), 2, builds)
+
+    def test_undoing_a_pop_edit_puts_the_population_back_on_the_map(self):
+        """Regresión (segunda revisión): deshacer un cambio de POPs dejaba en el mapa la población del cambio."""
+        page = self.open_map()
+        session = self.window.session
+        ms = map_ready(self)
+        page.select_province(4)
+        _qt.process_events(50)
+        before = int(ms.facts.population[4])
+        page.scale_spin.setValue(200)
+        page._scale_pops()
+        ms = map_ready(self)
+        self.assertNotEqual(int(ms.facts.population[4]), before)
+        session.undo()
+        ms = map_ready(self)
+        self.assertEqual(int(ms.facts.population[4]), before)
+        session.redo()
+        ms = map_ready(self)
+        self.assertEqual(int(ms.facts.population[4]), ms.provinces.pops().total(4, session.working_date))
+        self.assertNotEqual(int(ms.facts.population[4]), before)
 
     def test_reindexing_rereads_the_map_rules_changed_outside(self):
         """«Reindexar» rehace también las reglas del mapa (guardadas para no leerlas en cada uso) y los hechos: un

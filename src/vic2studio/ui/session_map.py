@@ -54,7 +54,7 @@ import logging
 from collections.abc import Iterable
 from typing import TYPE_CHECKING
 
-from PySide6.QtCore import QObject, Signal
+from PySide6.QtCore import QObject, QTimer, Signal
 
 from ..core.cancel import Cancelled
 from ..core.vfs.paths import InvalidPathError, VPath
@@ -195,16 +195,22 @@ class MapSession(QObject):
         validación). Con solo el disco, tras «Exportar al mod» sin guardar el editor tenía el ráster nuevo con el
         ``sea_starts`` del ``default.map`` viejo: el mar del mundo nuevo era tierra y la brocha le ponía dueño."""
         from ..core.rules.game import SOURCE_RELS, GameRules
+        from ..core.validate.context import apply_unsaved_deletions
         from .session import document_overrides
 
+        def effective(rels):
+            # Un borrado sin guardar (``None``) deja ganar lo de debajo, como en la validación; sin esto, papelera de
+            # la copia idéntica de ``default.map`` dejaba el editor sin mar ni marcadores.
+            return GameRules.from_snapshot(*apply_unsaved_deletions(project.vfs.snapshot(),
+                                                                    document_overrides(project, rels)))
+
         try:
-            snapshot = project.vfs.snapshot()
             rels = [*SOURCE_RELS, _map_rel(None, "provinces", "provinces.bmp")]
-            rules = GameRules.from_snapshot(snapshot, document_overrides(project, rels))
+            rules = effective(rels)
             bmp = _map_rel(rules, "provinces", "provinces.bmp")
             if bmp.key not in {rel.key for rel in rels} and document_overrides(project, [bmp]):
                 # default.map nombra otro BMP de provincias, sin guardar: su cabecera da ``map_size``.
-                rules = GameRules.from_snapshot(snapshot, document_overrides(project, [*rels, bmp]))
+                rules = effective([*rels, bmp])
             return rules
         except Exception as exc:  # noqa: BLE001 - sin reglas se usan los nombres por defecto
             log.info("no se pudieron leer las reglas del mapa: %s", exc)
@@ -231,6 +237,7 @@ class MapSession(QObject):
             return False
         if not force and self._raster_state in (RASTER_READY, RASTER_LOADING):
             return False
+        from ..core.validate.context import apply_unsaved_deletions
         from .session import document_overrides
 
         self._wanted = True
@@ -240,8 +247,10 @@ class MapSession(QObject):
         terrain_rel = _map_rel(rules, "terrain", "terrain.bmp")
         terrain_txt_rel = _map_rel(rules, "terrain_definition", "terrain.txt")
         self._raster_rels = {provinces_rel.key, definition_rel.key, terrain_rel.key, terrain_txt_rel.key}
-        snapshot = project.vfs.snapshot()
-        overrides = document_overrides(project, (provinces_rel, definition_rel, terrain_rel, terrain_txt_rel))
+        # Los borrados sin guardar dejan ganar el archivo del juego (papelera de copias idénticas), no lo quitan.
+        snapshot, overrides = apply_unsaved_deletions(
+            project.vfs.snapshot(),
+            document_overrides(project, (provinces_rel, definition_rel, terrain_rel, terrain_txt_rel)))
         forbidden = [layer.root for layer in getattr(snapshot, "layers", ()) if getattr(layer, "root", None)]
         use_cache = not force
 
@@ -756,6 +765,13 @@ class MapSession(QObject):
                 and getattr(self._facts_rules, "sea", None) != getattr(self._rules(), "sea", None):
             # Con otro mar, los hechos de antes pintan de mar la tierra y al revés: se rehacen enteros.
             self.refresh_facts()
+        if any(key.startswith("HISTORY/POPS/") for key in keys) \
+                and (self._facts is not None or self._facts_runner.is_busy()):
+            # La población sale de los bloques de POP del índice: un cambio de POPs (deshacer, rehacer, otra sala o
+            # durante una construcción entera, que lee una copia del índice de antes) se ve rehaciendo los hechos
+            # cuando el índice se ponga al día. La sala Mundo ya pone al momento la población de lo que edita ella.
+            self._facts_behind = True
+            QTimer.singleShot(0, self._catch_up_facts)     # después de que la sesión programe la reindexación
         facts = self._facts
         if facts is None:
             return
