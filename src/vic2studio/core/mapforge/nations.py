@@ -258,7 +258,7 @@ def country_specs(project, world) -> list:
             o = int(r.owner[pid])
             if o >= 0 and o not in religion_of and 0 <= int(r.religion[pid]) < len(religions):
                 religion_of[o] = religions[int(r.religion[pid])]
-    files = country_file_names(data["countries"], lambda rel: _file_exists(project, rel))
+    files = country_file_names(data["countries"], lambda rel: file_exists(project, rel))
     specs = []
     for i, c in enumerate(data["countries"]):
         name = cp1252_name(c["name"], c["tag"])
@@ -337,7 +337,7 @@ def apply_world(project, world) -> None:
         project.loc.ensure(texts, area=WORLD_LOC_AREA)
 
 
-def _file_exists(project, rel: str) -> bool:
+def file_exists(project, rel: str) -> bool:
     """Si ``rel`` existe en el proyecto, con lo sin guardar (un documento borrado sin guardar ya no cuenta)."""
     ws = getattr(project, "ws", None)
     handle = ws.peek(rel) if ws is not None else None
@@ -383,5 +383,5 @@ def world_plan_rows(world, exists=None) -> list[tuple[str, str]]:
     return rows
 
 
-__all__ = ["apply_world", "assign_tags", "country_file_names", "country_specs", "cultures_block", "name_world",
-           "retag", "world_plan_rows"]
+__all__ = ["apply_world", "assign_tags", "country_file_names", "country_specs", "cultures_block", "file_exists",
+           "name_world", "retag", "world_plan_rows"]

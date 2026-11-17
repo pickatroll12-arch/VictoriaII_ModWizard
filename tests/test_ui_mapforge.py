@@ -330,6 +330,136 @@ class WizardFlowTests(ForgeCase):
         self.assertEqual(wiz.params.land_target(), want["land_provinces"])
         self.assertGreater(wiz.world.raster.count, 1000)
 
+    def test_changing_the_map_after_exporting_is_not_done(self):
+        """Regresión (revisión del arreglo): tras exportar una vez, cambiar el mapa del taller y abrir «13. Hecho»
+        seguía diciendo «Hecho» (con las cifras de la revisión nueva) y «Abrir en el editor de mapa» enseñaba el
+        mapa de antes; «Guardar proyecto» anotaba lo exportado junto al mapa cambiado y, al volver a abrirlo, decía
+        que ya estaba guardado en el mod. Deshacer el cambio vuelve a ser el mapa exportado."""
+        import json
+
+        from vic2studio.core.mapforge.project import FOLDER
+        from vic2studio.ui.mapforge.wizard import MAP_CHANGED
+
+        self.open_forge()
+        self.small_world()
+        wiz = self.wiz
+        wiz.name_edit.setText("mundotest")
+        wiz.go("review")
+        self.idle()
+        exported_count = wiz.final.raster.count
+        wiz.export()
+        self.assertEqual(wiz.map_state(), MAP_UNSAVED)
+        self.assertIn(str(exported_count), wiz.done_text.text())
+        # Un retoque del relieve después de exportar: el mapa del taller ya no es el del mod.
+        wiz.go("relief")
+        wiz.tool_buttons["raise"].setChecked(True)
+        wiz.preview.stroke.emit(0.5, 0.5, True)
+        wiz.preview.stroke.emit(0.55, 0.5, False)
+        wiz.preview.strokeFinished.emit()
+        self.idle()
+        self.assertEqual(len(wiz.world.edits), 1)
+        wiz.go("review")
+        self.idle()
+        self.assertIsNotNone(wiz.final, "la revisión del mapa cambiado está lista, pero no se ha exportado")
+        wiz.go("done")
+        self.assertEqual(wiz.map_state(), MAP_CHANGED)
+        self.assertEqual(wiz.done_text.text(), tr("forge.done.changed"))
+        self.assertTrue(wiz.open_editor.isHidden(), "no abre el mapa de antes como si fuera este")
+        self.assertFalse(wiz.go_review.isHidden())
+        # Deshacer el retoque: es otra vez el mapa exportado, con las cifras de lo exportado.
+        wiz.undo()
+        self.idle()
+        self.assertEqual(len(wiz.world.edits), 0)
+        wiz.go("done")
+        self.assertEqual(wiz.map_state(), MAP_UNSAVED)
+        self.assertIn(str(exported_count), wiz.done_text.text())
+        self.assertFalse(wiz.open_editor.isHidden())
+        # Rehacer el retoque y guardar el proyecto del taller: no se anota como exportado.
+        wiz.redo()
+        self.idle()
+        wiz.save_project()
+        session = self.window.session
+        handle = session.project.ws.peek(f"{FOLDER}/mundotest/project.json")
+        self.assertEqual(json.loads(bytes(handle.model).decode("utf-8"))["exported"], {})
+        session.save()
+        _qt.process_events(50)
+        wiz.on_project_opened(session.project)
+        wiz._refresh_saved()
+        names = [wiz.saved_list.item(i).text() for i in range(wiz.saved_list.count())]
+        wiz.saved_list.setCurrentRow(names.index("mundotest"))
+        wiz.open_saved()
+        self.idle()
+        self.assertEqual(wiz.map_state(), MAP_NOT_IN_MOD, "el proyecto guardado no es el mapa del mod")
+
+    def test_closing_the_mod_takes_the_done_screen_back(self):
+        """Regresión (revisión del arreglo): con «13. Hecho» a la vista, cerrar el mod (o abrir otro) dejaba el texto
+        «Hecho: … están en el mod» y «Abrir en el editor de mapa», que enseñaba el mapa del juego base."""
+        self.open_forge()
+        self.small_world()
+        wiz = self.wiz
+        wiz.go("review")
+        self.idle()
+        wiz.export()
+        self.assertEqual(wiz.current(), "done")
+        self.assertFalse(wiz.open_editor.isHidden())
+        session = self.window.session
+        session.close_project(discard=True)
+        _qt.process_events(20)
+        self.assertEqual(wiz.done_text.text(), tr("forge.done.not_exported"))
+        self.assertTrue(wiz.open_editor.isHidden())
+        session.open_project(self.game.game_root, self.game.mod_root)
+        self.assertTrue(_qt.wait_until(lambda: session.project is not None, WAIT_MS))
+        _qt.process_events(20)
+        self.assertEqual(wiz.map_state(), MAP_NOT_IN_MOD)
+        self.assertEqual(wiz.done_text.text(), tr("forge.done.not_exported"))
+        self.assertTrue(wiz.open_editor.isHidden())
+        # Abrir un proyecto (sin pasar por cerrar) también olvida lo exportado en la pantalla a la vista.
+        wiz.generate()
+        self.idle()
+        wiz.go("review")
+        self.idle()
+        wiz.export()
+        self.assertFalse(wiz.open_editor.isHidden())
+        wiz.on_project_opened(session.project)
+        self.assertEqual(wiz.done_text.text(), tr("forge.done.not_exported"))
+        self.assertTrue(wiz.open_editor.isHidden())
+
+    def test_the_review_comes_back_when_a_render_of_the_old_map_is_dropped(self):
+        """Regresión (revisión del arreglo): «Regenerar desde aquí» y luego «Render final» en la revisión dejaban en
+        cola un render del mapa de antes; sus archivos llegaban después del mapa nuevo, se descartaban y nadie pedía
+        otro: «Exportar al mod» se quedaba desactivado con «se vuelve a preparar…» para siempre."""
+        self.open_forge()
+        self.small_world()
+        wiz = self.wiz
+        wiz.go("review")
+        self.idle()
+        old_world = wiz.world
+        wiz.regen_from.click()
+        wiz.review.render_button.click()
+        self.idle()
+        self.assertIsNot(wiz.world, old_world)
+        self.assertIsNotNone(wiz.final, "la revisión se rehace para el mapa nuevo")
+        self.assertFalse(wiz._final_stale())
+        self.assertTrue(wiz.review.export_button.isEnabled(), [i.code for i in wiz.review.blocking()])
+
+    def test_cancelling_a_regeneration_at_the_review_says_how_to_go_on(self):
+        """Regresión (revisión del arreglo): cancelar «Regenerar» en la revisión dejaba el texto «se vuelve a
+        preparar…», que no llegaba nunca. Ahora dice que se canceló y cómo prepararla otra vez."""
+        self.open_forge()
+        self.small_world()
+        wiz = self.wiz
+        wiz.go("review")
+        self.idle()
+        wiz.regen_from.click()
+        self.assertTrue(wiz.client.busy)
+        wiz.cancel_button.click()
+        self.idle()
+        self.assertEqual(wiz.review.state_label.text(), tr("forge.review.cancelled"))
+        self.assertFalse(wiz.review.export_button.isEnabled())
+        wiz.review.render_button.click()
+        self.idle()
+        self.assertTrue(wiz.review.export_button.isEnabled(), [i.code for i in wiz.review.blocking()])
+
     def test_world_level_creates_countries_on_export(self):
         """Iteración 9b: «Mundo» enseña sus campos, reparte la tierra entre países nuevos y la exportación los crea
         en la misma transacción que el mapa."""
@@ -373,6 +503,35 @@ class WizardFlowTests(ForgeCase):
         step = self.window.session.undo()
         self.assertEqual(step.label, ex.UNDO_EXPORT)
         self.assertFalse(self.window.session.project.ws.can_undo())
+
+    def test_the_plan_names_the_country_files_the_export_writes(self):
+        """Regresión (revisión del arreglo): con un archivo de país sin guardar (de «Nuevo país» o de otra exportación
+        sin guardar), el plan de la revisión miraba solo el disco y listaba ese nombre, mientras la exportación, que
+        ve lo sin guardar, escribía otro (``Nombre_TAG.txt``)."""
+        from vic2studio.core.project.binary import put_bytes
+
+        self.open_forge()
+        wiz = self.wiz
+        wiz.level_buttons["world"].setChecked(True)
+        wiz._widgets[("owners", "countries")].setValue(3)
+        self.small_world()
+        wiz.go("review")
+        self.idle()
+
+        def planned_countries():
+            return {f.rel for f in wiz.review.plan if f.rel.startswith("common/countries/")}
+
+        first = sorted(planned_countries())[0]
+        session = self.window.session
+        with session.edit("undo.mapforge_save", name="prueba"):
+            put_bytes(session.project.ws, first, b"color = { 1 2 3 }\n")
+        wiz.review.render_button.click()
+        self.idle()
+        planned = planned_countries()
+        self.assertNotIn(first, planned, "ese nombre ya lo tiene un archivo sin guardar")
+        touched = wiz.export()
+        self.assertEqual(planned, {rel for rel in touched if rel.startswith("common/countries/")},
+                         "el plan dice los archivos que escribe la exportación")
 
     def test_save_and_reopen_a_workshop_project(self):
         self.open_forge()
