@@ -400,6 +400,71 @@ class WorldExportTests(unittest.TestCase):
                     self.assertEqual(rows[f"PROV{pid}".encode()], generated.encode("cp1252"))
                 self.assertEqual(rows[ex.state_key("TST", state).encode()], state_name.encode("cp1252"))
 
+    def test_continents_typed_in_the_workshop_become_valid_unique_keys(self):
+        """Regresión: los continentes escritos en «Continentes» iban tal cual como claves de ``map/continent.txt``.
+        Uno en otra escritura ('Европа', 'Азия') daba la clave vacía (' = {') desde que la exportación translitera, y
+        uno con espacio ('North America'), una clave partida: errores de sintaxis y provincias sin continente
+        (``land_province_without_continent``). Ahora cada uno es una clave válida y distinta (la misma en
+        continent.txt, en las carpetas de history/provinces y en la auditoría); los que ya eran claves se quedan
+        ('west_land', con sus modificadores de la instalación), uno de la instalación escrito como nombre ('East
+        Land') es esa clave y conserva sus textos, y lo escrito de uno nuevo va a la localización. Un proyecto del
+        taller guardado antes (con los nombres tal cual) se abre con las mismas claves."""
+        import re
+
+        from vic2studio.core.mapforge.names import script_keys
+        from vic2studio.core.mapforge.project import MapForgeProject
+        from vic2studio.core.project.project import Project
+
+        install_keys = ["west_land", "east_land", "europe"]
+        keys = script_keys(["Европа", "Азия", "North America", "west_land", "East Land", "Łódź Land", "12",
+                            "north america", "EUROPE", "Europa", " "], keep=install_keys)
+        self.assertEqual(keys, ["forge_continent_1", "forge_continent_2", "north_america", "west_land", "east_land",
+                                "lodz_land", "forge_continent_7", "north_america_2", "europe", "Europa",
+                                "forge_continent_11"])
+        self.assertEqual(script_keys(keys, keep=install_keys), keys, "aplicarla otra vez no cambia nada")
+        p = self.project
+        _, before = self.problems(p)
+        typed = ("Европа", "Азия", "North America", "west_land")
+        w = pipeline.run_all(tiny_params(seed=3, continents=typed), self.profile)
+        keys = w.entities["continent_names"]
+        self.assertEqual(keys, ["forge_continent_1", "forge_continent_2", "north_america", "west_land"])
+        forge = MapForgeProject("prueba", w.params)
+        old = w.evolve(entities=dict(w.entities, continent_names=list(typed)))
+        _, loaded, _ = MapForgeProject.load(forge.files(old).get, "prueba", self.profile)
+        self.assertEqual(loaded.entities["continent_names"], keys)
+        inputs = ex.gather_inputs(p, w, index=self.index)
+        files, _ = ex.render_files(w, inputs)
+        text = files["map/continent.txt"].decode("cp1252")
+        heads = [line for line in text.splitlines() if line and not line.startswith(("\t", "#", "}"))]
+        self.assertEqual(len(heads), len(set(h.lower() for h in heads)))
+        for head in heads:
+            self.assertRegex(head, r"^[A-Za-z_][A-Za-z0-9_]* = \{$")
+        blocks = dict(ex._top_blocks(text))
+        self.assertEqual(set(blocks), set(keys))
+        self.assertIn("assimilation_rate = 0.5", blocks["west_land"])
+        members = [int(x) for inner in blocks.values()
+                   for x in re.search(r"provinces\s*=\s*\{([^}]*)\}", inner).group(1).split()]
+        self.assertEqual(sorted(members), list(range(1, w.raster.land_count + 1)), "cada provincia, en uno")
+        folders = {rel.split("/")[2] for rel in files if rel.startswith("history/provinces/")}
+        self.assertEqual(folders, set(keys))
+        loc = files[f"localisation/00_{inputs.prefix}_map.csv"]
+        self.assertIn(b"\r\nnorth_america;North America;North America;North America;;North America;", loc)
+        self.assertNotIn(b"\r\nwest_land;", loc)
+        self.assertNotIn(b"\r\nforge_continent_1;", loc, "sin nada que el juego sepa escribir, la clave")
+        # Un continente de la instalación escrito como nombre es esa clave y se queda con sus textos.
+        other = pipeline.run_all(tiny_params(seed=3, continents=("East Land", "Nueva Tierra")), self.profile)
+        self.assertEqual(other.entities["continent_names"], ["east_land", "nueva_tierra"])
+        rows = ex.localisation(other, "TST").split(b"\r\n")
+        self.assertIn(b"nueva_tierra;Nueva Tierra;Nueva Tierra;Nueva Tierra;;Nueva Tierra;;;;;;;;;x", rows)
+        self.assertFalse([row for row in rows if row.startswith(b"east_land;")])
+        ex.apply_export(p, files, inputs)
+        p.save()
+        p.close()
+        self.project = Project.open(self.game.game_root, self.game.mod_root)
+        _, after = self.problems(self.project)
+        new = {x for x in after - before if x[0] != "pop_type_unknown"}
+        self.assertEqual(new, set())
+
     def test_country_file_names_are_unique_and_avoid_existing_files(self):
         countries = [{"tag": "AAA", "name": "Ææ"}, {"tag": "BBB", "name": "東京"}, {"tag": "CCC", "name": "大阪"},
                      {"tag": "DDD", "name": "Kaldun"}, {"tag": "EEE", "name": "kaldun"}, {"tag": "FFF", "name": "Prussia"}]

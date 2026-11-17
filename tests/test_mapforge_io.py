@@ -161,6 +161,133 @@ class ExportTests(unittest.TestCase):
                 if e.layer.kind.name == "MOD"}
         self.assertEqual(mine, {rel for rel in files if rel.startswith("history/provinces/")})
 
+    def test_exporting_again_without_saving_replaces_the_first_export(self):
+        """Regresión (Shago Mod): exportar el mapa A sin guardar, cambiar algo y exportar el B fallaba siempre
+        (``FileNotFoundError: history/diplomacy/Alliances.txt``, «El mod no ha cambiado»): la papelera salía solo del
+        disco y volvía a borrar lo que A ya había borrado. Y no bastaba con saltarse lo borrado: las historias nuevas
+        de A (sin guardar, así que no están en el disco) que B no escribe sobrevivían, y al guardar había provincias
+        con dos archivos de historia. Ahora la papelera sale de la vista efectiva, con lo sin guardar; deshacer B
+        vuelve a A y deshacer A vuelve al mod de antes."""
+        from vic2studio.core.project.codecs import codec_for
+        from vic2studio.core.project.project import Project
+
+        self.game.cleanup()
+        self.project.close()
+        old = {"history/provinces/zz/1 - Vieja.txt": "owner = AAA\r\n",
+               "history/pops/1836.1.1/zz_viejas.txt": "1 = { farmers = { culture = alander religion = catholic "
+                                                       "size = 10 } }\r\n",
+               "history/diplomacy/Alliances.txt": "alliance = { first = AAA second = BBB start_date = 1836.1.1 "
+                                                  "end_date = 1936.1.1 }\r\n"}
+        self.game = build_map_minigame(clean=True, mod_files=old)
+        self.addCleanup(self.game.cleanup)
+        p = Project.open(self.game.game_root, self.game.mod_root)
+        self.addCleanup(lambda: p.close(discard=True))
+
+        def effective(rel):
+            try:
+                handle = p.ws.open(rel)
+            except FileNotFoundError:
+                return None
+            return bytes(codec_for(handle.kind).snapshot(handle.model))
+
+        def histories(files):
+            return {rel for rel in files if rel.startswith(tuple(f"{f}/" for f in ex.REPLACED_FOLDERS))}
+
+        world_a, world_b = tiny_world(3), tiny_world(5)
+        inputs_a = ex.gather_inputs(p, world_a)
+        files_a, _ = ex.render_files(world_a, inputs_a)
+        ex.apply_export(p, files_a, inputs_a)
+        inputs_b = ex.gather_inputs(p, world_b)
+        files_b, _ = ex.render_files(world_b, inputs_b)
+        only_a = histories(files_a) - histories(files_b)
+        self.assertTrue(any(rel.startswith("history/provinces/") for rel in only_a), "A y B nombran distinto")
+        # La papelera de B es lo que hay ahora bajo las carpetas reemplazadas: no lo que A ya borró, sí lo de A.
+        self.assertFalse(set(old) & set(inputs_b.mod_trash))
+        self.assertTrue(only_a <= set(inputs_b.mod_trash))
+        plan = ex.export_plan(files_b, inputs_b, lambda rel: effective(rel) is not None)
+        trashed = {f.rel for f in plan if f.action == ex.ACTION_TRASH}
+        self.assertEqual(trashed, only_a)
+        ex.apply_export(p, files_b, inputs_b)           # antes: FileNotFoundError (history/diplomacy/Alliances.txt)
+        for rel in trashed:
+            self.assertIsNone(effective(rel), rel)
+        for rel, data in files_b.items():
+            self.assertEqual(effective(rel), data, rel)
+        # Deshacer B vuelve a A; deshacer A, al mod de antes.
+        p.ws.undo()
+        for rel in histories(files_a) | histories(files_b):
+            self.assertEqual(effective(rel), files_a.get(rel), rel)
+        p.ws.undo()
+        for rel in histories(files_a) | histories(files_b):
+            self.assertIsNone(effective(rel), rel)
+        for rel, text in old.items():
+            self.assertEqual(effective(rel), text.encode("cp1252"), rel)
+        self.assertFalse(p.ws.can_undo())
+        p.ws.redo()
+        p.ws.redo()
+        p.save()
+        # En el disco, una sola historia por provincia: justo las de B, sin nada de A ni del mod de antes.
+        root = self.game.mod_root
+        on_disk = {path.relative_to(root).as_posix() for folder in ex.REPLACED_FOLDERS
+                   for path in (root / folder).rglob("*") if path.is_file()}
+        self.assertEqual(on_disk, histories(files_b))
+        ids = Counter(int(rel.rsplit("/", 1)[1].split(" ")[0]) for rel in on_disk
+                      if rel.startswith("history/provinces/"))
+        self.assertEqual(sorted(ids), list(range(1, world_b.raster.land_count + 1)))
+        self.assertEqual(set(ids.values()), {1})
+
+    def test_exporting_after_undoing_since_the_review_trashes_what_is_there_now(self):
+        """La papelera de la revisión puede quedarse vieja: se prepara la revisión de C con B exportado sin guardar
+        y antes de «Exportar al mod» se deshace B (Ctrl+Z en la ventana). Esa lista nombraba los archivos nuevos de
+        B, que ya no están (``delete`` lanzaba), y no los de A, que han vuelto. La exportación mira la papelera al
+        aplicar: nada de A ni de B ni del mod de antes sobrevive y deshacer C vuelve a A."""
+        from vic2studio.core.project.codecs import codec_for
+        from vic2studio.core.project.project import Project
+
+        self.game.cleanup()
+        self.project.close()
+        old = {"history/provinces/zz/1 - Vieja.txt": "owner = AAA\r\n",
+               "history/diplomacy/Alliances.txt": "alliance = { first = AAA second = BBB start_date = 1836.1.1 "
+                                                  "end_date = 1936.1.1 }\r\n"}
+        self.game = build_map_minigame(clean=True, mod_files=old)
+        self.addCleanup(self.game.cleanup)
+        p = Project.open(self.game.game_root, self.game.mod_root)
+        self.addCleanup(lambda: p.close(discard=True))
+
+        def effective(rel):
+            try:
+                handle = p.ws.open(rel)
+            except FileNotFoundError:
+                return None
+            return bytes(codec_for(handle.kind).snapshot(handle.model))
+
+        def histories(files):
+            return {rel for rel in files if rel.startswith(tuple(f"{f}/" for f in ex.REPLACED_FOLDERS))}
+
+        exported = {}
+        for label, seed in (("a", 3), ("b", 5)):
+            world = tiny_world(seed)
+            inputs = ex.gather_inputs(p, world)
+            exported[label], _ = ex.render_files(world, inputs)
+            ex.apply_export(p, exported[label], inputs)     # «b», antes: FileNotFoundError (Alliances.txt)
+        world_c = tiny_world(7)
+        inputs_c = ex.gather_inputs(p, world_c)
+        files_c, _ = ex.render_files(world_c, inputs_c)
+        p.ws.undo()                                         # B deshecho después de preparar la revisión de C
+        ex.apply_export(p, files_c, inputs_c)               # antes: FileNotFoundError (un archivo nuevo de B)
+        p.ws.undo()
+        for rel in histories(exported["a"]) | histories(files_c):
+            self.assertEqual(effective(rel), exported["a"].get(rel), rel)
+        p.ws.redo()
+        p.save()
+        root = self.game.mod_root
+        on_disk = {path.relative_to(root).as_posix() for folder in ex.REPLACED_FOLDERS
+                   for path in (root / folder).rglob("*") if path.is_file()}
+        self.assertEqual(on_disk, histories(files_c))
+        ids = Counter(int(rel.rsplit("/", 1)[1].split(" ")[0]) for rel in on_disk
+                      if rel.startswith("history/provinces/"))
+        self.assertEqual(sorted(ids), list(range(1, world_c.raster.land_count + 1)))
+        self.assertEqual(set(ids.values()), {1})
+
     def test_audit_finds_old_province_ids_in_events(self):
         p = self.project
         world = tiny_world(3)

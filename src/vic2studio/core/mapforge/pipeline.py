@@ -24,7 +24,7 @@ from ..cancel import CancelCheck, raise_if_cancelled
 from . import biomes, climate, economy, edits as edit_ops, graph, hydro, nations, partition, rasterize, reconcile, \
     relief, society, textures
 from .data.templates import TEMPLATES
-from .names import MarkovNames
+from .names import MarkovNames, script_keys
 from .params import ForgeParams, Level, Owners
 from .world import CLIMATES, CellLayers, ForgeRaster, ForgeWorld, InstallProfile, StepState
 
@@ -222,7 +222,11 @@ def _names(world: ForgeWorld, ctx: StepContext) -> ForgeWorld:
     n_cont = int(t.continent.max()) + 1 if t.continent is not None and t.continent.size and t.continent.max() >= 0 \
         else 0
     names = list(p.continents) or list(world.install.continents)
-    ent["continent_names"] = [names[i] if i < len(names) else f"forge_continent_{i + 1}" for i in range(n_cont)]
+    # Son las claves de map/continent.txt (y las carpetas de history/provinces): lo escrito en «Continentes» que
+    # no es una clave ('Европа', 'North America') pasa a una válida y distinta; el nombre escrito va a la
+    # localización (export.localisation).
+    ent["continent_names"] = script_keys([names[i] if i < len(names) else f"forge_continent_{i + 1}"
+                                          for i in range(n_cont)], keep=world.install.continents)
     ent["climate_names"] = _climate_names(world.install)
     ent["names_seed"] = int(ctx.rng.integers(2 ** 31))
     world = world.evolve(entities=ent)

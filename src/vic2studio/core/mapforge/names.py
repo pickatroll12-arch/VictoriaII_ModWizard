@@ -196,3 +196,42 @@ def ascii_name(s: str) -> str:
 def key_name(s: str) -> str:
     """Clave de script (estados, continentes): ASCII en minúsculas con guiones bajos."""
     return re.sub(r"[^a-z0-9_]", "", ascii_name(s).lower().replace(" ", "_").replace("-", "_")) or "x"
+
+
+def script_key(text) -> str:
+    """Una clave de script hecha de ``text``: ASCII en minúsculas, con '_' por los espacios y los guiones y sin nada
+    más ('North America' → 'north_america', 'Łódź' → 'lodz'). '' si no le queda ninguna letra (otra escritura, como
+    'Европа', o solo cifras y signos)."""
+    t = unicodedata.normalize("NFKD", cp1252_text(str(text))).encode("ascii", "ignore").decode("ascii").lower()
+    t = re.sub(r"[^a-z0-9_]", "", re.sub(r"[\s\-]+", "_", t))
+    t = re.sub(r"_+", "_", t).strip("_")
+    return t if re.search(r"[a-z]", t) else ""
+
+
+def script_keys(names, keep=(), fallback: str = "forge_continent_{n}") -> list[str]:
+    """Una clave de script válida y distinta para cada nombre de ``names`` (los continentes escritos en el taller,
+    que van como claves de ``map/continent.txt``). Las claves de ``keep`` (las de la instalación, que el juego ya usa)
+    se respetan, también escritas con otras mayúsculas o como nombre ('North America' → 'north_america'); un nombre
+    que ya es una clave se queda ('west_land', 'Europa'); los demás pasan por ``script_key`` ('Łódź Land' →
+    'lodz_land') o, si no queda nada ('Европа'), por ``fallback`` con su número (desde 1). Una clave repetida (sin
+    mirar mayúsculas) lleva ``_2``, ``_3``… Da lo mismo aplicarla otra vez a lo que devuelve. Antes cada nombre iba
+    tal cual: 'Европа' daba la clave vacía (' = {') y 'North America', una clave partida."""
+    known = {str(k).lower(): str(k) for k in keep}
+    out: list[str] = []
+    used: set[str] = set()
+    for i, raw in enumerate(names):
+        name = str(raw).strip()
+        if name.lower() in known:
+            key = known[name.lower()]
+        elif re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", name):
+            key = name
+        else:
+            key = script_key(name)
+            key = known.get(key, key) or fallback.format(n=i + 1)
+        base, n = key, 2
+        while key.lower() in used:
+            key = f"{base}_{n}"
+            n += 1
+        used.add(key.lower())
+        out.append(key)
+    return out

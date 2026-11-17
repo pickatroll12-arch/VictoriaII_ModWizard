@@ -45,7 +45,7 @@ class ExportInputs:
     oob_paths: list = field(default_factory=list)             # history/units/... citadas que existen
     bookmarks: bytes | None = None
     region_sea_cites: bool = False
-    mod_trash: list = field(default_factory=list)             # archivos del propio mod bajo carpetas reemplazadas
+    mod_trash: list = field(default_factory=list)             # del mod bajo carpetas reemplazadas (``_mod_trash``)
     replace_paths: list = field(default_factory=list)
     has_descriptor: bool = False
     taken_tags: list = field(default_factory=list)            # TAG registrados en el proyecto («Mundo» no los pisa)
@@ -253,6 +253,16 @@ def localisation(world: ForgeWorld, prefix: str) -> bytes:
     for s in np.unique(st[st >= 0]).tolist():
         n = loc_name(sn[s] if s < len(sn) else None, kept_s.get(str(s))) or state_key(prefix, s)
         rows.append(f"{state_key(prefix, s)};{n};{n};{n};;{n};;;;;;;;;x")
+    # Un continente nuevo escrito en «Continentes» que no era una clave ('Łódź Land' → lodz_land) se ve en el juego
+    # con lo escrito; si no le queda nada que el juego sepa escribir ('Европа'), con su clave. Los de la instalación
+    # ('North America' → north_america) ya tienen sus textos, en cada idioma.
+    typed = list(world.params.continents)
+    known = set(world.install.continents) if world.install is not None else set()
+    cont = r.continent[1:r.land_count + 1]
+    for k, key in enumerate(world.entities.get("continent_names") or []):
+        n = loc_name(typed[k]) if k < len(typed) else None
+        if n and n != key and key not in known and (cont == k).any():
+            rows.append(f"{key};{n};{n};{n};;{n};;;;;;;;;x")
     return _lines(rows)
 
 
@@ -427,8 +437,6 @@ def render_files(world: ForgeWorld, inputs: ExportInputs) -> tuple[dict[str, byt
 def gather_inputs(project, world: ForgeWorld, index=None) -> ExportInputs:
     """Lee del proyecto lo que la exportación necesita (lecturas de la VFS; no escribe nada). ``index`` (el de la
     sesión) da los TAG registrados para «Mundo»; sin él se usa ``project.index`` si lo hay."""
-    from ..vfs.model import LayerKind
-
     vfs = project.vfs
     inputs = ExportInputs(prefix=project.settings.prefix or "MOD")
     oob: set[str] = set()
@@ -445,12 +453,7 @@ def gather_inputs(project, world: ForgeWorld, index=None) -> ExportInputs:
     rs = vfs.resolve("map/region_sea.txt")
     if rs is not None:
         inputs.region_sea_cites = bool(re.search(rb"\d", re.sub(rb"#[^\r\n]*", b"", vfs.read_bytes(rs))))
-    trash = []
-    for folder in (*REPLACED_FOLDERS, "map/cache"):
-        for entry in vfs.list(folder, "*", recursive=True):
-            if entry.layer.kind is LayerKind.MOD:
-                trash.append(str(entry.rel))
-    inputs.mod_trash = sorted(set(trash))
+    inputs.mod_trash = _mod_trash(project)
     inputs.has_descriptor = getattr(project, "descriptor", None) is not None
     desc = _live_descriptor(project)
     inputs.replace_paths = list(desc.replace_paths) if desc is not None else []
@@ -460,6 +463,33 @@ def gather_inputs(project, world: ForgeWorld, index=None) -> ExportInputs:
         index = index if index is not None else getattr(project, "index", None)
         inputs.taken_tags = sorted(taken_tags(index)) if index is not None else []
     return inputs
+
+
+def _mod_trash(project) -> list[str]:
+    """Los archivos del propio mod bajo las carpetas reemplazadas (y ``map/cache``) en la vista efectiva, con lo sin
+    guardar: los del disco que el ``Workspace`` no ha borrado y los documentos nuevos o cambiados del mod que aún no
+    están en el disco. Volver a exportar sin guardar no puede volver a borrar lo que borró la exportación anterior
+    (``Workspace.delete`` lanza con una lápida) y sí tiene que quitar los archivos nuevos de aquella que esta no
+    escribe: si no, al guardar quedaban provincias con dos historias. Barato (va en el hilo de la interfaz): el
+    listado de la VFS, un ``peek`` por archivo y los documentos sucios."""
+    from ..vfs.model import LayerKind
+
+    folders = tuple(f"{folder}/".upper() for folder in (*REPLACED_FOLDERS, "map/cache"))
+    ws = getattr(project, "ws", None)
+    trash: dict[str, str] = {}
+    for folder in (*REPLACED_FOLDERS, "map/cache"):
+        for entry in project.vfs.list(folder, "*", recursive=True):
+            if entry.layer.kind is not LayerKind.MOD:
+                continue
+            handle = ws.peek(entry.rel) if ws is not None else None
+            if handle is None or not handle.deleted:
+                trash[entry.rel.key] = str(entry.rel)
+    for handle in ws.dirty() if ws is not None else ():
+        if handle.deleted or not handle.rel.key.startswith(folders):
+            continue
+        if handle.origin is None or handle.origin.layer.kind is LayerKind.MOD:
+            trash.setdefault(handle.rel.key, str(handle.rel))
+    return sorted(trash.values())
 
 
 CLASS_OF = (("map/provinces.bmp", "A"), ("map/definition.csv", "A"), ("map/default.map", "A"),
@@ -512,13 +542,17 @@ def apply_export(project, files: dict[str, bytes], inputs: ExportInputs, *, extr
     taller (``extra``) y, con un ``world`` de «Mundo», los países y las culturas nuevas (``nations.apply_world``).
     ``domain`` es el ``DomainContext`` de quien llama (índice, textos, entidades); sin él se usa ``project``.
     Devuelve las rutas tocadas. Si algo falla, la transacción se revierte entera.
-    ``transaction(label, **fmt)`` es la de quien llama (la sesión de la interfaz); por defecto, la del ``Workspace``."""
+    ``transaction(label, **fmt)`` es la de quien llama (la sesión de la interfaz); por defecto, la del ``Workspace``.
+
+    La papelera se vuelve a mirar aquí (``_mod_trash``) en vez de fiarse de ``inputs.mod_trash``, que es la de la
+    revisión: entre la revisión y «Exportar al mod» se puede deshacer o rehacer otra exportación sin guardar, y
+    entonces aquella lista nombra archivos que ya no están (``delete`` lanzaba) o le faltan los que han vuelto."""
     from ..project.binary import put_bytes
 
     ws = project.ws
     touched: list[str] = []
     with (transaction or ws.transaction)(label, files=len(files)) as txn:
-        doomed = [rel for rel in inputs.mod_trash if rel not in files]
+        doomed = [rel for rel in _mod_trash(project) if rel not in files]
         if doomed:
             ws.delete_many(doomed)
         for rel in sorted(files):

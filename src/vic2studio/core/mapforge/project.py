@@ -25,6 +25,7 @@ import numpy as np
 import PIL
 
 from .edits import NAME_FALLBACKS, EditOp
+from .names import script_keys
 from .params import ForgeParams
 from .world import ForgeWorld, ProvisionalTable, StepState
 
@@ -150,6 +151,10 @@ class MapForgeProject:
             vals["goods"] = meta.get("goods")
             prov = ProvisionalTable(**vals)
         entities = dict(meta.get("entities") or {})
+        if entities.get("continent_names"):
+            # Abrir no rehace el paso de nombres: un proyecto guardado antes llevaba lo escrito en «Continentes» tal
+            # cual ('Европа'), que no es una clave de script. Pasa a las mismas claves que da ese paso.
+            entities["continent_names"] = script_keys(entities["continent_names"], keep=world.install.continents)
         if "pairs" in arrays:
             entities["pairs"] = arrays["pairs"]
         steps = {k: StepState(v) for k, v in (meta.get("steps") or {}).items()}
