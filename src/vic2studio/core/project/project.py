@@ -26,9 +26,10 @@ from contextlib import AbstractContextManager
 from pathlib import Path
 
 from ..cancel import CancelCheck, raise_if_cancelled
-from ..modfile import DESCRIPTOR_SUFFIX, ModDescriptor, find_descriptor, read_descriptor
+from ..clausewitz import ParseResult
+from ..modfile import DESCRIPTOR_SUFFIX, ModDescriptor, descriptor_from_result, find_descriptor, read_descriptor
 from ..vfs.model import DocKind
-from ..vfs.paths import VPath
+from ..vfs.paths import DESCRIPTOR_REL, VPath
 from ..vfs.vfs import VirtualFS, resolve_dependencies
 from . import journal
 from .lock import ProjectLock
@@ -152,6 +153,33 @@ class Project:
             existing = bytes(handle.model) if handle.origin is not None or handle.dirty else None
             self.ws.replace_model(handle, render_settings(settings, existing))
             self._on_event(DocReplaced(SETTINGS_REL))   # visible ya dentro de una transacción exterior
+
+    def current_replace_paths(self) -> tuple[str, ...]:
+        """Las ``replace_path`` del descriptor tal como está ahora: el documento abierto (con lo sin guardar; si
+        está borrado, ninguna) o, si no está abierto, el archivo. No abre nada en el ``Workspace``."""
+        handle = self.ws.peek(DESCRIPTOR_REL)
+        path = self.vfs.descriptor_path or Path()
+        if handle is not None:
+            if handle.deleted or not isinstance(handle.model, ParseResult):
+                return ()
+            return descriptor_from_result(path, handle.model).replace_paths
+        if self.vfs.descriptor_path is None:
+            return ()
+        parsed = read_descriptor(path)
+        return parsed.replace_paths if parsed is not None else ()
+
+    def sync_replace_paths(self) -> bool:
+        """Lleva a la VFS las ``replace_path`` del descriptor de ahora (``current_replace_paths``); True si cambiaron.
+
+        Al abrir, la VFS toma las del archivo; luego cambian sin volver a abrir: «Exportar al mod» del taller las
+        añade al documento del descriptor, deshacerlo las quita, se escriben a mano en la sala Proyecto o las cambia
+        otro programa. Si cambian, se sueltan los documentos limpios de archivos del juego que quedan ocultos
+        (``Workspace.forget_hidden``); lo calculado con las de antes (índice, textos, mapa) lo rehace quien lo
+        tenga. Sin cambios no hace nada más que leer el descriptor."""
+        if not self.vfs.set_replace_paths(self.current_replace_paths()):
+            return False
+        self.ws.forget_hidden()
+        return True
 
     def _on_event(self, event) -> None:
         if isinstance(event, (DocChanged, DocReplaced, DocCreated, DocDeleted)) and event.rel.key == SETTINGS_REL.key:

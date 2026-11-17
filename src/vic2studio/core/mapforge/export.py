@@ -451,8 +451,8 @@ def gather_inputs(project, world: ForgeWorld, index=None) -> ExportInputs:
             if entry.layer.kind is LayerKind.MOD:
                 trash.append(str(entry.rel))
     inputs.mod_trash = sorted(set(trash))
-    desc = getattr(project, "descriptor", None)
-    inputs.has_descriptor = desc is not None
+    inputs.has_descriptor = getattr(project, "descriptor", None) is not None
+    desc = _live_descriptor(project)
     inputs.replace_paths = list(desc.replace_paths) if desc is not None else []
     if world.params.level is Level.WORLD:
         from ..domain.tags import taken_tags
@@ -534,11 +534,31 @@ def apply_export(project, files: dict[str, bytes], inputs: ExportInputs, *, extr
     return touched
 
 
+def _live_descriptor(project):
+    """El descriptor tal como está ahora: el documento abierto (con lo sin guardar) o, sin abrir, el archivo.
+    ``project.descriptor`` es el que se leyó al abrir el proyecto: tras editarlo en la sala Proyecto (o tras otra
+    exportación) se quedaba atrás, y la exportación devolvía el descriptor a ese estado (el nombre de antes, sin la
+    ``replace_path`` añadida a mano). None si el proyecto no tiene descriptor."""
+    from ..clausewitz import ParseResult
+    from ..modfile import descriptor_from_result, read_descriptor
+    from ..vfs.paths import DESCRIPTOR_REL
+
+    desc = getattr(project, "descriptor", None)
+    if desc is None:
+        return None
+    handle = project.ws.peek(DESCRIPTOR_REL)
+    if handle is None:
+        return read_descriptor(desc.file, location=desc.location) or desc
+    if handle.deleted or not isinstance(handle.model, ParseResult):
+        return desc
+    return descriptor_from_result(desc.file, handle.model, location=desc.location)
+
+
 def _add_replace_paths(project) -> None:
     from ..modfile import DescriptorSpec, apply_descriptor
     from ..vfs.paths import DESCRIPTOR_REL
 
-    desc = project.descriptor
+    desc = _live_descriptor(project)
     if desc is None:
         return
     have = {p.strip("/").replace("\\", "/") for p in desc.replace_paths}

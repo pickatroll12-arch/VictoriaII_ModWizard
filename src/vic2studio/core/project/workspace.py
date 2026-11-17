@@ -405,6 +405,24 @@ class Workspace:
         self._check()
         return sorted(self._store, key=lambda h: h.rel.key)
 
+    def forget_hidden(self) -> list[VPath]:
+        """Suelta los documentos limpios de archivos del juego que ``replace_path`` oculta ahora (tras
+        ``VirtualFS.set_replace_paths``), como los soltaría la LRU: nunca los sucios, las lápidas, los de la pila
+        de deshacer ni los de una transacción abierta. Abiertos, ``open`` los seguía dando y la vista efectiva de
+        los registros (``core.schema.Entities``) los contaba aunque el juego ya no los cargue. Devuelve sus rutas."""
+        self._check()
+        pinned = self._undo.referenced() | {k for f in self._frames for k in f._states}
+        dropped: list[VPath] = []
+        for handle in list(self._store):
+            origin = handle.origin
+            if handle.dirty or handle.deleted or origin is None or handle.rel.key in pinned:
+                continue
+            if self._vfs.hidden_by_replace_path(origin):
+                self._store.discard(handle.rel)
+                self._snap.pop(handle.rel.key, None)
+                dropped.append(handle.rel)
+        return dropped
+
     def _evict(self, keep: str | None = None) -> None:
         """Expulsa documentos limpios de la LRU; nunca los de la pila de deshacer, la transacción ni ``keep``
         (el que se acaba de abrir: quien llamó a ``open`` lo va a usar)."""

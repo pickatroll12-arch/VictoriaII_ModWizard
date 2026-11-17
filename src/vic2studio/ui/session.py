@@ -26,6 +26,11 @@ huérfanas y el autoguardado (``Workspace.AUTOSAVE_SECONDS`` y cada
   ``REINDEX_DELAY_MS`` (300 ms), se reextraen sus hechos de su ``snapshot`` en segundo
   plano y se aplican en el hilo de la interfaz (``SymbolIndex.apply``); emite
   ``symbolsChanged`` con los tipos afectados. ``rebuild_index`` lo rehace entero.
+- **Las ``replace_path`` del descriptor** siguen al documento vivo: cuando una edición, un
+  deshacer o rehacer (el de «Exportar al mod» del taller), un guardado, una recarga o
+  ``check_external_changes`` las cambian, la VFS las toma antes de avisar
+  (``Project.sync_replace_paths``) y el índice se pone al día con un reindexado estructural;
+  antes se fijaban al abrir.
 - **Localización** (``locsync``): ``core.locsync.LocSync`` sobre el ``Workspace``; sus
   CSV del disco se leen al abrir en segundo plano (``textsReady``); ``textsChanged``
   avisa cuando cambian los textos efectivos (ediciones, deshacer, recargas).
@@ -88,7 +93,7 @@ from ..core.project import (
     Workspace,
 )
 from ..core.project.codecs import codec_for
-from ..core.vfs import LayerKind, VPath
+from ..core.vfs import DESCRIPTOR_REL, LayerKind, VPath
 from ..i18n import N_, language
 from .tasks import POOL_INDEX, POOL_PREVIEW, POOL_VALIDATION, TaskRunner
 
@@ -357,6 +362,7 @@ class Session(QObject):
         self._pending: set[VPath] = set()
         self._content: set[VPath] = set()   # rutas cuyo contenido cambió (reindexar, textos)
         self._structural = False            # se creó o se borró algún documento (cambia el orden de capas)
+        self._replace_check = False         # mirar las replace_path del descriptor aunque no se haya tocado
         self._depth = 0
         self._last_dirty = 0
         self._working_date = DEFAULT_WORKING_DATE
@@ -385,6 +391,7 @@ class Session(QObject):
         self._reindex_pending: dict[str, VPath] = {}
         self._reindex_inflight: dict[str, VPath] = {}
         self._reindex_structural = False
+        self._replace_refresh = False       # rehacer los hechos del mapa cuando el índice tenga las replace_path nuevas
         self._reindex_timer = QTimer(self)
         self._reindex_timer.setSingleShot(True)
         self._reindex_timer.setInterval(REINDEX_DELAY_MS)
@@ -515,6 +522,7 @@ class Session(QObject):
         self._pending.clear()
         self._content.clear()
         self._structural = False
+        self._replace_check = False
         if self._unsubscribe is not None:
             self._unsubscribe()
             self._unsubscribe = None
@@ -599,6 +607,7 @@ class Session(QObject):
         self._reindex_pending.clear()
         self._reindex_inflight.clear()
         self._reindex_structural = False
+        self._replace_refresh = False
         self._index = None
         self._index_state = IDLE
         self._index_error = None
@@ -639,6 +648,7 @@ class Session(QObject):
         project = self._project
         if project is None:
             return
+        self._replace_refresh = False       # con un índice nuevo, MapSession rehace sus hechos (``_on_index_state``)
         snapshot_of = getattr(project.vfs, "snapshot", None)
         if snapshot_of is None:
             self._index_state = FAILED
@@ -793,6 +803,12 @@ class Session(QObject):
             return
         kinds.update(symbol.kind for fact in facts for symbol in fact.defs)
         self.symbolsChanged.emit(kinds)
+        if self._replace_refresh and not self._reindex_pending and not self._reindex_timer.isActive():
+            # El índice ya oculta (o vuelve a mostrar) lo que dicen las replace_path nuevas: los hechos del mapa se
+            # rehacen con él. Si ya se estaban rehaciendo (tras exportar), esta petición sustituye a esa.
+            self._replace_refresh = False
+            if self._map is not None:
+                self._map.refresh_facts()
         if self._revalidate and not self._reindex_pending and not self._reindex_timer.isActive():
             self._revalidate = False
             self.validate()
@@ -1296,11 +1312,16 @@ class Session(QObject):
     # --- cambios externos y recuperación --------------------------------------------------------
 
     def check_external_changes(self) -> None:
-        """Al recuperar el foco la ventana: emite externalChanges si hay alguno."""
+        """Al recuperar el foco la ventana: emite externalChanges si hay alguno.
+
+        Un descriptor abierto y limpio que cambió fuera se recarga como cualquier documento; uno sin abrir se vuelve a
+        leer del disco por si otro programa le cambió las ``replace_path`` (``_sync_replace_paths``)."""
         if self._project is None:
             return
         with self._operation():
             changes = self._project.ws.check_external_changes()
+            if self._project.ws.peek(DESCRIPTOR_REL) is None:
+                self._replace_check = True
         if changes:
             self.externalChanges.emit(list(changes))
 
@@ -1386,10 +1407,14 @@ class Session(QObject):
         rels, self._pending = self._pending, set()
         content, self._content = self._content, set()
         structural, self._structural = self._structural, False
+        # Antes de avisar: quien reaccione a documentsChanged ya ve lo que oculta el descriptor de ahora.
+        replaced = self._sync_replace_paths(rels)
         if rels:
             self.documentsChanged.emit(rels)
         if self._project is not None and (content or structural):
             self._after_content_change(content, structural)
+        if replaced:
+            self._after_replace_paths()
         count = self.dirty_count()
         if count != self._last_dirty:
             self._last_dirty = count
@@ -1416,6 +1441,47 @@ class Session(QObject):
             self._forget_search_loc()
             if self._texts_ready:
                 self.textsChanged.emit()
+
+    def _sync_replace_paths(self, rels: Iterable[VPath]) -> bool:
+        """Si el descriptor está entre ``rels`` (una edición, deshacer o rehacer, un guardado, una recarga) o hay que
+        mirarlo (``check_external_changes``), lleva sus ``replace_path`` de ahora a la VFS
+        (``Project.sync_replace_paths``); True si cambiaron. Sin cambios solo cuesta leer el descriptor."""
+        check, self._replace_check = self._replace_check, False
+        project = self._project
+        if project is None:
+            return False
+        if not check and not any(VPath.of(rel).key == DESCRIPTOR_REL.key for rel in rels):
+            return False
+        sync = getattr(project, "sync_replace_paths", None)   # un proyecto falso de las pruebas puede no tenerlo
+        if sync is None:
+            return False
+        try:
+            return bool(sync())
+        except Exception:  # noqa: BLE001 - un descriptor que no se puede leer deja la vista como estaba
+            log.exception("no se pudieron aplicar las replace_path del descriptor")
+            return False
+
+    def _after_replace_paths(self) -> None:
+        """Cambiaron las carpetas que oculta el descriptor: cambia qué archivos del juego cuentan.
+
+        El índice ya tiene los hechos de todos los archivos de todas las capas (también los ocultos): basta un
+        reindexado con la instantánea nueva (``SymbolIndex.apply(snapshot=…)`` recalcula el ganador de las rutas que
+        se ocultan o reaparecen), que se pide con el descriptor como estructural. Rehacerlo entero
+        (``rebuild_index``) avisaba a todas las salas de todos los tipos (con VSM, la de estrechos se paraba 36 s
+        tras cada exportación). Cuando llega, los hechos del mapa se rehacen (``MapSession.refresh_facts``): sin
+        ráster nuevo, nadie más lo haría. El informe a la vista queda desfasado (también si el descriptor cambió
+        fuera sin estar abierto) y los textos efectivos pueden ser otros (``replace_path = "localisation"``):
+        ``LocSync`` ya los recalcula al ver otros archivos, pero el buscador guardaba la base de antes."""
+        stale = self.report_stale()
+        self._content_version += 1
+        if self.report_stale() != stale:
+            self.reportStaleChanged.emit()
+        if self._locsync is not None:
+            self._forget_search_loc()
+            if self._texts_ready:
+                self.textsChanged.emit()
+        self._replace_refresh = True
+        self._schedule_reindex([DESCRIPTOR_REL], True)
 
 
 def _is_loc(rel) -> bool:

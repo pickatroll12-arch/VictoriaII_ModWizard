@@ -5,6 +5,8 @@ Orden de prioridad: mod > dependencias (la última declarada primero) > juego.
 ``stack`` para comparar, nunca en ``resolve``); los del propio mod se siguen
 cargando (§5.3). ``replace_recursive`` decide si alcanza a las subcarpetas
 [verificar en juego]: la opción es explícita y las pruebas cubren los dos valores.
+Las carpetas siguen al descriptor vivo: ``set_replace_paths`` las cambia cuando
+cambian sus ``replace_path`` (``Project.sync_replace_paths``), sin volver a escanear.
 
 ``scan`` solo hace ``os.scandir``: no lee contenidos (I4). ``snapshot`` da una
 copia inmutable para los hilos de fondo (I12).
@@ -156,6 +158,18 @@ class VirtualFS:
     @property
     def replace_recursive(self) -> bool:
         return self._replace_recursive
+
+    def set_replace_paths(self, replace_paths: Sequence[str]) -> bool:
+        """Cambia las carpetas reemplazadas (las ``replace_path`` del descriptor tal como esté ahora, también sin
+        guardar); True si cambiaron. No lee ni escribe disco: ``resolve``, ``list``, ``snapshot`` y
+        ``hidden_by_replace_path`` las usan desde ya, y los listados guardados se olvidan. Quien tenga algo calculado
+        con las de antes (el índice, los textos) lo rehace él (``ui.session.Session``)."""
+        keys = tuple(sorted({k for k in (folder_key(p) for p in replace_paths) if k}))
+        if keys == self._replace:
+            return False
+        self._replace = keys
+        self._listing.clear()
+        return True
 
     # --- escaneo -----------------------------------------------------------------------
 
