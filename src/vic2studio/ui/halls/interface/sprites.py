@@ -13,6 +13,7 @@ from ....i18n import N_
 from ...interface.import_dialog import NewSpriteDialog
 from ...interface.sprite_browser import SpriteBrowser
 from ...pages.base import BasePage
+from ...session import replace_paths_touch
 
 
 class SpritesPage(BasePage):
@@ -29,6 +30,7 @@ class SpritesPage(BasePage):
         session.projectOpened.connect(self.reload)
         session.projectClosed.connect(self.reload)
         session.documentsChanged.connect(self._on_documents)
+        session.replacePathsChanged.connect(self._on_replace_paths)
         self.reload()
 
     def build(self) -> None:
@@ -41,6 +43,11 @@ class SpritesPage(BasePage):
 
     def _on_documents(self, rels) -> None:
         if rels is None or any(str(rel).lower().startswith(("interface/", "gfx/")) for rel in rels):
+            self.reload()
+
+    def _on_replace_paths(self, folders) -> None:
+        """Otras ``replace_path``: los ``.gfx`` y las texturas del juego dejan de contar, o vuelven."""
+        if replace_paths_touch(folders, "interface", "gfx"):
             self.reload()
 
     def reload(self, *args) -> None:

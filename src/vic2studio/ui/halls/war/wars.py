@@ -23,6 +23,7 @@ from ...pages.base import BasePage
 from ...pickers.fields import SymbolPicker
 from ...pickers.province_picker import LAND, ProvincePicker
 from ...pickers.tag_picker import SymbolListPicker, TagPicker
+from ...session import replace_paths_touch
 from ...widgets import make_icon, mark_data
 from .war_timeline import WarTimeline
 
@@ -263,6 +264,7 @@ class WarsPage(BasePage):
         session.projectOpened.connect(self.reload)
         session.projectClosed.connect(self.reload)
         session.documentsChanged.connect(self._on_documents)
+        session.replacePathsChanged.connect(self._on_replace_paths)
         session.workingDateChanged.connect(self.reload)
         session.indexStateChanged.connect(self.reload)
         self.reload()
@@ -334,6 +336,12 @@ class WarsPage(BasePage):
 
     def _on_documents(self, rels) -> None:
         if any(str(rel).lower().startswith(core_war.WARS_FOLDER + "/") for rel in rels or ()):
+            self.reload()
+
+    def _on_replace_paths(self, folders) -> None:
+        """Otras ``replace_path`` (a mano, cambiadas fuera, «Exportar al mod» o deshacerlo): las guerras del juego
+        dejan de contar, o vuelven, sin que se nombre ningún archivo de ``history/wars``."""
+        if replace_paths_touch(folders, core_war.WARS_FOLDER):
             self.reload()
 
     def reload(self, *args) -> None:

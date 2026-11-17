@@ -7,7 +7,8 @@
 - ``picture_manager``: imágenes de eventos, decisiones, banderas, tecnologías, noticias y pantallas de carga.
 
 Aquí, lo común: el origen de los archivos (el ``Workspace`` vivo), el renderizador con su caché (se rehace
-cuando cambia algún ``.gfx``, ``.gui`` o archivo de ``gfx/``) y la conversión de imágenes de Pillow a Qt.
+cuando cambia algún ``.gfx``, ``.gui`` o archivo de ``gfx/``, o las ``replace_path`` de la vista) y la conversión de
+imágenes de Pillow a Qt.
 ``VIC2STUDIO_NO_GAME_ART`` (lo pone ``tools/screenshot.py --no-game-art``) apaga el arte del juego.
 """
 
@@ -36,12 +37,17 @@ def source_of(session):
 
 
 class RendererCache:
-    """El ``GuiRenderer`` de la sesión, rehecho solo cuando cambia algo de ``interface/`` o ``gfx/``."""
+    """El ``GuiRenderer`` de la sesión, rehecho solo cuando cambia algo de ``interface/`` o ``gfx/`` o las
+    ``replace_path`` de la VFS (que pueden ocultar los ``.gfx`` del juego sin que se nombre ninguno).
+
+    Las ``replace_path`` se comparan al pedirlo, no con una señal: las salas que lo piden al recibir
+    ``replacePathsChanged`` se conectaron antes que la caché y lo pedirían antes de que se enterase."""
 
     def __init__(self, session) -> None:
         self.session = session
         self._renderer = None
         self._project = None
+        self._replaced = None
         if hasattr(session, "documentsChanged"):
             session.documentsChanged.connect(self._on_documents)
         if hasattr(session, "projectClosed"):
@@ -59,11 +65,14 @@ class RendererCache:
         if project is None:
             return None
         allowed = game_art_allowed() if game_art is None else game_art
-        if self._renderer is None or self._project is not project or self._renderer.game_art != allowed:
+        replaced = getattr(getattr(project, "vfs", None), "replace_paths", None)
+        if self._renderer is None or self._project is not project or self._renderer.game_art != allowed \
+                or self._replaced != replaced:
             from ...core.gui.render import GuiRenderer
 
             self._renderer = GuiRenderer.from_source(source_of(self.session), game_art=allowed)
             self._project = project
+            self._replaced = replaced
         return self._renderer
 
 

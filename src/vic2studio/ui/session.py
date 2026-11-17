@@ -30,7 +30,11 @@ huérfanas y el autoguardado (``Workspace.AUTOSAVE_SECONDS`` y cada
   deshacer o rehacer (el de «Exportar al mod» del taller), un guardado, una recarga o
   ``check_external_changes`` las cambian, la VFS las toma antes de avisar
   (``Project.sync_replace_paths``) y el índice se pone al día con un reindexado estructural;
-  antes se fijaban al abrir.
+  antes se fijaban al abrir. ``replacePathsChanged`` lleva las carpetas que empiezan o dejan de
+  ocultar archivos del juego (una sola vez, sin nombrar los miles de archivos que cambian de
+  estado): quien liste una carpeta (las guerras, la diplomacia, las ventanas, los sprites, las
+  imágenes) la vuelve a leer si le toca (``replace_paths_touch``); y el ``symbolsChanged`` del
+  reindexado que las aplica lleva todos los tipos.
 - **Localización** (``locsync``): ``core.locsync.LocSync`` sobre el ``Workspace``; sus
   CSV del disco se leen al abrir en segundo plano (``textsReady``); ``textsChanged``
   avisa cuando cambian los textos efectivos (ediciones, deshacer, recargas).
@@ -94,6 +98,7 @@ from ..core.project import (
 )
 from ..core.project.codecs import codec_for
 from ..core.vfs import DESCRIPTOR_REL, LayerKind, VPath
+from ..core.vfs.paths import folder_key
 from ..i18n import N_, language
 from .tasks import POOL_INDEX, POOL_PREVIEW, POOL_VALIDATION, TaskRunner
 
@@ -302,6 +307,20 @@ def document_overrides(project, rels: Iterable[VPath | str] | None = None) -> di
     return overrides
 
 
+def replace_paths_touch(folders: Iterable[str], *prefixes: str) -> bool:
+    """True si cambiar lo que ocultan ``folders`` (las carpetas de ``Session.replacePathsChanged``) puede cambiar qué
+    archivos cuentan bajo alguna de ``prefixes`` (carpetas relativas, con ``/`` final o sin ella): la misma carpeta,
+    una de dentro o una que la contiene (``replace_recursive``). La raíz (``""``) las toca todas."""
+    wanted = [folder_key(prefix) for prefix in prefixes]
+    for folder in folders:
+        folder = folder_key(folder)
+        for prefix in wanted:
+            if not folder or not prefix or folder == prefix or folder.startswith(prefix + "/") \
+                    or prefix.startswith(folder + "/"):
+                return True
+    return False
+
+
 def _document_layer(handle) -> LayerKind:
     """Capa que representa un documento abierto: MOD si se escribirá en el mod; si no, la de su origen."""
     origin = handle.origin
@@ -316,6 +335,7 @@ class Session(QObject):
     projectOpenFailed = Signal(str, object)       # (clave i18n, formato)
     projectClosed = Signal()
     documentsChanged = Signal(object)             # set[VPath]
+    replacePathsChanged = Signal(object)          # frozenset[str]: carpetas que empiezan o dejan de ocultar archivos
     symbolsChanged = Signal(object)               # set[str] de tipos afectados (todos tras una construcción)
     dirtyChanged = Signal(int)                    # documentos sin guardar
     undoChanged = Signal()                        # cambió lo que se puede deshacer o rehacer
@@ -796,12 +816,21 @@ class Session(QObject):
                 kinds.update(symbol.kind for symbol in index.defs_in(rel))
             except Exception:  # noqa: BLE001
                 pass
+        # Si esta tanda pone el índice al día con otras replace_path, cambió qué archivos cuentan de cualquier tipo,
+        # no solo de los de la tanda: con otra edición en la misma, la sala Países (que solo mira ``tag`` y
+        # ``country_history``) no veía que ``replace_path = "common/countries"`` le quitaba los colores. Van todos
+        # los tipos, los de antes (uno que se oculta entero) y los de después.
+        replaced = self._replace_refresh and not self._reindex_pending and not self._reindex_timer.isActive()
+        if replaced:
+            kinds.update(self._safe_kinds())
         try:
             index.apply(facts, removed, snapshot=snapshot)
         except Exception:  # noqa: BLE001 - mejor un índice algo atrasado que una interfaz rota
             log.exception("no se pudo aplicar la reextracción al índice")
             return
         kinds.update(symbol.kind for fact in facts for symbol in fact.defs)
+        if replaced:
+            kinds.update(self._safe_kinds())
         self.symbolsChanged.emit(kinds)
         if self._replace_refresh and not self._reindex_pending and not self._reindex_timer.isActive():
             # El índice ya oculta (o vuelve a mostrar) lo que dicen las replace_path nuevas: los hechos del mapa se
@@ -1414,7 +1443,7 @@ class Session(QObject):
         if self._project is not None and (content or structural):
             self._after_content_change(content, structural)
         if replaced:
-            self._after_replace_paths()
+            self._after_replace_paths(replaced)
         count = self.dirty_count()
         if count != self._last_dirty:
             self._last_dirty = count
@@ -1442,26 +1471,32 @@ class Session(QObject):
             if self._texts_ready:
                 self.textsChanged.emit()
 
-    def _sync_replace_paths(self, rels: Iterable[VPath]) -> bool:
+    def _sync_replace_paths(self, rels: Iterable[VPath]) -> frozenset[str]:
         """Si el descriptor está entre ``rels`` (una edición, deshacer o rehacer, un guardado, una recarga) o hay que
         mirarlo (``check_external_changes``), lleva sus ``replace_path`` de ahora a la VFS
-        (``Project.sync_replace_paths``); True si cambiaron. Sin cambios solo cuesta leer el descriptor."""
+        (``Project.sync_replace_paths``). Devuelve las carpetas que cambiaron (las que se añaden y las que se quitan,
+        como claves de ``VirtualFS.replace_paths``); vacío si ninguna. Sin cambios solo cuesta leer el descriptor."""
         check, self._replace_check = self._replace_check, False
         project = self._project
         if project is None:
-            return False
+            return frozenset()
         if not check and not any(VPath.of(rel).key == DESCRIPTOR_REL.key for rel in rels):
-            return False
+            return frozenset()
         sync = getattr(project, "sync_replace_paths", None)   # un proyecto falso de las pruebas puede no tenerlo
         if sync is None:
-            return False
+            return frozenset()
+        vfs = getattr(project, "vfs", None)
+        before = set(getattr(vfs, "replace_paths", ()) or ())
         try:
-            return bool(sync())
+            if not sync():
+                return frozenset()
         except Exception:  # noqa: BLE001 - un descriptor que no se puede leer deja la vista como estaba
             log.exception("no se pudieron aplicar las replace_path del descriptor")
-            return False
+            return frozenset()
+        changed = before ^ set(getattr(vfs, "replace_paths", ()) or ())
+        return frozenset(changed) or frozenset({""})       # sin saber cuáles, la raíz: todas las carpetas
 
-    def _after_replace_paths(self) -> None:
+    def _after_replace_paths(self, folders: frozenset[str]) -> None:
         """Cambiaron las carpetas que oculta el descriptor: cambia qué archivos del juego cuentan.
 
         El índice ya tiene los hechos de todos los archivos de todas las capas (también los ocultos): basta un
@@ -1471,7 +1506,15 @@ class Session(QObject):
         tras cada exportación). Cuando llega, los hechos del mapa se rehacen (``MapSession.refresh_facts``): sin
         ráster nuevo, nadie más lo haría. El informe a la vista queda desfasado (también si el descriptor cambió
         fuera sin estar abierto) y los textos efectivos pueden ser otros (``replace_path = "localisation"``):
-        ``LocSync`` ya los recalcula al ver otros archivos, pero el buscador guardaba la base de antes."""
+        ``LocSync`` ya los recalcula al ver otros archivos, pero el buscador guardaba la base de antes.
+
+        ``documentsChanged`` solo nombra el descriptor: las salas que listan una carpeta y solo se rehacían si se
+        nombraba un archivo suyo (las guerras con ``replace_path = "history/wars"``) seguían enseñando los archivos
+        que el juego ya no carga. ``replacePathsChanged`` les dice qué ``folders`` cambiaron, una vez. Nombrar en
+        ``documentsChanged`` los archivos que se ocultan o reaparecen no sirve: ``MapSession`` rehace en el acto los
+        hechos de cada historia de provincia que recibe (con VSM, los 3063 archivos de historia de provincias y POPs
+        del juego eran 42 s en el hilo de la interfaz), y ``refresh_facts`` ya los rehace enteros en segundo plano."""
+        self.replacePathsChanged.emit(folders)
         stale = self.report_stale()
         self._content_version += 1
         if self.report_stale() != stale:
@@ -1494,5 +1537,5 @@ def _is_loc(rel) -> bool:
 __all__ = [
     "BUSY", "BaselineEngine", "DEFAULT_WORKING_DATE", "FAILED", "FIX_STEP_PREFIX", "IDLE", "IN_MEMORY_MODIFIED",
     "IN_MEMORY_NEW", "IndexEngine", "READY", "REINDEX_DELAY_MS", "Session", "ValidationEngine", "WAITING",
-    "document_overrides", "with_schema_problems",
+    "document_overrides", "replace_paths_touch", "with_schema_problems",
 ]

@@ -144,8 +144,14 @@ class ExportZipDialog(QDialog):
             self.refresh()
             return
         descriptor = getattr(getattr(project, "descriptor", None), "file", None)
-        replaced = getattr(getattr(project, "descriptor", None), "replace_paths", ())
         prune = self.prune_check.isChecked()
+        # Las replace_path del descriptor de ahora, no las leídas al abrir (``project.descriptor``): tras añadir
+        # una a mano (o con «Exportar al mod») y guardar, la poda daba por idéntica la copia del mod de un archivo
+        # que el descriptor del zip oculta en el juego, y el mod compartido se quedaba sin él. Exportar exige
+        # guardar antes, así que el descriptor vivo es el del disco que va en el zip.
+        current = getattr(project, "current_replace_paths", None)
+        replaced = current() if current is not None else getattr(getattr(project, "descriptor", None),
+                                                                  "replace_paths", ())
         mod_root, game_root = project.mod_root, project.game_root
         self._plan_runner.start(lambda ctx: zexport.plan_zip(
             mod_root, descriptor=descriptor, game_root=game_root, replace_paths=replaced, prune_identical=prune,

@@ -19,6 +19,7 @@ from ....i18n import N_, tr
 from ...countries import domain_context
 from ...pages.base import BasePage
 from ...pickers.tag_picker import TagPicker
+from ...session import replace_paths_touch
 from ...widgets import make_icon, mark_data
 from .wars import war_error_text
 
@@ -51,6 +52,7 @@ class DiplomacyPage(BasePage):
         session.projectOpened.connect(self.reload)
         session.projectClosed.connect(self.reload)
         session.documentsChanged.connect(self._on_documents)
+        session.replacePathsChanged.connect(self._on_replace_paths)
         session.workingDateChanged.connect(self.reload)
         self.reload()
 
@@ -144,6 +146,12 @@ class DiplomacyPage(BasePage):
 
     def _on_documents(self, rels) -> None:
         if any(str(rel).lower().startswith(core_war.DIPLOMACY_FOLDER + "/") for rel in rels or ()):
+            self.reload()
+
+    def _on_replace_paths(self, folders) -> None:
+        """Otras ``replace_path``: las relaciones del juego dejan de contar, o vuelven, sin que se nombre ningún
+        archivo de ``history/diplomacy``."""
+        if replace_paths_touch(folders, core_war.DIPLOMACY_FOLDER):
             self.reload()
 
     def reload(self, *args) -> None:
