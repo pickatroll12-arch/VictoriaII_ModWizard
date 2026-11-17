@@ -81,6 +81,27 @@ class MinigameRulesTests(unittest.TestCase):
             GameRules.from_snapshot(snap)
         self.assertTrue(any(path.endswith("provinces.bmp") and mode == "rb" for path, mode in opened))
 
+    def test_source_rels_are_every_file_it_reads(self):
+        """``SOURCE_RELS`` y el BMP de provincias son justo lo que se lee: el editor de mapa guarda las reglas y las
+        descarta cuando cambia uno de esos archivos (``ui.session_map``); un cargador nuevo sin su archivo ahí
+        dejaría al mapa con reglas viejas."""
+        from vic2studio.core.rules.game import SOURCE_RELS, _Reader
+
+        read: list[str] = []
+        real_read, real_head = _Reader.read, _Reader.head
+
+        def spy_read(reader, rel):
+            read.append(rel.key)
+            return real_read(reader, rel)
+
+        def spy_head(reader, rel, size):
+            read.append(rel.key)
+            return real_head(reader, rel, size)
+
+        with mock.patch.object(_Reader, "read", spy_read), mock.patch.object(_Reader, "head", spy_head):
+            GameRules.from_snapshot(snapshot(self.game))
+        self.assertEqual(set(read), {rel.key for rel in SOURCE_RELS} | {"MAP/PROVINCES.BMP"})
+
 
 @unittest.skipUnless(vanilla_root(), "requiere el corpus (VIC2_CORPUS)")
 class CorpusRulesTests(unittest.TestCase):

@@ -263,7 +263,7 @@ def with_schema_problems(report, context, *, cancelled=None):
     return replace(report, problems=tuple(sorted((*report.problems, *extra), key=_sort_key)))
 
 
-def document_overrides(project) -> dict[VPath, bytes | None]:
+def document_overrides(project, rels: Iterable[VPath | str] | None = None) -> dict[VPath, bytes | None]:
     """Bytes (``snapshot`` del códec) de los documentos sin guardar: lo que ven el índice, la validación (I7) y el
     mapa (``MapSession``).
 
@@ -274,9 +274,17 @@ def document_overrides(project) -> dict[VPath, bytes | None]:
     las banderas o un autoguardado los ponen enteros (``project.binary.put_bytes``). Sin ellos, tras «Exportar al
     mod» el editor de mapa y la validación leían el ``provinces.bmp`` viejo del disco junto al ``definition.csv``
     nuevo, y el mapa del taller no se veía hasta guardar.
+
+    Con ``rels``, solo los de esas rutas: quien lee pocos archivos (el ráster y las reglas del mapa) no serializa
+    los cientos de historias que deja sin guardar una exportación del taller.
     """
+    if rels is None:
+        handles = project.ws.dirty()
+    else:
+        peeked = (project.ws.peek(rel) for rel in {VPath.of(rel).key: VPath.of(rel) for rel in rels}.values())
+        handles = [handle for handle in peeked if handle is not None and handle.dirty]
     overrides: dict[VPath, bytes | None] = {}
-    for handle in project.ws.dirty():
+    for handle in handles:
         if VPath.of(handle.rel).key.startswith(PROJECT_DIR_PREFIX.upper() + "/"):
             continue
         if handle.deleted:

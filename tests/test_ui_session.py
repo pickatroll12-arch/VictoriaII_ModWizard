@@ -472,17 +472,34 @@ class IndexSessionTests(ServicesCase):
         (``put_bytes``: el ``provinces.bmp`` de «Exportar al mod», una bandera nueva) está en
         ``document_overrides`` con sus bytes y se reindexa como cualquier documento; abrirlo sin cambiarlo, no."""
         from vic2studio.core.project.binary import put_bytes
+        from vic2studio.core.project.codecs import codec_for
         from vic2studio.core.vfs import LayerKind, VPath
         from vic2studio.ui.session import document_overrides
 
         project = self.open()
+        # Un binario que ya existe (la bandera del juego) abierto sin cambiarlo no es un documento sin guardar.
+        opened = "gfx/flags/AAA.tga"
+        flag = project.ws.open(opened)
+        self.assertFalse(codec_for(flag.kind).writable, "un binario (bytes tal cual)")
+        self.assertFalse(flag.dirty)
+        self.assertEqual(document_overrides(project), {}, "abrir un binario sin cambiarlo no es un override")
+        self.assertEqual(document_overrides(project, [opened]), {})
+        self.assertFalse(self.session._index_behind(), "abrirlo no pide reindexar nada")
         rel = "gfx/flags/SIL.tga"
         data = bytes(range(256)) * 4
         with self.session.edit("pending.undo_revert", name=rel):
             put_bytes(project.ws, rel, data)
         self.assertEqual(document_overrides(project), {VPath.of(rel): data})
+        self.assertEqual(document_overrides(project, [opened, rel.upper()]), {VPath.of(rel): data},
+                         "con rutas, solo las sin guardar de esas")
+        self.assertEqual(document_overrides(project, [opened]), {})
         self.assertTrue(_qt.wait_until(lambda: (VPath.of(rel), LayerKind.MOD) in self.engines["index"].extracted,
                                        3000), self.engines["index"].extracted)
+        self.assertTrue(_qt.wait_until(lambda: not self.session._index_behind(), 3000))
+        reindexed = [path.key for path, _layer in self.engines["index"].extracted]
+        reindexed += [VPath.of(path).key for _facts, removed in self.session.index.applied for path, _layer in removed]
+        self.assertNotIn(VPath.of(opened).key, reindexed, "el abierto sin cambiar no se reindexa: no es un override")
+        self.assertIs(project.ws.peek(opened), flag)
         self.session.undo()
         self.assertEqual(document_overrides(project), {}, "deshecho, ya no hay nada sin guardar")
 

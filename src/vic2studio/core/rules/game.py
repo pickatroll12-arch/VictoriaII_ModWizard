@@ -33,6 +33,10 @@ BOOKMARKS_REL = VPath.of("common/bookmarks.txt")
 DEFAULT_MAP_REL = VPath.of("map/default.map")
 ISSUES_REL = VPath.of("common/issues.txt")
 GOVERNMENTS_REL = VPath.of("common/governments.txt")
+# Los archivos que lee ``from_snapshot`` (además de la cabecera del BMP de provincias que nombra ``default.map``):
+# quien guarde unas reglas las descarta cuando cambia uno de ellos (``ui.session_map``). Un cargador nuevo añade
+# aquí su archivo (``test_rules_game`` lo comprueba).
+SOURCE_RELS = (DEFINES_REL, BOOKMARKS_REL, DEFAULT_MAP_REL, ISSUES_REL, GOVERNMENTS_REL)
 PARTY_ISSUES = "party_issues"
 # Nombres por defecto de los archivos del mapa (los de vanilla, H5), por clave de default.map.
 DEFAULT_MAP_FILES = MappingProxyType({

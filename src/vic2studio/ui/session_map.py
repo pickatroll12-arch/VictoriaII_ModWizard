@@ -14,11 +14,20 @@ por ``session.map`` (se crea al pedirla) y vive lo que la sesión. Da tres cosas
    se rehacen al cambiar ``Session.working_date`` o al reconstruirse el índice. Tras una edición propia se
    actualizan en el acto (``ProvinceFacts.update``) y ``factsChanged`` lleva las provincias tocadas; tras un
    deshacer, un rehacer o una edición ajena (``Session.documentsChanged``), se actualizan las provincias de los
-   documentos tocados desde sus registros vivos.
+   documentos tocados desde sus registros vivos. Si se construyeron con un índice atrasado (el ráster recargado
+   tras «Exportar al mod» o deshacerla llega antes que la reindexación, ``REINDEX_DELAY_MS`` después) o el índice
+   cambió mientras se construían, se rehacen enteros una vez más cuando el índice se pone al día
+   (``Session.symbolsChanged``); no en cada ``symbolsChanged``, que llega tras cualquier edición.
 3. **Las ediciones del mapa**, cada una en una sola transacción de ``Session.edit`` con su etiqueta
    ``core.domain.province.UNDO_*`` (un trazo de brocha = un paso de deshacer): ``set_value``, ``paint``,
    ``set_core``, ``move_to_group``. Lanzan lo que lance el núcleo (``ProvinceError``, ``GroupError``); la página
    lo muestra.
+
+Las reglas (``rules``: ``GameRules``) salen de la vista efectiva, con lo sin guardar, como en la validación: tras
+exportar sin guardar, el ``sea_starts`` del ``default.map`` nuevo va con el ráster nuevo. Se calculan una vez y
+valen hasta que cambia uno de sus archivos (``core.rules.game.SOURCE_RELS`` o el BMP de provincias; guardarlos
+también cuenta) o se abre o cierra un proyecto; con otro mar, los hechos se rehacen enteros y ``provinces`` (que
+decide qué es mar para la brocha) se crea de nuevo.
 
 También guarda el estado compartido entre las páginas del mapa: la selección (``selection``) y el centro de la
 vista del lienzo en coordenadas del juego (``view_center``), que el editor de fechas de inicio usa para «Usar la
@@ -119,6 +128,10 @@ class MapSession(QObject):
         self._raster_rels: set[str] = set()
         self._wanted = False                 # alguien pidió el ráster: se recarga solo si cambian sus archivos
         self._provinces = None
+        self._rules_cache: tuple | None = None   # (proyecto, sus GameRules efectivas, claves de sus archivos)
+        self._facts_source: tuple[object, object] = (None, None)  # (índice, generación) que copió la última tarea
+        self._facts_rules = None             # las reglas con las que se pidieron (su mar)
+        self._facts_behind = False           # los hechos pueden no tener algo del índice: rehacer al ponerse al día
         self._raster_runner = TaskRunner(self, pool=POOL_MAP)
         self._raster_runner.finished.connect(self._on_raster_loaded)
         self._raster_runner.failed.connect(self._on_raster_failed)
@@ -130,6 +143,7 @@ class MapSession(QObject):
         session.projectOpened.connect(self._on_project_opened)
         session.workingDateChanged.connect(self._on_date_changed)
         session.indexStateChanged.connect(self._on_index_state)
+        session.symbolsChanged.connect(self._on_symbols_changed)
         session.documentsChanged.connect(self._on_documents_changed)
 
     # --- ráster -------------------------------------------------------------------------------------
@@ -149,23 +163,57 @@ class MapSession(QObject):
         return self._raster_error
 
     def rules(self):
-        """Las ``GameRules`` del proyecto abierto (None sin proyecto)."""
+        """Las ``GameRules`` del proyecto abierto, con lo sin guardar (None sin proyecto)."""
         return self._rules()
 
     def _rules(self):
-        project = self.session.project
-        return None if project is None else getattr(project, "rules", None) or self._snapshot_rules()
-
-    def _snapshot_rules(self):
+        """Las reglas de la vista efectiva, calculadas la primera vez que se piden tras abrir el proyecto o cambiar
+        uno de sus archivos (``_on_documents_changed``). Se piden a menudo (``groups``, ``_group_rel``,
+        ``refresh_facts``): leerlas cada vez eran media docena de archivos del disco."""
         project = self.session.project
         if project is None:
             return None
-        from ..core.rules.game import GameRules
+        fixed = getattr(project, "rules", None)
+        if fixed is not None:
+            return fixed
+        cached = self._rules_cache
+        if cached is None or cached[0] is not project:
+            rules = self._effective_rules(project)
+            cached = self._rules_cache = (project, rules, self._rules_keys(rules))
+        return cached[1]
+
+    @staticmethod
+    def _effective_rules(project):
+        """``GameRules`` de la instantánea de la VFS con los documentos sin guardar de los archivos que leen (como la
+        validación). Con solo el disco, tras «Exportar al mod» sin guardar el editor tenía el ráster nuevo con el
+        ``sea_starts`` del ``default.map`` viejo: el mar del mundo nuevo era tierra y la brocha le ponía dueño."""
+        from ..core.rules.game import SOURCE_RELS, GameRules
+        from .session import document_overrides
 
         try:
-            return GameRules.from_vfs(project.vfs)
-        except Exception:  # noqa: BLE001 - sin reglas se usan los nombres por defecto
+            snapshot = project.vfs.snapshot()
+            rels = [*SOURCE_RELS, _map_rel(None, "provinces", "provinces.bmp")]
+            rules = GameRules.from_snapshot(snapshot, document_overrides(project, rels))
+            bmp = _map_rel(rules, "provinces", "provinces.bmp")
+            if bmp.key not in {rel.key for rel in rels} and document_overrides(project, [bmp]):
+                # default.map nombra otro BMP de provincias, sin guardar: su cabecera da ``map_size``.
+                rules = GameRules.from_snapshot(snapshot, document_overrides(project, [*rels, bmp]))
+            return rules
+        except Exception as exc:  # noqa: BLE001 - sin reglas se usan los nombres por defecto
+            log.info("no se pudieron leer las reglas del mapa: %s", exc)
             return None
+
+    @staticmethod
+    def _rules_keys(rules) -> set[str]:
+        """Claves de los archivos de los que salen ``rules``: si cambia uno, ya no valen."""
+        from ..core.rules.game import SOURCE_RELS
+
+        return {rel.key for rel in SOURCE_RELS} | {_map_rel(rules, "provinces", "provinces.bmp").key}
+
+    def _forget_rules(self) -> None:
+        """Descarta las reglas calculadas y ``Provinces``, que se hizo con ellas (sabe qué provincias son mar)."""
+        self._rules_cache = None
+        self._provinces = None
 
     def load_raster(self, *, force: bool = False) -> bool:
         """Pide el ráster en segundo plano. False si no hay proyecto, si ya está listo o si ya se está cargando
@@ -185,7 +233,8 @@ class MapSession(QObject):
         terrain_rel = _map_rel(rules, "terrain", "terrain.bmp")
         terrain_txt_rel = _map_rel(rules, "terrain_definition", "terrain.txt")
         self._raster_rels = {provinces_rel.key, definition_rel.key, terrain_rel.key, terrain_txt_rel.key}
-        snapshot, overrides = project.vfs.snapshot(), document_overrides(project)
+        snapshot = project.vfs.snapshot()
+        overrides = document_overrides(project, (provinces_rel, definition_rel, terrain_rel, terrain_txt_rel))
         forbidden = [layer.root for layer in getattr(snapshot, "layers", ()) if getattr(layer, "root", None)]
         use_cache = not force
 
@@ -301,6 +350,11 @@ class MapSession(QObject):
         date = self.session.working_date
         terrain, types = self._terrain, self._terrain_types
         size = raster.max_id + 1
+        # Un índice al que aún le falta algo (una exportación o un deshacer de hace menos de REINDEX_DELAY_MS): se
+        # construye igual, para enseñar ya el ráster nuevo, y se rehace cuando se ponga al día (``_catch_up_facts``).
+        self._facts_behind = self.session._index_behind()
+        self._facts_source = (index, getattr(index, "generation", None))
+        self._facts_rules = rules
 
         def task(context):
             from ..core.map.facts import ProvinceFacts
@@ -314,7 +368,21 @@ class MapSession(QObject):
         if facts is None or facts.date != self.session.working_date:
             return
         self._facts = facts
+        # Lo que cambió el índice mientras tanto (otra generación, otro índice) o aún tiene pendiente no está en
+        # estos hechos, y lo que se actualizó en el acto se aplicó a los de antes: se rehacen al ponerse al día.
+        index, generation = self._facts_source
+        if (self.session.index is not index or getattr(index, "generation", None) != generation
+                or self.session._index_behind()):
+            self._facts_behind = True
         self.factsChanged.emit(None)
+        self._catch_up_facts()
+
+    def _catch_up_facts(self) -> None:
+        """Rehace los hechos enteros si se hicieron con un índice atrasado y el índice ya se ha puesto al día (con
+        el ráster listo y sin otra construcción en marcha: al terminar, esta vuelve a mirar)."""
+        if (self._facts_behind and self._raster is not None and self._raster_state == RASTER_READY
+                and not self._facts_runner.is_busy() and not self.session._index_behind()):
+            self.refresh_facts()
 
     def _on_facts_failed(self, failure) -> None:
         log.warning("no se pudieron calcular los hechos del mapa: %s", failure)
@@ -617,7 +685,10 @@ class MapSession(QObject):
         self._raster = None
         self._facts = None
         self._terrain = self._terrain_types = None
-        self._provinces = None
+        self._forget_rules()
+        self._facts_source = (None, None)
+        self._facts_rules = None
+        self._facts_behind = False
         self._selection = ()
         self._view_center = None
         self._wanted = False
@@ -629,7 +700,7 @@ class MapSession(QObject):
         self.factsChanged.emit(None)
 
     def _on_project_opened(self, project) -> None:
-        self._provinces = None
+        self._forget_rules()
 
     def _on_date_changed(self, date) -> None:
         if self._raster is not None:
@@ -638,15 +709,32 @@ class MapSession(QObject):
     def _on_index_state(self) -> None:
         from .session import READY
 
-        if self.session.index_state == READY and self._raster is not None and self._facts is None:
+        # ``index_state`` es un método: compararlo sin llamarlo daba siempre False y, con el ráster listo antes que
+        # el índice, los hechos no se hacían nunca.
+        if self.session.index_state() == READY and self._raster is not None and self._facts is None:
             self.refresh_facts()
+
+    def _on_symbols_changed(self, kinds) -> None:
+        """El índice cambió (una reindexación o uno nuevo). Los hechos se rehacen enteros solo si están marcados
+        como atrasados; una construcción en marcha lo mira al terminar (``_on_facts_built``)."""
+        self._catch_up_facts()
 
     def _on_documents_changed(self, rels) -> None:
         keys = {VPath.of(rel).key for rel in rels or ()}
+        cached = self._rules_cache
+        rules_changed = cached is not None and bool(keys & cached[2])
+        if rules_changed:
+            # Cambió (o se guardó) un archivo de las reglas: un default.map editado, una exportación del taller
+            # hecha o deshecha.
+            self._forget_rules()
         if self._wanted and keys & self._raster_rels:
             self._raster_state = RASTER_IDLE
-            self.load_raster()
+            self.load_raster()                 # al llegar, los hechos se rehacen con las reglas nuevas
             return
+        if rules_changed and (self._facts is not None or self._facts_runner.is_busy()) \
+                and getattr(self._facts_rules, "sea", None) != getattr(self._rules(), "sea", None):
+            # Con otro mar, los hechos de antes pintan de mar la tierra y al revés: se rehacen enteros.
+            self.refresh_facts()
         facts = self._facts
         if facts is None:
             return
