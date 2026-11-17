@@ -24,7 +24,7 @@ from pathlib import Path
 import numpy as np
 import PIL
 
-from .edits import EditOp
+from .edits import NAME_FALLBACKS, EditOp
 from .params import ForgeParams
 from .world import ForgeWorld, ProvisionalTable, StepState
 
@@ -34,7 +34,7 @@ CELL_KEYS = ("h", "land", "ocean", "lake", "temp", "prec", "flux", "recv", "rive
 PROV_KEYS = ("is_sea", "cx", "cy", "cells", "dom_cat", "suit", "temp", "state", "continent", "climate", "owner",
              "culture", "religion", "life_rating", "population", "capitals", "locked")
 ENTITY_KEYS = ("owners", "civilized", "cultures", "religions", "province_names", "state_names", "continent_names",
-               "climate_names", "names_seed")
+               "climate_names", "names_seed", NAME_FALLBACKS)
 
 
 def pack_arrays(arrays: dict[str, np.ndarray]) -> bytes:

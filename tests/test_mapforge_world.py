@@ -232,9 +232,9 @@ class WorldExportTests(unittest.TestCase):
         self.assertNotIn(f"owner = {first}\r\n".encode(), hist)
         self.assertIn(f"owner = {new}".encode(), hist)
 
-    def fmg_world(self, level):
+    def fmg_world(self, level, states=None, provinces=None, cultures=None):
         """El JSON de FMG inventado con nombres que el juego no sabe escribir (otras escrituras, letras sin cp1252 y
-        un emoji), importado al nivel ``level``."""
+        un emoji, o los de ``states``/``provinces``/``cultures`` por su ``i``), importado al nivel ``level``."""
         import json
 
         from _mapforge_fixtures import fmg_json_full
@@ -242,9 +242,9 @@ class WorldExportTests(unittest.TestCase):
 
         data = json.loads(fmg_json_full())
         pack = data["pack"]
-        states = {1: "Łódź", 2: "東京", 3: "Ŝtato 🙂"}
-        provinces = {1: "Ősz", 2: "Łęczyca", 3: "大阪", 5: "Ŝkolo", 6: "🙂 Fenna"}
-        cultures = {1: "Ślązak", 2: "日本人"}
+        states = {1: "Łódź", 2: "東京", 3: "Ŝtato 🙂"} if states is None else states
+        provinces = {1: "Ősz", 2: "Łęczyca", 3: "大阪", 5: "Ŝkolo", 6: "🙂 Fenna"} if provinces is None else provinces
+        cultures = {1: "Ślązak", 2: "日本人"} if cultures is None else cultures
         for item, names in ((pack["states"], states), (pack["provinces"], provinces), (pack["cultures"], cultures)):
             for x in item:
                 if isinstance(x, dict) and x.get("i") in names:
@@ -283,6 +283,40 @@ class WorldExportTests(unittest.TestCase):
         self.assertEqual(len(countries), len(set(t.lower() for t in countries)))
         self.assertEqual(len(countries), len(data["countries"]))
 
+    def test_azgaar_names_with_a_separator_or_a_line_break_export_without_failing(self):
+        """Regresión: un ';' en el nombre de un estado o de una cultura de Azgaar ('Alta;Baja', 'Norte;Sur') cabe en
+        cp1252, así que llegaba tal cual a los textos de los países y las culturas; ``LocSync`` lo rechaza
+        (``separator_in_text``: partiría la fila del CSV) y la exportación de «Mundo» entera se deshacía. Ahora los
+        nombres de fuera salen con todo lo que ``csvloc.check_text`` rechaza cambiado: ';' → ',' y saltos de línea,
+        tabulaciones y otros caracteres de control → espacio."""
+        from vic2studio.core.csvloc.model import check_text
+        from vic2studio.core.mapforge.names import cp1252_name
+
+        for raw, clean in (("Alta;Baja", "Alta,Baja"), ("Este\r\nOeste", "Este Oeste"), ("Sur\x00Norte\t", "Sur Norte"),
+                           ("Mar\u2028Tierra\x85", "Mar Tierra")):
+            self.assertEqual(cp1252_name(raw), clean)
+        self.assertEqual(cp1252_name(";\n", "AAA"), "AAA", "sin letras ni cifras, el de reserva")
+        p = self.project
+        w = self.fmg_world(Level.WORLD, states={1: "Alta;Baja", 2: "Este\r\nOeste", 3: "Sur\x00Norte"},
+                           provinces={1: "Mar;Tierra"}, cultures={1: "Norte;Sur", 2: "Gente\tde mar"})
+        data = w.entities["world"]
+        texts = [c["name"] for c in data["countries"]] + [c["adjective"] for c in data["countries"]] + \
+            [c["name"] for c in data["cultures"]] + [g["name"] for g in data["groups"]] + w.entities["state_names"]
+        for text in texts:
+            check_text(text)
+            text.encode("cp1252")
+            self.assertFalse(any(ord(ch) < 32 for ch in text), repr(text))
+        self.assertEqual([c["name"] for c in data["countries"]], ["Alta,Baja", "Este Oeste", "Sur Norte"])
+        self.assertIn("Mar,Tierra", w.entities["state_names"])
+        inputs = ex.gather_inputs(p, w, index=self.index)
+        files, _ = ex.render_files(w, inputs)
+        ex.apply_export(p, files, inputs, world=w, domain=self.domain)      # antes: InvalidFieldError
+        loc = self.domain.loc
+        self.assertEqual([loc.text(c["tag"], "en") for c in data["countries"]], ["Alta,Baja", "Este Oeste",
+                                                                                 "Sur Norte"])
+        self.assertEqual(loc.text(f"{data['countries'][0]['tag']}_ADJ", "en"), "Alta,Bajian")
+        self.assertEqual({loc.text(c["key"], "en") for c in data["cultures"]}, {"Norte,Sur", "Gente de mar"})
+
     def test_azgaar_state_names_are_transliterated_at_the_map_level(self):
         """En «Solo mapa» no fallaba, pero los nombres perdían letras sin avisar: 'Ősz' salía como '?sz'."""
         w = self.fmg_world(Level.MAP)
@@ -294,10 +328,13 @@ class WorldExportTests(unittest.TestCase):
         self.assertIn(b";Leczyca;", loc)
 
     def test_a_hand_rename_the_game_cannot_write_is_transliterated_not_lost(self):
-        """Un nombre puesto a mano en la tabla de nombres ('Łódź東京;') salía como '?ód??;' y su ';' partía la fila."""
+        """Un nombre puesto a mano en la tabla de nombres ('Łódź東京;') salía como '?ód??;' y su ';' partía la fila.
+        Uno sin ninguna letra que el juego sepa escribir ('大阪', 'Москва') salía vacío ('PROV2;;;;…'). Aquí se cambia
+        la entidad sin pasar por una edición, así que no se sabe qué nombre generado tapa: va la clave, como en los
+        estados."""
         w = world_of(3, countries=3, install_profile=self.profile)
         names = list(w.entities["province_names"])
-        names[:3] = ["Łódź東京;", "大阪", "Ŝkolo"]
+        names[:4] = ["Łódź東京;", "大阪", "Ŝkolo", "Москва"]
         w = pipeline.run_raster(w.evolve(entities=dict(w.entities, province_names=names)), scale=1,
                                 with_textures=False)
         self.assertIn("Łódź東京;", w.raster.names)
@@ -307,8 +344,47 @@ class WorldExportTests(unittest.TestCase):
         self.assertNotIn(b"?", loc)
         rows = [r for r in loc.split(b"\r\n") if r.startswith(b"PROV")]
         self.assertTrue(all(r.count(b";") == 14 for r in rows), "cada fila conserva sus columnas")
+        self.assertEqual(len(rows), w.raster.count)
+        self.assertTrue(all(r.split(b";")[1] for r in rows), "ninguna provincia sin nombre")
         self.assertIn(";Lódz,;".encode("cp1252"), loc)
         self.assertIn(b";Skolo;", loc)
+        for name in ("大阪", "Москва"):
+            pid = list(w.raster.names).index(name)
+            self.assertIn(f"PROV{pid};PROV{pid};PROV{pid};PROV{pid};;PROV{pid};;;;;;;;;x".encode(), rows)
+
+    def test_a_hand_rename_with_nothing_the_game_can_write_exports_the_generated_name(self):
+        """Regresión: una provincia renombrada en «10. Nombres» a un nombre sin letras de cp1252 ('大阪', 'Москва')
+        salía en la localización con el nombre vacío ('PROV2;;;;…'). Ahora va el nombre generado al que tapó la
+        edición (también al guardar y volver a abrir el proyecto del taller, que no rehace los pasos), y lo mismo con
+        un estado; la tabla sigue enseñando el nombre puesto a mano con su aviso."""
+        from vic2studio.core.mapforge import edits
+        from vic2studio.core.mapforge.project import MapForgeProject
+
+        w = world_of(3, countries=3, install_profile=self.profile)
+        r = w.raster
+        renamed = {}
+        for pid, name in ((2, "大阪"), (3, "Москва")):
+            cell = int(np.flatnonzero(w.cells.province0 == int(r.parent[pid]))[0])
+            w = edits.add(w, edits.make("rename", {"uid": f"p:{cell}", "name": name}))
+            renamed[pid] = (name, r.names[pid])
+        state = int(r.state[4])
+        self.assertGreaterEqual(state, 0)
+        cell = int(np.flatnonzero(w.cells.province0 == int(r.parent[4]))[0])
+        w = edits.add(w, edits.make("rename", {"uid": f"s:{cell}", "name": "🙂"}))
+        state_name = w.entities["state_names"][state]
+        w = pipeline.run_cells(w, from_step="names")
+        self.assertEqual(w.entities["state_names"][state], "🙂")
+        forge = MapForgeProject("prueba", w.params, edits=list(w.edits))
+        _, loaded, _ = MapForgeProject.load(forge.files(w).get, "prueba", self.profile)
+        for label, world in (("generado", w), ("reabierto", loaded)):
+            with self.subTest(label):
+                world = pipeline.run_raster(world, scale=1, with_textures=False)
+                rows = dict(row.split(b";")[:2] for row in ex.localisation(world, "TST").split(b"\r\n") if row)
+                self.assertTrue(all(rows.values()), "ningún nombre vacío")
+                for pid, (name, generated) in renamed.items():
+                    self.assertEqual(world.raster.names[pid], name)
+                    self.assertEqual(rows[f"PROV{pid}".encode()], generated.encode("cp1252"))
+                self.assertEqual(rows[ex.state_key("TST", state).encode()], state_name.encode("cp1252"))
 
     def test_country_file_names_are_unique_and_avoid_existing_files(self):
         countries = [{"tag": "AAA", "name": "Ææ"}, {"tag": "BBB", "name": "東京"}, {"tag": "CCC", "name": "大阪"},

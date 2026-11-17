@@ -150,12 +150,29 @@ def cp1252_text(text: str) -> str:
     return re.sub(r"\s+", " ", "".join(out)).strip()
 
 
+def loc_text(text) -> str:
+    """``text`` listo para una celda de la localización del juego: todo lo que ``csvloc.check_text`` y la
+    codificación del juego (cp1252) admiten. Es ``cp1252_text`` con los caracteres de control (saltos de línea,
+    tabulaciones, NUL…) como espacios y cada ';' cambiado por ',': el CSV del juego no tiene escapes y un ';' o un
+    salto partirían la fila (``LocSync`` los rechaza y la transacción entera se deshace). Puede quedar vacío;
+    ``None`` da ''."""
+    if text is None:
+        return ""
+    spaced = "".join(" " if unicodedata.category(ch) == "Cc" else ch for ch in str(text))
+    return cp1252_text(spaced).replace(";", ",")
+
+
 def cp1252_name(text, fallback: str | None = None) -> str | None:
-    """Un nombre que cabe en cp1252 (``cp1252_text``) o ``fallback`` si no le queda ninguna letra (un nombre solo
-    en otra escritura, como '東京'). Los nombres que vienen de fuera (JSON de Azgaar) pasan por aquí: antes
-    llegaban tal cual y la exportación fallaba sin aviso al escribir sus textos."""
-    clean = cp1252_text(text) if text is not None else ""
-    return clean if any(ch.isalpha() for ch in clean) else fallback
+    """Un nombre que el juego sabe escribir en su localización (``loc_text``) o, si no le queda ninguna letra ni
+    cifra (un nombre solo en otra escritura, como '東京', o un emoji), ``fallback`` limpiado igual; ``None`` si
+    tampoco. Nunca da un nombre vacío. Los nombres que vienen de fuera (JSON de Azgaar), los puestos a mano y los
+    que van a la localización pasan por aquí: antes llegaban tal cual y la exportación fallaba al escribir sus
+    textos (letras sin cp1252, o un ';' como el de 'Alta;Baja')."""
+    for candidate in (text, fallback):
+        clean = loc_text(candidate)
+        if any(ch.isalnum() for ch in clean):
+            return clean
+    return None
 
 
 def ascii_name(s: str) -> str:
