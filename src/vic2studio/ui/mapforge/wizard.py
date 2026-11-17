@@ -142,6 +142,20 @@ def panel_slots() -> tuple[str, ...]:
     return tuple(SLOTS) + ("fmg_json",)
 
 
+def _disk_stamp(project, rel: str) -> tuple | None:
+    """(ruta, mtime en ns, tamaño) del archivo que gana en la VFS para ``rel``: cambia si el archivo cambia en el disco.
+    None si no hay archivo o no se puede mirar."""
+    entry = project.vfs.resolve(rel)
+    path = getattr(entry, "path", None)
+    if path is None:
+        return None
+    try:
+        st = path.stat()
+    except OSError:
+        return None
+    return str(path), st.st_mtime_ns, st.st_size
+
+
 def preview_scale(width: int) -> int:
     return 4 if width >= 2808 else (2 if width >= 1404 else 1)
 
@@ -183,6 +197,7 @@ class ForgeWizard(QWidget):
         # pantalla 13 sabe si el mapa del mod es este, también tras guardar, deshacer o volver a abrir el proyecto.
         self._exported_hashes: dict[str, str] = {}
         self._digest_memo: tuple[object, str] | None = None
+        self._disk_memo: tuple[object, str] | None = None
         # La receta (``_recipe``) del mundo que se exportó y lo que dijo la exportación (archivos, provincias): sin
         # ella, la pantalla 13 llamaba «Hecho» a un mapa cambiado después de exportar y abría el de antes.
         self._exported_recipe: tuple | None = None
@@ -1096,6 +1111,7 @@ class ForgeWizard(QWidget):
         step = min((e.step for e in changed), key=order.index, default="relief")
         self.world = self.world.evolve(edits=edits)
         self.regenerate(step=step)
+        self._on_mod_changed()
 
     def _province_at(self, x: float, y: float) -> int:
         r = getattr(self.world, "raster", None)
@@ -1456,16 +1472,27 @@ class ForgeWizard(QWidget):
             return MAP_NOT_IN_MOD
         if handle is not None:
             data, dirty = codec_for(handle.kind).snapshot(handle.model), bool(handle.dirty)
+            if data is None:
+                return MAP_NOT_IN_MOD
+            memo = self._digest_memo           # el códec devuelve el mismo objeto mientras no cambia
+            if memo is not None and memo[0] is data:
+                digest = memo[1]
+            else:
+                digest = sha256(data)
+                self._digest_memo = (data, digest)
         else:
-            data, dirty = workspace_reader(project)(EXPORTED_MAP), False
-        if data is None:
-            return MAP_NOT_IN_MOD
-        memo = self._digest_memo
-        if memo is not None and memo[0] is data:
-            digest = memo[1]
-        else:
-            digest = sha256(data)
-            self._digest_memo = (data, digest)
+            # Sin abrir (tras volver a abrir el mod): del disco, una vez por versión del archivo, no en cada edición.
+            dirty = False
+            stamp = _disk_stamp(project, EXPORTED_MAP)
+            memo = self._disk_memo
+            if stamp is not None and memo is not None and memo[0] == stamp:
+                digest = memo[1]
+            else:
+                data = workspace_reader(project)(EXPORTED_MAP)
+                if data is None:
+                    return MAP_NOT_IN_MOD
+                digest = sha256(data)
+                self._disk_memo = (stamp, digest)
         if digest != want:
             return MAP_NOT_IN_MOD
         if not self._is_exported_world():
@@ -1483,12 +1510,22 @@ class ForgeWizard(QWidget):
             return memo[2]
         import json
 
+        from ...core.mapforge.world import digest
+
         cells = world.cells
-        recipe = (json.dumps(params.to_json(), ensure_ascii=False, sort_keys=True, default=str),
+        # La rejilla libre (None) y la misma rejilla fijada al salir de «1. Lienzo» son el mismo mapa.
+        fixed = params.with_(lattice=params.lattice_spec())
+        recipe = (json.dumps(fixed.to_json(), ensure_ascii=False, sort_keys=True, default=str),
                   tuple(json.dumps(e.to_json(), ensure_ascii=False, sort_keys=True, default=str)
                         for e in world.edits),
                   world.cells_digest() if cells is not None and cells.h is not None else "",
                   world.world_digest())
+        r = world.raster
+        if params.origin.value in IMPORTED and r is not None and r.scale == 1:
+            # Importado de bitmaps o de Azgaar: el ráster sale del archivo (cada píxel, los nombres, el terreno, los
+            # ríos), no de las celdas. Dos importaciones con las mismas celdas no son el mismo mapa.
+            recipe += (digest(r.ids, r.colors, r.terrain, r.rivers),
+                       json.dumps(list(r.names or ()), ensure_ascii=False, default=str))
         self._recipe_memo = (world, params, recipe)
         return recipe
 
@@ -1518,8 +1555,9 @@ class ForgeWizard(QWidget):
         self.go_review.setVisible(not in_mod)
 
     def _on_mod_changed(self, *args) -> None:
-        """Guardar, deshacer o rehacer la exportación cambian lo que dice la pantalla 13 si está a la vista."""
-        if getattr(self, "_screen", "start") == "done":
+        """Guardar, deshacer o rehacer la exportación, o un mundo nuevo en el taller, cambian lo que dice la pantalla
+        13 si está a la vista. Con el taller oculto no se mira (al volver a enseñarlo, ``showEvent`` lo hace)."""
+        if getattr(self, "_screen", "start") == "done" and self.isVisible():
             self._refresh_done()
 
     def open_saved(self) -> None:
@@ -1535,8 +1573,10 @@ class ForgeWizard(QWidget):
         self.name_edit.setText(name)
         self.params = proj.params
         self._exported_hashes = dict(proj.exported)
-        # Un proyecto guardado con lo exportado es el mapa que se exportó (``save_project`` no lo anota si cambió).
-        self._exported_recipe = self._recipe(world, proj.params) if proj.exported else None
+        # Un proyecto guardado con lo exportado es el mapa que se exportó (``save_project`` no lo anota si cambió),
+        # salvo si se importó: el proyecto no guarda el ráster del archivo y el de las celdas es otro mapa.
+        imported = proj.params.origin.value in IMPORTED
+        self._exported_recipe = self._recipe(world, proj.params) if proj.exported and not imported else None
         self._exported_counts = None
         self._load_params_into_widgets()
         self._undo.clear()
@@ -1568,6 +1608,7 @@ class ForgeWizard(QWidget):
         super().showEvent(event)
         if self.install is None and self.session.project is not None:
             self.learn_install()
+        self._on_mod_changed()
 
     def on_project_closed(self, *args) -> None:
         self.client.cancel()
@@ -1581,7 +1622,7 @@ class ForgeWizard(QWidget):
 
     def _forget_export(self) -> None:
         """Otro mod (o ninguno): lo exportado por el taller en el anterior ya no cuenta."""
-        self._exported_hashes, self._digest_memo = {}, None
+        self._exported_hashes, self._digest_memo, self._disk_memo = {}, None, None
         self._exported_recipe = self._exported_counts = self._recipe_memo = None
 
     def _refresh_saved(self) -> None:
@@ -1630,6 +1671,7 @@ class ForgeWizard(QWidget):
         self._refresh_stats()
         self.undo_button.setEnabled(bool(self._undo))
         self.redo_button.setEnabled(bool(self._redo))
+        self._on_mod_changed()                 # un mundo nuevo (o deshacer un retoque) cambia lo que dice la 13
 
     def _status_of(self, key: str) -> str | None:
         if key in ("start", "review", "done"):

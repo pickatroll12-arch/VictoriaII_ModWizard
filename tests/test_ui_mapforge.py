@@ -621,6 +621,178 @@ class WizardFlowTests(ForgeCase):
         self.assertEqual(self.wiz.quick_button.text(), "Quick generation")
 
 
+class DoneScreenTests(ForgeCase):
+    """La pantalla «13. Hecho» frente a mapas importados, rejillas fijadas, deshacer en ella y su coste."""
+
+    def import_files(self, files):
+        wiz = self.wiz
+        wiz.go("import")
+        panel = wiz.import_panel
+        for slot, rel in (("provinces", "map/provinces.bmp"), ("definition", "map/definition.csv"),
+                          ("default_map", "map/default.map"), ("terrain", "map/terrain.bmp")):
+            panel.set_file(slot, files[rel])
+        panel.inspect_button.click()
+        self.idle()
+        panel.build_button.click()
+        self.idle()
+
+    def export_an_import(self, name="imp"):
+        from vic2studio.core.mapforge import export as ex
+
+        self.open_forge()
+        wiz = self.wiz
+        files, _ = ex.render_files(tiny_world(3), ex.ExportInputs(prefix="FRG"))
+        wiz.origin_buttons["bitmaps"].setChecked(True)
+        self.import_files(files)
+        wiz.name_edit.setText(name)
+        wiz.go("review")
+        self.idle()
+        self.assertTrue(wiz.review.export_button.isEnabled(), [i.code for i in wiz.review.blocking()])
+        wiz.export()
+        self.assertEqual(wiz.map_state(), MAP_UNSAVED)
+        return files
+
+    def test_reimporting_different_bitmaps_is_not_done(self):
+        """Regresión (segunda revisión): con «Importar bitmaps», el ráster sale del archivo y no de las celdas. Volver a
+        importar unos bitmaps distintos (aquí solo cambian los nombres de definition.csv) daba la misma receta: «13»
+        decía «Hecho» y su botón abría el mapa importado antes."""
+        from vic2studio.ui.mapforge.wizard import MAP_CHANGED
+
+        files = self.export_an_import()
+        wiz = self.wiz
+        lines = files["map/definition.csv"].split(b"\r\n")
+        cut = lines[2].split(b";")
+        cut[4] = b"Renombrada"
+        lines[2] = b";".join(cut)
+        self.import_files(dict(files, **{"map/definition.csv": b"\r\n".join(lines)}))
+        wiz.go("done")
+        self.assertEqual(wiz.map_state(), MAP_CHANGED)
+        self.assertTrue(wiz.open_editor.isHidden())
+
+    def test_looking_at_the_canvas_after_exporting_an_import_changes_nothing(self):
+        """Regresión (segunda revisión): un mapa importado no fija su rejilla; pasar por «1. Lienzo» la fijaba (la misma)
+        y «13» decía que el mapa había cambiado desde la exportación."""
+        self.export_an_import()
+        wiz = self.wiz
+        self.assertIsNone(wiz.params.lattice)
+        wiz.go("canvas")
+        self.idle()
+        wiz.go("done")
+        self.assertIsNotNone(wiz.params.lattice)
+        self.assertEqual(wiz.map_state(), MAP_UNSAVED)
+        self.assertFalse(wiz.open_editor.isHidden())
+
+    def test_a_reopened_imported_project_is_not_the_exported_map(self):
+        """Regresión (segunda revisión): el proyecto guardado de un mapa importado no lleva el ráster del archivo; al
+        abrirlo se vuelve a hacer desde las celdas y es otro mapa. «13» decía «ya está guardado»."""
+        from vic2studio.ui.mapforge.wizard import MAP_CHANGED
+
+        self.export_an_import("imp")
+        wiz = self.wiz
+        session = self.window.session
+        session.save()
+        _qt.process_events(50)
+        self.assertEqual(wiz.map_state(), MAP_SAVED)
+        wiz.on_project_opened(session.project)
+        wiz._refresh_saved()
+        names = [wiz.saved_list.item(i).text() for i in range(wiz.saved_list.count())]
+        wiz.saved_list.setCurrentRow(names.index("imp"))
+        wiz.open_saved()
+        # Recién abierto, el mundo aún no tiene ráster (llega con la vista previa): ni así es el mapa exportado.
+        self.assertIsNone(wiz.world.raster)
+        self.assertEqual(wiz.map_state(), MAP_CHANGED, "antes de la vista previa")
+        self.idle()
+        wiz.go("done")
+        self.assertEqual(wiz.map_state(), MAP_CHANGED)
+        self.assertTrue(wiz.open_editor.isHidden())
+
+    def test_undo_pressed_on_the_done_screen_updates_it(self):
+        """Regresión (segunda revisión): «Deshacer» está en la barra de abajo también en «13». Deshacer un retoque
+        después de exportar dejaba «Hecho» y «Abrir en el editor de mapa», que abría el mapa con el retoque."""
+        from vic2studio.ui.mapforge.wizard import MAP_CHANGED
+
+        self.open_forge()
+        self.small_world()
+        wiz = self.wiz
+        wiz.go("relief")
+        wiz.tool_buttons["raise"].setChecked(True)
+        wiz.preview.stroke.emit(0.5, 0.5, True)
+        wiz.preview.stroke.emit(0.55, 0.5, False)
+        wiz.preview.strokeFinished.emit()
+        self.idle()
+        wiz.go("review")
+        self.idle()
+        wiz.export()
+        self.assertEqual(wiz.current(), "done")
+        self.assertFalse(wiz.open_editor.isHidden())
+        wiz.undo_button.click()
+        self.assertEqual(wiz.done_text.text(), tr("forge.done.changed"), "en el acto")
+        self.assertTrue(wiz.open_editor.isHidden())
+        self.idle()
+        self.assertEqual(wiz.map_state(), MAP_CHANGED)
+        self.assertEqual(wiz.done_text.text(), tr("forge.done.changed"))
+        wiz.redo_button.click()
+        self.idle()
+        self.assertEqual(wiz.map_state(), MAP_UNSAVED)
+        self.assertFalse(wiz.open_editor.isHidden(), "rehecho, vuelve a ser el mapa exportado")
+
+    def test_the_done_screen_does_not_rehash_the_map_on_every_edit(self):
+        """Regresión (segunda revisión): con el mod vuelto a abrir (el provinces.bmp sin abrir en el Workspace), la
+        pantalla 13 leía y calculaba la huella del BMP entero en cada edición de cualquier sala (unos 40 ms con un
+        mapa del tamaño de vanilla), también con el taller oculto."""
+        from vic2studio.core.mapforge import project as mfp
+        from vic2studio.core.project.binary import put_bytes
+
+        self.open_forge()
+        self.small_world()
+        wiz = self.wiz
+        wiz.name_edit.setText("coste")
+        wiz.go("review")
+        self.idle()
+        wiz.export()
+        session = self.window.session
+        session.save()
+        _qt.process_events(50)
+        session.close_project(discard=True)
+        _qt.process_events(20)
+        session.open_project(self.game.game_root, self.game.mod_root)
+        self.assertTrue(_qt.wait_until(lambda: session.project is not None and session.index_state() == "ready",
+                                       WAIT_MS))
+        self.window.show_page("forge")
+        self.idle()
+        wiz._refresh_saved()
+        names = [wiz.saved_list.item(i).text() for i in range(wiz.saved_list.count())]
+        wiz.saved_list.setCurrentRow(names.index("coste"))
+        wiz.open_saved()
+        self.idle()
+        wiz.go("done")
+        self.assertIsNone(session.project.ws.peek("map/provinces.bmp"), "el BMP no está abierto")
+        self.assertEqual(wiz.map_state(), MAP_SAVED)
+        hashes, states = [], []
+        real_sha, real_state = mfp.sha256, wiz.map_state
+
+        def edits(count):
+            for i in range(count):
+                with session.edit("undo.mapforge_save", name="x"):
+                    put_bytes(session.project.ws, "map/otra_cosa.txt", f"x{i}\n".encode())
+                _qt.process_events(30)
+
+        with mock.patch.object(mfp, "sha256", lambda data: hashes.append(1) or real_sha(data)), \
+                mock.patch.object(wiz, "map_state", lambda: states.append(1) or real_state()):
+            edits(3)
+            self.assertEqual(hashes, [], "a la vista: la huella del disco se guarda mientras el archivo no cambie")
+            self.assertEqual(len(states), 3)
+            self.window.show_page("map:world")
+            _qt.process_events(50)
+            states.clear()
+            edits(3)
+            self.assertEqual(states, [], "con el taller oculto no se mira")
+            self.window.show_page("forge")
+            _qt.process_events(50)
+            self.assertEqual(len(states), 1, "al volver a enseñarlo, sí")
+        self.assertEqual(wiz.done_text.text(), tr("forge.done.saved", name="coste"))
+
+
 class PreviewTests(unittest.TestCase):
     def test_every_mode_renders(self):
         w = tiny_world(3)
