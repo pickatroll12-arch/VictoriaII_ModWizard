@@ -27,7 +27,14 @@ from pathlib import Path
 
 from ..cancel import CancelCheck, raise_if_cancelled
 from ..clausewitz import ParseResult
-from ..modfile import DESCRIPTOR_SUFFIX, ModDescriptor, descriptor_from_result, find_descriptor, read_descriptor
+from ..modfile import (
+    DESCRIPTOR_SUFFIX,
+    SIBLING,
+    ModDescriptor,
+    descriptor_from_result,
+    find_descriptor,
+    read_descriptor,
+)
 from ..vfs.model import DocKind
 from ..vfs.paths import DESCRIPTOR_REL, VPath
 from ..vfs.vfs import VirtualFS, resolve_dependencies
@@ -154,19 +161,26 @@ class Project:
             self.ws.replace_model(handle, render_settings(settings, existing))
             self._on_event(DocReplaced(SETTINGS_REL))   # visible ya dentro de una transacción exterior
 
-    def current_replace_paths(self) -> tuple[str, ...]:
-        """Las ``replace_path`` del descriptor tal como está ahora: el documento abierto (con lo sin guardar; si
-        está borrado, ninguna) o, si no está abierto, el archivo. No abre nada en el ``Workspace``."""
+    def current_descriptor(self) -> ModDescriptor | None:
+        """El descriptor tal como está ahora: el documento abierto (con lo sin guardar, también uno creado en la
+        sesión; None si está borrado) o, si no está abierto, el archivo (None si no existe). ``descriptor`` es el que
+        se leyó al abrir y no sigue a nada de eso. No abre nada en el ``Workspace``."""
         handle = self.ws.peek(DESCRIPTOR_REL)
-        path = self.vfs.descriptor_path or Path()
+        path = self.vfs.descriptor_path
+        location = self.descriptor.location if self.descriptor is not None else SIBLING
         if handle is not None:
             if handle.deleted or not isinstance(handle.model, ParseResult):
-                return ()
-            return descriptor_from_result(path, handle.model).replace_paths
-        if self.vfs.descriptor_path is None:
-            return ()
-        parsed = read_descriptor(path)
-        return parsed.replace_paths if parsed is not None else ()
+                return None
+            return descriptor_from_result(path or Path(), handle.model, location=location)
+        if path is None:
+            return None
+        return read_descriptor(path, location=location)
+
+    def current_replace_paths(self) -> tuple[str, ...]:
+        """Las ``replace_path`` del descriptor tal como está ahora (``current_descriptor``: con lo sin guardar; si
+        está borrado o no hay, ninguna). No abre nada en el ``Workspace``."""
+        descriptor = self.current_descriptor()
+        return descriptor.replace_paths if descriptor is not None else ()
 
     def sync_replace_paths(self) -> bool:
         """Lleva a la VFS las ``replace_path`` del descriptor de ahora (``current_replace_paths``); True si cambiaron.

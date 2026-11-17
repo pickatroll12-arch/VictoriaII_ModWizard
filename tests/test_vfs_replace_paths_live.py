@@ -117,14 +117,23 @@ class ProjectSyncReplacePathsTests(unittest.TestCase):
         self.assertFalse(project.sync_replace_paths())
 
     def test_a_deleted_descriptor_replaces_nothing(self):
+        """Borrado sin guardar no hay descriptor: ninguna carpeta reemplazada, aunque el archivo del disco (guardado
+        antes con ``replace_path``) siga ahí. Con un descriptor guardado sin carpetas, «ninguna» y «las del disco» no
+        se distinguían."""
         project = self.project
         self.set_replace(("history/provinces",))
         self.assertTrue(project.sync_replace_paths())
+        self.assertTrue(project.save().ok)
+        self.assertIn(b'replace_path = "history/provinces"', self.game.descriptor.read_bytes())
+        self.assertIsNone(project.vfs.resolve(CAPITAL))
         with project.ws.transaction("pending.undo_revert", name="descriptor"):
             project.ws.delete(DESCRIPTOR_REL)
+        self.assertTrue(self.game.descriptor.is_file(), "sin guardar: el archivo sigue")
+        self.assertIsNone(project.current_descriptor())
         self.assertEqual(project.current_replace_paths(), ())
         self.assertTrue(project.sync_replace_paths())
         self.assertEqual(project.vfs.replace_paths, ())
+        self.assertIsNotNone(project.vfs.resolve(CAPITAL), "la historia del juego vuelve a contar")
 
     def test_clean_game_documents_that_become_hidden_are_dropped(self):
         """Un documento limpio del juego abierto antes (la ficha de una provincia) se suelta al quedar oculto: si no,
@@ -159,6 +168,49 @@ class ProjectSyncReplacePathsTests(unittest.TestCase):
         self.assertTrue(project.vfs.set_replace_paths(["history/provinces"]))
         self.assertEqual(ws.forget_hidden(), [], "lo nombra la pila de rehacer")
         self.assertIs(ws.peek(CAPITAL), capital)
+
+    def test_a_hidden_document_of_the_undo_stack_is_not_effective(self):
+        """Regresión (BAJO): un documento limpio del juego que la pila de deshacer nombra sigue en el ``Workspace``
+        al quedar oculto (``forget_hidden`` no lo suelta), pero no es de la vista efectiva: ``open`` lo daba, la
+        lista de documentos lo contaba y la ficha de la provincia (``Provinces.record``) leía el archivo que el
+        juego ya no carga. Ahora no cuenta; rehacer su cambio lo vuelve a poner (sucio, se escribirá en el mod) y
+        deshacerlo lo oculta otra vez."""
+        from vic2studio.core.domain.province import Provinces
+        from vic2studio.core.index import build_index
+        from vic2studio.core.locsync import LocSync
+        from vic2studio.core.project.codecs import codec_for
+        from vic2studio.core.rules.game import GameRules
+        from vic2studio.core.schema import Entities
+
+        project = self.project
+        ws = project.ws
+        capital = ws.open(CAPITAL)
+        with ws.transaction("pending.undo_revert", name="1"):
+            ws.touch(capital)
+            capital.model.document.set("owner", "CCC")
+        ws.undo()
+        # Otro programa añade la carpeta al descriptor (sin abrir en el Workspace): la pila de rehacer sigue entera.
+        descriptor = self.game.descriptor
+        descriptor.write_bytes(descriptor.read_bytes().rstrip(b"\r\n") + b'\r\nreplace_path = "history/provinces"\r\n')
+        self.assertTrue(project.sync_replace_paths())
+        self.assertIs(ws.peek(CAPITAL), capital, "la pila de rehacer lo nombra: sigue en el Workspace")
+        self.assertNotIn(CAPITAL, [str(h.rel) for h in ws.documents()])
+        snapshot = project.vfs.snapshot()
+        index = build_index(snapshot, None)
+        entities = Entities(ws, index, LocSync(ws, project.vfs, prefix=project.settings.prefix))
+        self.assertIsNone(Provinces(entities, GameRules.from_snapshot(snapshot)).record(1))
+        with self.assertRaises(FileNotFoundError):
+            ws.open(CAPITAL)
+        self.assertTrue(ws.can_redo())
+        ws.redo()
+        self.assertIs(ws.open(CAPITAL), capital, "rehacer lo recupera")
+        self.assertTrue(capital.dirty)
+        self.assertIn(b"owner = CCC", codec_for(capital.kind).snapshot(capital.model))
+        ws.undo()
+        self.assertFalse(capital.dirty)
+        self.assertNotIn(CAPITAL, [str(h.rel) for h in ws.documents()])
+        with self.assertRaises(FileNotFoundError):
+            ws.open(CAPITAL)
 
 
 class ExportReadsTheLiveDescriptorTests(unittest.TestCase):

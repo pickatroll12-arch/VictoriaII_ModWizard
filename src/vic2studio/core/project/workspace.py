@@ -354,10 +354,12 @@ class Workspace:
         se toque). Un documento borrado (lápida) también da ``FileNotFoundError``; con
         ``create`` revive vacío, lo que es una mutación: va dentro de una transacción.
         Con errores de sintaxis se abre con ``read_only_reason="parse_errors"`` (D17).
+        Un documento limpio de un archivo del juego que ``replace_path`` oculta ahora (``_shadowed``) no cuenta como
+        abierto: se suelta (deshacer y rehacer lo recuperan, ``_ghosts``) y se busca en el disco como cualquier otro.
         """
         self._check()
         rel = VPath.of(rel)
-        handle = self._store.get(rel)
+        handle = self._effective_handle(rel)
         if handle is not None:
             if handle.deleted:
                 if create:
@@ -396,14 +398,38 @@ class Workspace:
                 return codec_for(kind).load(data, entry.rel)[0]
         return None
 
+    def _shadowed(self, handle: DocHandle) -> bool:
+        """True si ``handle`` es un documento limpio de un archivo del juego que ``replace_path`` oculta ahora: no es
+        de la vista efectiva. Sigue en el ``Workspace`` porque la pila de deshacer lo nombra (``forget_hidden`` no lo
+        suelta) o porque nadie lo ha mirado desde que cambiaron las carpetas. Uno sucio sí cuenta: se escribirá en el
+        mod."""
+        origin = handle.origin
+        return (origin is not None and not handle.dirty and not handle.deleted
+                and self._vfs.hidden_by_replace_path(origin))
+
+    def _effective_handle(self, rel: VPath) -> DocHandle | None:
+        """El documento de ``rel`` en el almacén salvo uno oculto (``_shadowed``), que se suelta: deshacer y rehacer
+        lo recuperan de ``_ghosts`` (como uno que se quitó), y quien llama busca ``rel`` en el disco."""
+        handle = self._store.get(rel)
+        if handle is not None and self._shadowed(handle):
+            self._store.discard(handle.rel)
+            self._ghosts[handle.rel.key] = handle
+            self._snap.pop(handle.rel.key, None)
+            return None
+        return handle
+
     def peek(self, rel: str | VPath) -> DocHandle | None:
+        """El documento de ``rel`` tal como está en el ``Workspace`` (también una lápida o uno limpio del juego que
+        ``replace_path`` oculta ahora); None si no está abierto. No abre ni suelta nada."""
         self._check()
         return self._store.get(rel)
 
     def documents(self) -> list[DocHandle]:
-        """Documentos abiertos (también lápidas), ordenados por ``rel.key``."""
+        """Documentos abiertos de la vista efectiva (también lápidas), ordenados por ``rel.key``. Uno limpio de un
+        archivo del juego que ``replace_path`` oculta ahora (``_shadowed``) no está: el juego no lo carga, y la vista
+        efectiva de los registros (``core.schema.Entities``) y de los textos (``LocSync``) lo seguían contando."""
         self._check()
-        return sorted(self._store, key=lambda h: h.rel.key)
+        return sorted((h for h in self._store if not self._shadowed(h)), key=lambda h: h.rel.key)
 
     def forget_hidden(self) -> list[VPath]:
         """Suelta los documentos limpios de archivos del juego que ``replace_path`` oculta ahora (tras
@@ -548,15 +574,18 @@ class Workspace:
 
         ``FileExistsError`` si ya hay un archivo o un documento con esa ruta (salvo
         una lápida, que revive, o un documento nuevo aún sin tocar, que se reutiliza).
+        Un binario no se crea (no se edita), pero su lápida sí revive con ``model`` (los bytes): es lo que hace
+        ``open(create=True)`` antes de ``restore_bytes`` (``binary.put_bytes``, restaurar un autoguardado). Sin
+        eso, volver a exportar el mapa tras deshacer una exportación guardada lanzaba con sus imágenes.
         """
         self._check()
         self._require_txn()
         rel = VPath.of(rel)
         self._require_writable_workspace(rel)
         codec = codec_for(kind)
-        if not codec.writable:
+        handle = self._effective_handle(rel)
+        if not codec.writable and not (isinstance(codec, BinaryCodec) and handle is not None and handle.deleted):
             raise ReadOnlyDocumentError(rel, READ_ONLY_BINARY)
-        handle = self._store.get(rel)
         if handle is not None and not handle.deleted and not (handle.is_new and not handle.dirty):
             raise FileExistsError(str(rel))
         if handle is None and self._disk_entry(rel) is not None:

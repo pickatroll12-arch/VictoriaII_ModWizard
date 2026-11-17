@@ -19,6 +19,7 @@ import numpy as np
 
 from ..map.bmp import new_bmp
 from ..map.positions import generated_text
+from ..vfs.paths import folder_key
 from . import nations
 from .economy import presence
 from .edits import NAME_FALLBACKS
@@ -46,6 +47,7 @@ class ExportInputs:
     bookmarks: bytes | None = None
     region_sea_cites: bool = False
     mod_trash: list = field(default_factory=list)             # del mod bajo carpetas reemplazadas (``_mod_trash``)
+    dropped_edits: list = field(default_factory=list)         # del juego cambiados sin guardar (``_dropped_edits``)
     replace_paths: list = field(default_factory=list)
     has_descriptor: bool = False
     taken_tags: list = field(default_factory=list)            # TAG registrados en el proyecto («Mundo» no los pisa)
@@ -441,21 +443,23 @@ def gather_inputs(project, world: ForgeWorld, index=None) -> ExportInputs:
     inputs = ExportInputs(prefix=project.settings.prefix or "MOD")
     oob: set[str] = set()
     for entry in vfs.list("history/countries", "*.txt", recursive=False):
-        data = vfs.read_bytes(entry)
+        data = _live_bytes(project, entry.rel)
+        if data is None:
+            continue
         inputs.country_histories[str(entry.rel)] = data
         for m in re.finditer(r'(?m)^\s*oob\s*=\s*"?([^"\r\n]+?)"?\s*$', data.decode("cp1252", errors="replace")):
             rel = f"history/units/{m.group(1).strip()}"
             if vfs.resolve(rel) is not None:
                 oob.add(str(vfs.resolve(rel).rel))
     inputs.oob_paths = sorted(oob)
-    bm = vfs.resolve("common/bookmarks.txt")
-    inputs.bookmarks = vfs.read_bytes(bm) if bm is not None else None
-    rs = vfs.resolve("map/region_sea.txt")
+    inputs.bookmarks = _live_bytes(project, "common/bookmarks.txt")
+    rs = _live_bytes(project, "map/region_sea.txt")
     if rs is not None:
-        inputs.region_sea_cites = bool(re.search(rb"\d", re.sub(rb"#[^\r\n]*", b"", vfs.read_bytes(rs))))
+        inputs.region_sea_cites = bool(re.search(rb"\d", re.sub(rb"#[^\r\n]*", b"", rs)))
     inputs.mod_trash = _mod_trash(project)
-    inputs.has_descriptor = getattr(project, "descriptor", None) is not None
+    inputs.dropped_edits = _dropped_edits(project)
     desc = _live_descriptor(project)
+    inputs.has_descriptor = desc is not None
     inputs.replace_paths = list(desc.replace_paths) if desc is not None else []
     if world.params.level is Level.WORLD:
         from ..domain.tags import taken_tags
@@ -492,6 +496,49 @@ def _mod_trash(project) -> list[str]:
     return sorted(trash.values())
 
 
+def _dropped_edits(project) -> list[str]:
+    """Los documentos de archivos del juego (o de una dependencia) cambiados sin guardar bajo las carpetas
+    reemplazadas (y ``map/cache``): la historia de una provincia pintada en el mapa del juego antes de exportar. No se
+    pueden borrar (``Workspace.delete`` lanza con un archivo del juego) y, al guardar, se copiaban al mod junto a lo
+    exportado: dos historias para una provincia. Son cambios del mapa viejo, así que la exportación los descarta
+    (``Workspace.revert``) y deshacerla los devuelve."""
+    from ..vfs.model import LayerKind
+
+    folders = tuple(f"{folder}/".upper() for folder in (*REPLACED_FOLDERS, "map/cache"))
+    ws = getattr(project, "ws", None)
+    return sorted(str(handle.rel) for handle in (ws.dirty() if ws is not None else ())
+                  if not handle.deleted and handle.rel.key.startswith(folders) and handle.origin is not None
+                  and handle.origin.layer.kind is not LayerKind.MOD)
+
+
+def _live_bytes(project, rel) -> bytes | None:
+    """``rel`` en la vista efectiva con lo sin guardar: el documento abierto (deshacer una exportación guardada lo
+    devuelve al del juego sin tocar el disco) o, sin abrir, el archivo ganador de la VFS; con una lápida, el archivo
+    de debajo (juego o dependencia) si ``replace_path`` no lo oculta. None si no se ve nada. Leído solo del disco, la
+    exportación siguiente tomaba lo que escribió la anterior: no reescribía ``map/region_sea.txt`` (el de la anterior
+    no cita provincias) ni la capital que ya estaba puesta, y al guardar quedaban las del juego, con las provincias
+    del mapa viejo."""
+    from ..project.codecs import codec_for
+    from ..vfs.model import LayerKind
+
+    vfs = project.vfs
+    ws = getattr(project, "ws", None)
+    handle = ws.peek(rel) if ws is not None else None
+    if handle is not None and not handle.deleted:
+        try:
+            handle = ws.open(rel)       # uno limpio del juego que ``replace_path`` oculta ya no cuenta
+        except FileNotFoundError:
+            return None
+        return codec_for(handle.kind).snapshot(handle.model)
+    if handle is None:
+        entry = vfs.resolve(rel)
+        return vfs.read_bytes(entry) if entry is not None else None
+    for entry in vfs.stack(rel):
+        if entry.layer.kind is not LayerKind.MOD and not vfs.hidden_by_replace_path(entry):
+            return vfs.read_bytes(entry)
+    return None
+
+
 CLASS_OF = (("map/provinces.bmp", "A"), ("map/definition.csv", "A"), ("map/default.map", "A"),
             ("map/terrain.bmp", "A"), ("map/rivers.bmp", "B"), ("map/positions.txt", "B"),
             ("map/adjacencies.csv", "A"), ("map/region", "B"), ("map/continent.txt", "B"),
@@ -512,7 +559,10 @@ def export_plan(files: dict[str, bytes], inputs: ExportInputs, exists, world: Fo
     """Archivo · acción · clase · tamaño. ``exists(rel)`` dice si la ruta ya existe en la vista efectiva. Con un
     ``world`` de «Mundo», también los archivos de los países y las culturas nuevas (tamaño 0: se escriben al
     aplicar)."""
-    plan = [PlannedFile(rel, ACTION_TRASH, "A", 0) for rel in inputs.mod_trash if rel not in files]
+    # Una edición sin guardar de un archivo del juego que la exportación descarta (``dropped_edits``) va con la
+    # papelera: lo cambiado no llegará al mod.
+    plan = [PlannedFile(rel, ACTION_TRASH, "A", 0)
+            for rel in sorted({*inputs.mod_trash, *inputs.dropped_edits}) if rel not in files]
     for rel in sorted(files):
         data = files[rel]
         if rel in inputs.oob_paths:
@@ -523,8 +573,8 @@ def export_plan(files: dict[str, bytes], inputs: ExportInputs, exists, world: Fo
             action = ACTION_GENERATE
         plan.append(PlannedFile(rel, action, class_of(rel), len(data)))
     if inputs.has_descriptor:
-        missing = [f for f in REPLACED_FOLDERS if f not in {p.strip("/").replace("\\", "/") for p in
-                                                             inputs.replace_paths}]
+        have = {folder_key(p) for p in inputs.replace_paths}
+        missing = [f for f in REPLACED_FOLDERS if folder_key(f) not in have]
         if missing:
             plan.append(PlannedFile("@descriptor.mod", ACTION_MODIFY, "A", 0))
     if world is not None and world.params.level is Level.WORLD:
@@ -546,7 +596,9 @@ def apply_export(project, files: dict[str, bytes], inputs: ExportInputs, *, extr
 
     La papelera se vuelve a mirar aquí (``_mod_trash``) en vez de fiarse de ``inputs.mod_trash``, que es la de la
     revisión: entre la revisión y «Exportar al mod» se puede deshacer o rehacer otra exportación sin guardar, y
-    entonces aquella lista nombra archivos que ya no están (``delete`` lanzaba) o le faltan los que han vuelto."""
+    entonces aquella lista nombra archivos que ya no están (``delete`` lanzaba) o le faltan los que han vuelto. Lo
+    mismo con las ediciones del juego que se descartan (``_dropped_edits``: se revierten al archivo del juego y no
+    llegan al mod) y con el descriptor (``_add_replace_paths`` mira el de ahora: creado o borrado en la sesión)."""
     from ..project.binary import put_bytes
 
     ws = project.ws
@@ -555,12 +607,14 @@ def apply_export(project, files: dict[str, bytes], inputs: ExportInputs, *, extr
         doomed = [rel for rel in _mod_trash(project) if rel not in files]
         if doomed:
             ws.delete_many(doomed)
+        for rel in _dropped_edits(project):
+            if rel not in files:
+                ws.revert(rel)
         for rel in sorted(files):
             put_bytes(ws, rel, files[rel])
         for rel, data in sorted((extra or {}).items()):
             put_bytes(ws, rel, data)
-        if inputs.has_descriptor:
-            _add_replace_paths(project)
+        _add_replace_paths(project)
         if world is not None and world.params.level is Level.WORLD:
             retagged, _ = nations.retag(world, set(inputs.taken_tags))
             nations.apply_world(domain if domain is not None else project, retagged)
@@ -569,23 +623,15 @@ def apply_export(project, files: dict[str, bytes], inputs: ExportInputs, *, extr
 
 
 def _live_descriptor(project):
-    """El descriptor tal como está ahora: el documento abierto (con lo sin guardar) o, sin abrir, el archivo.
-    ``project.descriptor`` es el que se leyó al abrir el proyecto: tras editarlo en la sala Proyecto (o tras otra
-    exportación) se quedaba atrás, y la exportación devolvía el descriptor a ese estado (el nombre de antes, sin la
-    ``replace_path`` añadida a mano). None si el proyecto no tiene descriptor."""
-    from ..clausewitz import ParseResult
-    from ..modfile import descriptor_from_result, read_descriptor
-    from ..vfs.paths import DESCRIPTOR_REL
-
-    desc = getattr(project, "descriptor", None)
-    if desc is None:
-        return None
-    handle = project.ws.peek(DESCRIPTOR_REL)
-    if handle is None:
-        return read_descriptor(desc.file, location=desc.location) or desc
-    if handle.deleted or not isinstance(handle.model, ParseResult):
-        return desc
-    return descriptor_from_result(desc.file, handle.model, location=desc.location)
+    """El descriptor tal como está ahora (``Project.current_descriptor``): el documento abierto (con lo sin guardar;
+    None si está borrado) o, sin abrir, el archivo (None si no existe). ``project.descriptor`` es el que se leyó al
+    abrir el proyecto y se quedaba atrás: tras editarlo en la sala Proyecto u otra exportación (que se deshacían), con
+    un descriptor creado en la sesión (no se añadían las ``replace_path`` y las historias del juego seguían contando)
+    y con uno borrado sin guardar (``_add_replace_paths`` lanzaba y la exportación entera se revertía)."""
+    current = getattr(project, "current_descriptor", None)
+    if current is not None:
+        return current()
+    return getattr(project, "descriptor", None)
 
 
 def _add_replace_paths(project) -> None:
@@ -595,8 +641,9 @@ def _add_replace_paths(project) -> None:
     desc = _live_descriptor(project)
     if desc is None:
         return
-    have = {p.strip("/").replace("\\", "/") for p in desc.replace_paths}
-    want = tuple(desc.replace_paths) + tuple(f for f in REPLACED_FOLDERS if f not in have)
+    # Comparadas como las compara la VFS (``folder_key``): 'History/Provinces/' ya es esa carpeta.
+    have = {folder_key(p) for p in desc.replace_paths}
+    want = tuple(desc.replace_paths) + tuple(f for f in REPLACED_FOLDERS if folder_key(f) not in have)
     if len(want) == len(desc.replace_paths):
         return
     spec = DescriptorSpec.from_descriptor(desc)
