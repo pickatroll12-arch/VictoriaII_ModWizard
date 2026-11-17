@@ -151,7 +151,8 @@ class DiplomacyPage(BasePage):
     def _on_replace_paths(self, folders) -> None:
         """Otras ``replace_path``: las relaciones del juego dejan de contar, o vuelven, sin que se nombre ningún
         archivo de ``history/diplomacy``."""
-        if replace_paths_touch(folders, core_war.DIPLOMACY_FOLDER):
+        if replace_paths_touch(folders, core_war.DIPLOMACY_FOLDER) \
+                and not self.session.named_in_this_flush(core_war.DIPLOMACY_FOLDER):
             self.reload()
 
     def reload(self, *args) -> None:

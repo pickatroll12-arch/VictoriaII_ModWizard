@@ -1355,7 +1355,9 @@ class ForgeWizard(QWidget):
         project = self.session.project
         world = self.final or self.world
         conflicts = edit_ops.conflicts(world) if world is not None else []
-        issues = world_issues(world, self.inputs, conflicts=conflicts) if world is not None else []
+        # Sin proyecto no hay entradas de verdad (``ExportInputs()`` vacías): no se mira lo que depende del mod.
+        issues = world_issues(world, self.inputs if project is not None else None, conflicts=conflicts) \
+            if world is not None else []
         if project is not None and self.files is not None:
             from ...core.mapforge.nations import file_exists
 

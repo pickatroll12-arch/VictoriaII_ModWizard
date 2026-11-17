@@ -41,7 +41,7 @@ class ImagesPage(BasePage):
 
     def _on_replace_paths(self, folders) -> None:
         """Otras ``replace_path``: las imágenes del juego de una familia dejan de contar, o vuelven."""
-        if replace_paths_touch(folders, "gfx"):
+        if replace_paths_touch(folders, "gfx") and not self.session.named_in_this_flush("gfx"):
             self.reload()
 
     def reload(self, *args) -> None:

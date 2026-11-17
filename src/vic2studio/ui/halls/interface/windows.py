@@ -152,7 +152,7 @@ class WindowsPage(BasePage):
 
     def _on_replace_paths(self, folders) -> None:
         """Otras ``replace_path``: los ``.gui`` (y el arte) del juego dejan de contar, o vuelven."""
-        if replace_paths_touch(folders, *ART_FOLDERS):
+        if replace_paths_touch(folders, *ART_FOLDERS) and not self.session.named_in_this_flush(*ART_FOLDERS):
             self.reload()
 
     def reload(self, *args) -> None:

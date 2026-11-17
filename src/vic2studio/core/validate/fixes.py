@@ -534,8 +534,9 @@ def identical_copies(project: Project) -> list[VPath]:
 
 def _require_current_replace_paths(project: Project) -> None:
     """``FixError(descriptor_changed)`` si el descriptor (abierto con cambios o guardado) nombra otros
-    ``replace_path`` que los de la vista abierta: esta aún no los aplica (se aplican al abrir el proyecto) y la
-    papelera se llevaría las copias que un ``replace_path`` nuevo hace imprescindibles."""
+    ``replace_path`` que los de la vista abierta: esta aún no los aplica (``Project.sync_replace_paths`` los pasa a la
+    VFS cuando la sesión avisa del cambio, no en medio de una transacción) y la papelera se llevaría las copias que un
+    ``replace_path`` nuevo hace imprescindibles."""
     from ..modfile import descriptor_from_result
     from ..vfs.paths import DESCRIPTOR_REL, folder_key
 

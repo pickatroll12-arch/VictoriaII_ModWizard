@@ -48,6 +48,7 @@ CODES: dict[str, tuple[Severity, tuple[str, ...]]] = {
     "forge_edit_conflict": (W, ("discard_edit",)),
     "forge_env_changed": (I, ()),
     "forge_export_conflict": (W, ("overwrite_export",)),
+    "forge_no_descriptor": (W, ()),
     "forge_loc_shadowed": (W, ("remove_shadowed_keys",)),
     "fmg_version_unknown": (W, ()),
     "fmg_aspect": (I, ()),
@@ -73,7 +74,7 @@ class ForgeIssue:
 
     @property
     def needs_confirmation(self) -> bool:
-        return self.code in ("replace_path_mod_files_remain", "forge_no_owned_provinces")
+        return self.code in ("replace_path_mod_files_remain", "forge_no_owned_provinces", "forge_no_descriptor")
 
     def problem(self) -> Problem:
         return Problem(self.code, self.severity, VPath.of(self.rel) if self.rel else None,
@@ -133,6 +134,12 @@ def world_issues(world, inputs=None, *, conflicts=(), env_changed: bool = False)
             out.append(ForgeIssue("forge_loc_shadowed", {"file": rel}, rel))
         for rel in getattr(inputs, "export_conflicts", []) or []:
             out.append(ForgeIssue("forge_export_conflict", {"file": rel}, rel))
+        if not inputs.has_descriptor:
+            # Sin descriptor la exportación no añade las replace_path: las historias del juego seguirían contando
+            # junto a las del mapa nuevo (dos por provincia), el fallo que la exportación evita con ellas.
+            from .export import REPLACED_FOLDERS
+
+            out.append(ForgeIssue("forge_no_descriptor", {"folders": ", ".join(REPLACED_FOLDERS)}))
     return out
 
 

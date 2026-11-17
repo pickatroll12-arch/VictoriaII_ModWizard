@@ -341,7 +341,8 @@ class WarsPage(BasePage):
     def _on_replace_paths(self, folders) -> None:
         """Otras ``replace_path`` (a mano, cambiadas fuera, «Exportar al mod» o deshacerlo): las guerras del juego
         dejan de contar, o vuelven, sin que se nombre ningún archivo de ``history/wars``."""
-        if replace_paths_touch(folders, core_war.WARS_FOLDER):
+        if replace_paths_touch(folders, core_war.WARS_FOLDER) \
+                and not self.session.named_in_this_flush(core_war.WARS_FOLDER):
             self.reload()
 
     def reload(self, *args) -> None:

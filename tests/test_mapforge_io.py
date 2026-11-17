@@ -461,6 +461,20 @@ class ReviewIssueTests(unittest.TestCase):
         self.assertEqual(rp[0].fixes[0], "trash_mod_files")
         self.assertIn("history/pops", rp[0].message("es"))
 
+    def test_a_mod_without_descriptor_is_warned_before_exporting(self):
+        """Regresión (tercera verificación): sin descriptor la exportación no añade las ``replace_path`` y no lo decía:
+        las historias del juego seguían contando junto a las del mapa nuevo (dos por provincia), el fallo de
+        partida. Ahora la revisión lo avisa y pide confirmación; con descriptor, nada."""
+        issues = world_issues(tiny_world(3), ex.ExportInputs(has_descriptor=False))
+        nd = [i for i in issues if i.code == "forge_no_descriptor"]
+        self.assertEqual(len(nd), 1)
+        self.assertTrue(nd[0].needs_confirmation)
+        self.assertIn("history/provinces", nd[0].message("es"))
+        self.assertIn("descriptor", nd[0].message("en"))
+        self.assertNotIn("forge_no_descriptor",
+                         [i.code for i in world_issues(tiny_world(3), ex.ExportInputs(has_descriptor=True))])
+        self.assertNotIn("forge_no_descriptor", [i.code for i in world_issues(tiny_world(3))], "sin entradas, nada")
+
 
 if __name__ == "__main__":
     unittest.main()

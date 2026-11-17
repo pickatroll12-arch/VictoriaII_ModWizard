@@ -573,6 +573,7 @@ class WizardFlowTests(ForgeCase):
         self.assertTrue(wiz.review.export_button.isEnabled(), [i.code for i in wiz.review.blocking()])
         reviewed = wiz.inputs
         self.assertTrue(reviewed.replace_paths, "la primera exportación puso sus replace_path")
+        self.assertNotIn("forge_no_descriptor", [i.code for i in wiz.review.issues], "el minijuego tiene descriptor")
         session.undo()
         _qt.process_events(50)
         status = []

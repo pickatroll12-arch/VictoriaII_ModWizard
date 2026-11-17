@@ -380,6 +380,7 @@ class Session(QObject):
         self._numbers = itertools.count(1)
         self._unsubscribe: Callable[[], None] | None = None
         self._pending: set[VPath] = set()
+        self._flushing: frozenset = frozenset()   # lo que nombra el documentsChanged del aviso en curso
         self._content: set[VPath] = set()   # rutas cuyo contenido cambió (reindexar, textos)
         self._structural = False            # se creó o se borró algún documento (cambia el orden de capas)
         self._replace_check = False         # mirar las replace_path del descriptor aunque no se haya tocado
@@ -1438,12 +1439,16 @@ class Session(QObject):
         structural, self._structural = self._structural, False
         # Antes de avisar: quien reaccione a documentsChanged ya ve lo que oculta el descriptor de ahora.
         replaced = self._sync_replace_paths(rels)
-        if rels:
-            self.documentsChanged.emit(rels)
-        if self._project is not None and (content or structural):
-            self._after_content_change(content, structural)
-        if replaced:
-            self._after_replace_paths(replaced)
+        self._flushing = frozenset(rels)
+        try:
+            if rels:
+                self.documentsChanged.emit(rels)
+            if self._project is not None and (content or structural):
+                self._after_content_change(content, structural)
+            if replaced:
+                self._after_replace_paths(replaced)
+        finally:
+            self._flushing = frozenset()
         count = self.dirty_count()
         if count != self._last_dirty:
             self._last_dirty = count
@@ -1451,6 +1456,16 @@ class Session(QObject):
             if count == 0:
                 self.write_recovery()   # todo deshecho: sin esperar al latido, el autoguardado ya no sirve
         self.undoChanged.emit()
+
+    def named_in_this_flush(self, *prefixes: str) -> bool:
+        """True si el ``documentsChanged`` del mismo aviso ya nombró un archivo bajo alguna de ``prefixes`` (carpetas
+        relativas, con ``/`` final o sin ella). Una sala que lista esa carpeta ya se rehízo con él: no hace falta que
+        lo haga otra vez por el ``replacePathsChanged`` que llega detrás (exportar el mapa, o deshacerlo, escribe en
+        ``history/wars`` y cambia las ``replace_path`` a la vez: la diplomacia a la vista se rehacía dos veces)."""
+        if not self._flushing:
+            return False
+        wanted = tuple(prefix.rstrip("/").lower() + "/" for prefix in prefixes)
+        return any(str(rel).lower().startswith(wanted) for rel in self._flushing)
 
     def _after_content_change(self, content: set[VPath], structural: bool) -> None:
         if content:

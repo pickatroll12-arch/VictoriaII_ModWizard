@@ -148,6 +148,37 @@ class WarHallsTests(ReplacePathsHallCase):
         _qt.process_events(20)
         self.assertEqual([str(r.rel) for r in page.relations], [ALLIANCES])
 
+    def test_one_change_that_also_writes_in_its_folder_reloads_the_hall_once(self):
+        """Regresión (tercera verificación): «Exportar al mod» (o deshacerlo) escribe en ``history/diplomacy`` y
+        cambia las ``replace_path`` en el mismo paso: la sala se rehacía con ``documentsChanged`` y otra vez con
+        ``replacePathsChanged`` (con VSM, de 160 a 360 ms cada vez con la sala a la vista)."""
+        from unittest import mock
+
+        self.open_window()
+        page = self.window.show_page("war:diplomacy")
+        self.caught_up()
+        session = self.window.session
+        mod_rel = "history/diplomacy/Mod.txt"
+
+        def write_mod_relation(ws):
+            put_bytes(ws, mod_rel, b"alliance = { first = AAA second = BBB start_date = 1836.1.1 }\r\n")
+
+        with mock.patch.object(page, "reload", wraps=page.reload) as reload:
+            self.edit_descriptor(("history/diplomacy",), also=write_mod_relation)
+            _qt.process_events(20)
+            self.assertEqual(reload.call_count, 1)
+            self.assertEqual([str(r.rel) for r in page.relations], [mod_rel], "solo la del mod: la del juego oculta")
+            reload.reset_mock()
+            session.undo()
+            _qt.process_events(20)
+            self.assertEqual(reload.call_count, 1)
+            self.assertEqual([str(r.rel) for r in page.relations], [ALLIANCES])
+            reload.reset_mock()
+            self.edit_descriptor(("history/diplomacy",))
+            _qt.process_events(20)
+            self.assertEqual(reload.call_count, 1, "sin escribir en la carpeta, replacePathsChanged la rehace")
+            self.assertEqual(page.relations, [])
+
 
 class InterfaceHallsTests(ReplacePathsHallCase):
     def test_the_windows_hall_follows_a_replace_path_on_interface(self):

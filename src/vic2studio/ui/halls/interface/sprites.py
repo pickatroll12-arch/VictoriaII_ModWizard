@@ -47,7 +47,8 @@ class SpritesPage(BasePage):
 
     def _on_replace_paths(self, folders) -> None:
         """Otras ``replace_path``: los ``.gfx`` y las texturas del juego dejan de contar, o vuelven."""
-        if replace_paths_touch(folders, "interface", "gfx"):
+        if replace_paths_touch(folders, "interface", "gfx") \
+                and not self.session.named_in_this_flush("interface", "gfx"):
             self.reload()
 
     def reload(self, *args) -> None:
