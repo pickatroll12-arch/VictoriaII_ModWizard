@@ -251,6 +251,31 @@ class DirtyGameEditsUnderReplacedFoldersTests(LiveExportCase):
         self.assertTrue(p.save().ok)
         self.assertFalse((self.game.mod_root / oob).exists())
 
+    def test_a_relation_added_after_the_export_dropped_one_of_the_game(self):
+        """Regresión (verificación final): la alianza añadida antes de exportar se descarta y el documento del juego
+        queda limpio, oculto y nombrado por la pila de deshacer. La alianza que se añadía después iba detrás de las
+        del juego (``open(create=True)`` daba ese documento tal cual) y guardar copiaba al mod las alianzas que
+        ``replace_path`` oculta."""
+        from vic2studio.core.domain import war
+
+        p = self.project
+        alliances = "history/diplomacy/Alliances.txt"
+        self.assertEqual([(r.first, r.second, r.start_date) for r in war.relations(p)], [("AAA", "CCC", "1830.1.1")])
+        war.add_relation(p, "alliance", "BBB", "CCC", "1836.1.1")
+        _, inputs, files, extra = self.review(3)
+        self.assertEqual(inputs.dropped_edits, [alliances])
+        self.assertNotIn(alliances, files, "la exportación no escribe alianzas")
+        ex.apply_export(p, files, inputs, extra=extra)
+        self.assertTrue(p.sync_replace_paths())
+        self.assertEqual(war.relations(p), [])
+        first, second = sorted({rel.rsplit("/", 1)[1][:3] for rel in files if rel.startswith("history/countries/")})[:2]
+        war.add_relation(p, "alliance", first, second, "1836.1.1")
+        self.assertEqual([(r.first, r.second) for r in war.relations(p)], [(first, second)])
+        self.assertTrue(p.save().ok)
+        saved = (self.game.mod_root / alliances).read_bytes()
+        self.assertIn(first.encode(), saved)
+        self.assertNotIn(b"1830.1.1", saved, "nada de las alianzas del juego en el mod")
+
 
 class LiveDescriptorTests(LiveExportCase):
     """La exportación mira el descriptor de ahora (``Project.current_descriptor``), no el que se leyó al abrir."""

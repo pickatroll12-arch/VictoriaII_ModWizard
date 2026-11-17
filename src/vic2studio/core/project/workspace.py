@@ -355,18 +355,23 @@ class Workspace:
         ``create`` revive vacío, lo que es una mutación: va dentro de una transacción.
         Con errores de sintaxis se abre con ``read_only_reason="parse_errors"`` (D17).
         Un documento limpio de un archivo del juego que ``replace_path`` oculta ahora (``_shadowed``) no cuenta como
-        abierto: sin ``create`` se busca ``rel`` en el disco como si no lo estuviera (``FileNotFoundError`` si el mod
-        no tiene otro). Con ``create`` se reutiliza ese mismo documento, como hacía antes: deshacer y rehacer siguen
-        sobre él (uno nuevo en su lugar dejaba, al deshacerlo todo, el estado del juego en un documento sin origen que
-        se guardaba en el mod).
+        abierto: se busca ``rel`` en el disco como si no lo estuviera (``FileNotFoundError`` si el mod no tiene otro).
+        Con ``create`` dentro de una transacción revive vacío en ese mismo documento, como una lápida: deshacer y
+        rehacer siguen sobre él (uno nuevo en su lugar dejaba, al deshacerlo todo, el estado del juego en un documento
+        sin origen que se guardaba en el mod), y quien añade algo no lo añade detrás de lo que el juego ya no carga.
+        Fuera de una transacción (solo leer) se suelta y se da uno nuevo vacío.
         """
         self._check()
         rel = VPath.of(rel)
         handle = self._store.get(rel)
-        if handle is not None and not create and self._shadowed(handle):
+        if handle is not None and self._shadowed(handle):
             if self._disk_entry(rel) is None:
-                raise FileNotFoundError(str(rel))
-            handle = self._effective_handle(rel)   # el mod tiene su archivo en esa ruta: se lee ese
+                if not create:
+                    raise FileNotFoundError(str(rel))
+                if self._frames:
+                    kind = kind or handle.kind
+                    return self.create(rel, kind, self._underlying_model(rel, kind))
+            handle = self._effective_handle(rel)   # el mod tiene su archivo en esa ruta (o se suelta): se lee ese
         if handle is not None:
             if handle.deleted:
                 if create:

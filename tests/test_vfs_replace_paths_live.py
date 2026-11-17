@@ -32,6 +32,7 @@ GAME = {
 }
 MOD = {"history/provinces/north/9 - Nueva.txt": "owner = AAA\r\n"}
 CAPITAL = "history/provinces/north/1 - Capital.txt"     # del minijuego
+ALLIANCES = "history/diplomacy/Alliances.txt"           # del minijuego: AAA y CCC desde 1830
 
 
 class SetReplacePathsTests(unittest.TestCase):
@@ -240,6 +241,73 @@ class ProjectSyncReplacePathsTests(unittest.TestCase):
         self.assertNotIn(CAPITAL, [str(h.rel) for h in ws.documents()])
         with self.assertRaises(FileNotFoundError):
             ws.open(CAPITAL)
+
+    def hide_the_alliances_after_a_discarded_edit(self) -> None:
+        """Una alianza añadida y descartada (lo que hace «Exportar al mod» con «Descartar cambios»): el documento del
+        juego queda limpio y la pila de deshacer lo nombra. Después ``replace_path`` oculta su carpeta."""
+        from vic2studio.core.domain import war
+
+        project = self.project
+        self.assertEqual([(r.first, r.second) for r in war.relations(project)], [("AAA", "CCC")])
+        war.add_relation(project, "alliance", "BBB", "CCC", "1836.1.1")
+        with project.ws.transaction("pending.undo_revert", name="Alliances"):
+            project.ws.revert(ALLIANCES)
+        self.set_replace(("history/diplomacy",))
+        self.assertTrue(project.sync_replace_paths())
+        self.assertEqual(war.relations(project), [], "el juego ya no carga sus alianzas")
+
+    def test_adding_at_the_path_of_a_hidden_document_starts_empty(self):
+        """Regresión (verificación final): ``open(create=True)`` daba el documento oculto con lo que tenía del juego.
+        La alianza nueva se añadía detrás y guardar copiaba en el mod las alianzas que ``replace_path`` oculta."""
+        from vic2studio.core.domain import war
+
+        project = self.project
+        ws = project.ws
+        self.hide_the_alliances_after_a_discarded_edit()
+        hidden = ws.peek(ALLIANCES)
+        self.assertIsNotNone(hidden, "la pila de deshacer lo nombra")
+        war.add_relation(project, "alliance", "BBB", "AAA", "1836.1.1")
+        self.assertEqual([(r.first, r.second) for r in war.relations(project)], [("BBB", "AAA")])
+        self.assertIs(ws.peek(ALLIANCES), hidden, "el mismo documento, revivido vacío")
+        self.assertTrue(project.save().ok)
+        saved = (self.game.mod_root / ALLIANCES).read_bytes()
+        self.assertIn(b"BBB", saved)
+        self.assertNotIn(b"CCC", saved, "nada del juego oculto en el mod")
+        self.assertNotIn(b"1830.1.1", saved)
+
+    def test_undo_and_redo_after_adding_at_the_path_of_a_hidden_document(self):
+        """Deshacerlo todo deja el Workspace limpio (nada del juego en un documento sin origen) y rehacerlo todo
+        guarda solo la alianza nueva."""
+        from vic2studio.core.domain import war
+
+        project = self.project
+        ws = project.ws
+        self.hide_the_alliances_after_a_discarded_edit()
+        war.add_relation(project, "alliance", "BBB", "AAA", "1836.1.1")
+        while ws.can_undo():
+            ws.undo()
+            project.sync_replace_paths()
+        self.assertEqual([str(h.rel) for h in ws.dirty()], [])
+        self.assertEqual([(r.first, r.second) for r in war.relations(project)], [("AAA", "CCC")])
+        while ws.can_redo():
+            ws.redo()
+            project.sync_replace_paths()
+        self.assertEqual([(r.first, r.second) for r in war.relations(project)], [("BBB", "AAA")])
+        self.assertTrue(project.save().ok)
+        self.assertNotIn(b"CCC", (self.game.mod_root / ALLIANCES).read_bytes())
+
+    def test_reading_with_create_outside_a_transaction_does_not_give_the_hidden_content(self):
+        """Fuera de una transacción (la validación lee así) no se puede revivir: el documento oculto se suelta y se
+        da uno nuevo vacío, sin lanzar y sin lo del juego."""
+        from vic2studio.core.project.codecs import codec_for
+
+        ws = self.project.ws
+        self.hide_the_alliances_after_a_discarded_edit()
+        hidden = ws.peek(ALLIANCES)
+        handle = ws.open(ALLIANCES, create=True)
+        self.assertIsNot(handle, hidden)
+        self.assertNotIn(b"CCC", codec_for(handle.kind).snapshot(handle.model))
+        self.assertFalse(handle.dirty)
 
 
 class ExportReadsTheLiveDescriptorTests(unittest.TestCase):

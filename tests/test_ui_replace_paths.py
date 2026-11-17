@@ -261,6 +261,32 @@ class ExportReplacePathsTests(ReplacePathsCase):
                       if p.code == "province_history_duplicate"]
         self.assertEqual(duplicated, [])
 
+    def test_an_alliance_added_in_diplomacy_after_the_export_does_not_bring_back_the_game_ones(self):
+        """Regresión (verificación final): una alianza añadida en Diplomacia antes de exportar se descarta («Descartar
+        cambios») y el archivo del juego queda oculto por ``replace_path``. La que se añadía después en Diplomacia iba
+        detrás de las del juego, y guardar las copiaba todas al mod."""
+        alliances = "history/diplomacy/Alliances.txt"
+        self.open_forge()
+        diplomacy = self.window.show_page("war:diplomacy")
+        _qt.process_events(50)
+        self.assertEqual([(r.first, r.second) for r in diplomacy.relations], [("AAA", "CCC")])
+        self.assertTrue(diplomacy.add_relation("alliance", "BBB", "CCC", "1836.1.1"))
+        _qt.process_events(50)
+        self.export()
+        self.assertIn(ex.PlannedFile(alliances, ex.ACTION_DISCARD, "A", 0), self.wiz.review.plan)
+        diplomacy = self.window.show_page("war:diplomacy")
+        _qt.process_events(50)
+        self.assertEqual(diplomacy.relations, [], "el juego ya no carga sus alianzas")
+        first, second = sorted(self.wiz.final.entities.get("owners") or [])[:2]
+        self.assertTrue(diplomacy.add_relation("alliance", first, second, "1836.1.1"))
+        _qt.process_events(50)
+        self.assertEqual([(r.first, r.second) for r in diplomacy.relations], [(first, second)])
+        self.assertTrue(self.session.save().ok)
+        _qt.process_events(100)
+        saved = (self.game.mod_root / alliances).read_bytes()
+        self.assertIn(first.encode(), saved)
+        self.assertNotIn(b"1830.1.1", saved, "nada de las alianzas del juego en el mod")
+
 
 class DescriptorReplacePathsTests(ReplacePathsCase):
     """Las ``replace_path`` que cambian sin el taller: a mano en el descriptor y fuera del Studio."""
