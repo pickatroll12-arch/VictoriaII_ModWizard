@@ -201,6 +201,7 @@
   "forge.review.fix_here": "Fix: “{fix}” (Fix button).",
   "forge.review.fix_later": "Suggested fix: “{fix}”. This version of the workshop does not apply it by itself yet: do it by hand or leave it if the warning does not affect you.",
   "forge.review.fix_named": "Fix: {fix}",
+  "forge.review.mod_changed": "The mod has changed since the review (undo, redo, save or another hall): the export has been prepared again with what is there now. Check the plan and press “Export to the mod” again.",
   "forge.review.no_project": "Open a project to export the map.",
   "forge.review.preparing": "Preparing the files…",
   "forge.review.ready": "Ready to export: {provinces} provinces ({land} land and {sea} sea) in {files} files.",

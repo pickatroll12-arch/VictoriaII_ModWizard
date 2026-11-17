@@ -201,6 +201,7 @@
   "forge.review.fix_here": "Arreglo: «{fix}» (botón Arreglar).",
   "forge.review.fix_later": "Arreglo propuesto: «{fix}». Esta versión del taller todavía no lo aplica sola: hazlo a mano o déjalo así si el aviso no te afecta.",
   "forge.review.fix_named": "Arreglar: {fix}",
+  "forge.review.mod_changed": "El mod ha cambiado desde la revisión (deshacer, rehacer, guardar u otra sala): la exportación se ha vuelto a preparar con lo que hay ahora. Revisa el plan y vuelve a pulsar «Exportar al mod».",
   "forge.review.no_project": "Abre un proyecto para exportar el mapa.",
   "forge.review.preparing": "Preparando los archivos…",
   "forge.review.ready": "Listo para exportar: {provinces} provincias ({land} de tierra y {sea} de mar) en {files} archivos.",

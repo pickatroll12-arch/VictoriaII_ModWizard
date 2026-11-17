@@ -533,6 +533,63 @@ class WizardFlowTests(ForgeCase):
         self.assertEqual(planned, {rel for rel in touched if rel.startswith("common/countries/")},
                          "el plan dice los archivos que escribe la exportación")
 
+    def test_the_states_step_shows_the_continents_as_typed(self):
+        """Regresión (tercera revisión): los continentes escritos en otra escritura pasan a claves de script válidas
+        (forge_continent_1) para los archivos, y el resumen de «6. Estados» enseñaba esas claves en vez de lo
+        escrito."""
+        self.open_forge()
+        self.small_world()
+        wiz = self.wiz
+        wiz.go("states")
+        wiz.continents_edit.setText("Европа, North America")
+        wiz.continents_edit.editingFinished.emit()
+        self.idle()
+        keys = wiz.world.entities["continent_names"]
+        self.assertEqual(keys[0], "forge_continent_1")
+        text = wiz.states_stats.text()
+        self.assertIn("Европа", text)
+        self.assertNotIn("forge_continent_1", text)
+
+    def test_exporting_a_review_the_mod_no_longer_matches_prepares_it_again(self):
+        """Regresión (tercera revisión): la exportación calcula la papelera con el mod de ahora. Si el mod cambió
+        después de la revisión (aquí, deshacer la exportación anterior), «Exportar al mod» aplicaba un plan que nadie
+        había visto: mandaba a la papelera otros archivos. Ahora vuelve a preparar la revisión, lo dice y no
+        exporta; el segundo clic exporta lo que dice el plan nuevo."""
+        self.open_forge()
+        self.small_world()
+        wiz = self.wiz
+        session = self.window.session
+        wiz.go("review")
+        self.idle()
+        self.assertTrue(wiz.export())
+        wiz.go("canvas")
+        wiz.seed_spin.setValue(wiz.seed_spin.value() + 1)
+        self.idle()
+        wiz.go("review")
+        self.idle()
+        # La papelera de lo exportado antes pide confirmación (replace_path_mod_files_remain).
+        for box in wiz.review._confirm_boxes.values():
+            box.setChecked(True)
+        self.assertTrue(wiz.review.export_button.isEnabled(), [i.code for i in wiz.review.blocking()])
+        reviewed = wiz.inputs
+        self.assertTrue(reviewed.replace_paths, "la primera exportación puso sus replace_path")
+        session.undo()
+        _qt.process_events(50)
+        status = []
+        wiz.status_requested.connect(lambda key, params: status.append(key))
+        self.assertEqual(wiz.export(), [], "no se exporta un plan viejo")
+        self.assertIn("forge.review.mod_changed", status)
+        self.idle()
+        self.assertIsNot(wiz.inputs, reviewed)
+        self.assertNotEqual(wiz.inputs, reviewed)
+        self.assertNotEqual(wiz.inputs.replace_paths, reviewed.replace_paths, "deshecha, el descriptor no las tiene")
+        for box in wiz.review._confirm_boxes.values():
+            box.setChecked(True)
+        self.assertTrue(wiz.review.export_button.isEnabled(), [i.code for i in wiz.review.blocking()])
+        touched = wiz.export()
+        self.assertTrue(touched)
+        self.assertEqual(wiz.current(), "done")
+
     def test_save_and_reopen_a_workshop_project(self):
         self.open_forge()
         self.small_world()

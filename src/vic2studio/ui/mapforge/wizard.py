@@ -1332,11 +1332,9 @@ class ForgeWizard(QWidget):
             project = self.session.project
             from ...core.mapforge import export as ex
 
-            self.inputs = ex.gather_inputs(project, self.final, index=getattr(self.session, "index", None)) \
-                if project is not None else ex.ExportInputs()
             self.review.set_state(tr("forge.review.preparing"))
-            self._files_for = self.final
-            self.client.run("files", ForgeCommand("export_bytes", {"world": self.final, "inputs": self.inputs}))
+            self._request_files(ex.gather_inputs(project, self.final, index=getattr(self.session, "index", None))
+                                if project is not None else ex.ExportInputs())
             return
         if tag == "files":
             if self.final is None or self._files_for is not self.final:
@@ -1411,6 +1409,17 @@ class ForgeWizard(QWidget):
         from ...core.mapforge import export as ex
         from ...core.mapforge.project import MapForgeProject, sha256
 
+        fresh = ex.gather_inputs(project, self.final, index=getattr(self.session, "index", None))
+        if fresh != self.inputs:
+            # El mod cambió después de la revisión (deshacer o rehacer otra exportación, guardar, otra sala): el plan
+            # revisado ya no es lo que se haría (otra papelera, otras replace_path, otras historias de país). Se vuelve
+            # a preparar con lo de ahora y se dice; no se aplica un plan que nadie ha visto.
+            self.files = None
+            self.review.set_plan([])
+            self.review.set_state(tr("forge.review.mod_changed"))
+            self.status_requested.emit(N_("forge.review.mod_changed"), {})
+            self._request_files(fresh)
+            return []
         hashes = {rel: sha256(data) for rel, data in self.files.items()}
         proj = MapForgeProject(self.project_name, self.params, edits=list(self.final.edits), exported=hashes)
         domain = None
@@ -1656,6 +1665,13 @@ class ForgeWizard(QWidget):
         """True si hay mapa en el taller pero la revisión aún no tiene sus archivos (no se puede exportar)."""
         return self.world is not None and self.files is None
 
+    def _request_files(self, inputs) -> None:
+        """Pide al trabajador los archivos del render final con ``inputs`` (lo que la exportación lee del mod, de
+        ``gather_inputs``); la revisión se rehace cuando llegan."""
+        self.inputs = inputs
+        self._files_for = self.final
+        self.client.run("files", ForgeCommand("export_bytes", {"world": self.final, "inputs": inputs}))
+
     def _ensure_final(self) -> None:
         """Con la revisión a la vista y sin render final al día, lo pide en cuanto el trabajador está libre."""
         if getattr(self, "_screen", "start") == "review" and self.world is not None and self.final is None \
@@ -1759,9 +1775,13 @@ class ForgeWizard(QWidget):
                                         median=int(np.median(area)) if area.size else 0,
                                         smallest=int(area.min()) if area.size else 0))
         n_states = int(r.state.max()) + 1 if r.state is not None and r.state.size and r.state.max() >= 0 else 0
-        n_cont = len(w.entities.get("continent_names") or [])
-        self.states_stats.setText(tr("forge.stats.states", states=n_states, continents=n_cont,
-                                     names=", ".join(w.entities.get("continent_names") or [])))
+        keys = list(w.entities.get("continent_names") or [])
+        # Lo escrito en «Continentes» ('Европа', 'North America'), no la clave de script que le da el taller
+        # (forge_continent_1, north_america): la clave solo va a los archivos.
+        typed = [str(n).strip() for n in (w.params.continents or ())]
+        shown = [typed[k] if k < len(typed) and typed[k] else key for k, key in enumerate(keys)]
+        self.states_stats.setText(tr("forge.stats.states", states=n_states, continents=len(keys),
+                                     names=", ".join(shown)))
         owners = w.entities.get("owners") or []
         owned = int((r.owner[1:r.land_count + 1] >= 0).sum()) if r.owner is not None else 0
         world_data = w.entities.get("world")
