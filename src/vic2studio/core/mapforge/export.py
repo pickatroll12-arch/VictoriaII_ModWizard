@@ -22,7 +22,7 @@ from ..map.positions import generated_text
 from . import nations
 from .economy import presence
 from .edits import NAME_FALLBACKS
-from .names import ascii_name, cp1252_name, cp1252_text, key_name
+from .names import ascii_name, cp1252_text, key_name, loc_name
 from .params import Level
 from .world import CLIMATES, ForgeWorld
 
@@ -236,22 +236,22 @@ def climate_txt(world: ForgeWorld) -> bytes:
 
 
 def localisation(world: ForgeWorld, prefix: str) -> bytes:
-    """Los nombres de provincias y estados. Cada uno pasa por ``cp1252_name`` (en cp1252 y sin ';' ni saltos, que
-    partirían la fila) y nunca queda vacío: si al nombre no le queda ninguna letra ni cifra (uno puesto a mano en
-    otra escritura, como '大阪'), va el generado al que sustituyó (``NAME_FALLBACKS``) o, si no se conoce, la clave
-    (``PROV<id>``, como hacen los estados)."""
+    """Los nombres de provincias y estados. Cada uno pasa por ``loc_name`` (en cp1252 y sin ';' ni saltos, que
+    partirían la fila) y nunca queda vacío: si al nombre no le queda nada que el juego sepa escribir (uno puesto a
+    mano en otra escritura, como '大阪'), va el generado al que sustituyó (``NAME_FALLBACKS``) o, si no se conoce, la
+    clave (``PROV<id>``, como hacen los estados)."""
     r = world.raster
     kept = world.entities.get(NAME_FALLBACKS) or {}
     kept_p, kept_s = kept.get("province") or {}, kept.get("state") or {}
     rows = []
     for i in range(1, r.count + 1):
         par = int(r.parent[i]) if r.parent is not None else i - 1
-        n = cp1252_name(r.names[i], kept_p.get(str(par))) or f"PROV{i}"
+        n = loc_name(r.names[i], kept_p.get(str(par))) or f"PROV{i}"
         rows.append(f"PROV{i};{n};{n};{n};;{n};;;;;;;;;x")
     sn = world.entities.get("state_names") or []
     st = r.state[1:r.land_count + 1]
     for s in np.unique(st[st >= 0]).tolist():
-        n = cp1252_name(sn[s] if s < len(sn) else None, kept_s.get(str(s))) or state_key(prefix, s)
+        n = loc_name(sn[s] if s < len(sn) else None, kept_s.get(str(s))) or state_key(prefix, s)
         rows.append(f"{state_key(prefix, s)};{n};{n};{n};;{n};;;;;;;;;x")
     return _lines(rows)
 

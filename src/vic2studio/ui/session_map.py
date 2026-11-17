@@ -14,10 +14,11 @@ por ``session.map`` (se crea al pedirla) y vive lo que la sesión. Da tres cosas
    se rehacen al cambiar ``Session.working_date`` o al reconstruirse el índice. Tras una edición propia se
    actualizan en el acto (``ProvinceFacts.update``) y ``factsChanged`` lleva las provincias tocadas; tras un
    deshacer, un rehacer o una edición ajena (``Session.documentsChanged``), se actualizan las provincias de los
-   documentos tocados desde sus registros vivos. Si se construyeron con un índice atrasado (el ráster recargado
-   tras «Exportar al mod» o deshacerla llega antes que la reindexación, ``REINDEX_DELAY_MS`` después) o el índice
-   cambió mientras se construían, se rehacen enteros una vez más cuando el índice se pone al día
-   (``Session.symbolsChanged``); no en cada ``symbolsChanged``, que llega tras cualquier edición.
+   documentos tocados desde sus registros vivos; las tocadas mientras se construían enteros se vuelven a aplicar
+   sobre los nuevos al terminar. Si se construyeron con un índice atrasado (el ráster recargado tras «Exportar al
+   mod» o deshacerla llega antes que la reindexación, ``REINDEX_DELAY_MS`` después), se rehacen enteros una vez más
+   cuando el índice se pone al día (``Session.symbolsChanged``); no en cada ``symbolsChanged``, que llega tras
+   cualquier edición.
 3. **Las ediciones del mapa**, cada una en una sola transacción de ``Session.edit`` con su etiqueta
    ``core.domain.province.UNDO_*`` (un trazo de brocha = un paso de deshacer): ``set_value``, ``paint``,
    ``set_core``, ``move_to_group``. Lanzan lo que lance el núcleo (``ProvinceError``, ``GroupError``); la página
@@ -26,8 +27,10 @@ por ``session.map`` (se crea al pedirla) y vive lo que la sesión. Da tres cosas
 Las reglas (``rules``: ``GameRules``) salen de la vista efectiva, con lo sin guardar, como en la validación: tras
 exportar sin guardar, el ``sea_starts`` del ``default.map`` nuevo va con el ráster nuevo. Se calculan una vez y
 valen hasta que cambia uno de sus archivos (``core.rules.game.SOURCE_RELS`` o el BMP de provincias; guardarlos
-también cuenta) o se abre o cierra un proyecto; con otro mar, los hechos se rehacen enteros y ``provinces`` (que
-decide qué es mar para la brocha) se crea de nuevo.
+también cuenta), se reconstruye el índice entero («Reindexar») o se abre o cierra un proyecto; con otro mar, los
+hechos se rehacen enteros y ``provinces`` (que decide qué es mar para la brocha) se crea de nuevo. Un archivo de
+reglas cambiado en el disco fuera del Studio, sin abrir en él, se ve al reindexar o al volver a abrir el proyecto,
+como pasa con el índice.
 
 También guarda el estado compartido entre las páginas del mapa: la selección (``selection``) y el centro de la
 vista del lienzo en coordenadas del juego (``view_center``), que el editor de fechas de inicio usa para «Usar la
@@ -129,9 +132,13 @@ class MapSession(QObject):
         self._wanted = False                 # alguien pidió el ráster: se recarga solo si cambian sus archivos
         self._provinces = None
         self._rules_cache: tuple | None = None   # (proyecto, sus GameRules efectivas, claves de sus archivos)
-        self._facts_source: tuple[object, object] = (None, None)  # (índice, generación) que copió la última tarea
+        self._facts_source = None            # el índice que copió la última construcción de los hechos
         self._facts_rules = None             # las reglas con las que se pidieron (su mar)
         self._facts_behind = False           # los hechos pueden no tener algo del índice: rehacer al ponerse al día
+        # Provincias y grupos actualizados en el acto mientras se construían los hechos enteros: la construcción copió
+        # el índice antes, así que al terminar se vuelven a aplicar sobre los hechos nuevos (si no, se perdían).
+        self._replay_pids: set[int] = set()
+        self._replay_groups: set[str] = set()
         self._raster_runner = TaskRunner(self, pool=POOL_MAP)
         self._raster_runner.finished.connect(self._on_raster_loaded)
         self._raster_runner.failed.connect(self._on_raster_failed)
@@ -323,6 +330,9 @@ class MapSession(QObject):
         """Rehace los hechos: enteros en segundo plano (``pids=None``) o solo ``pids`` desde sus registros vivos,
         en el acto. Emite ``factsChanged``."""
         if pids is not None:
+            pids = [int(pid) for pid in pids]
+            if self._facts_runner.is_busy():
+                self._replay_pids.update(pids)
             facts = self._facts
             provinces = self.provinces
             if facts is None or provinces is None:
@@ -353,7 +363,7 @@ class MapSession(QObject):
         # Un índice al que aún le falta algo (una exportación o un deshacer de hace menos de REINDEX_DELAY_MS): se
         # construye igual, para enseñar ya el ráster nuevo, y se rehace cuando se ponga al día (``_catch_up_facts``).
         self._facts_behind = self.session._index_behind()
-        self._facts_source = (index, getattr(index, "generation", None))
+        self._facts_source = index
         self._facts_rules = rules
 
         def task(context):
@@ -368,13 +378,15 @@ class MapSession(QObject):
         if facts is None or facts.date != self.session.working_date:
             return
         self._facts = facts
-        # Lo que cambió el índice mientras tanto (otra generación, otro índice) o aún tiene pendiente no está en
-        # estos hechos, y lo que se actualizó en el acto se aplicó a los de antes: se rehacen al ponerse al día.
-        index, generation = self._facts_source
-        if (self.session.index is not index or getattr(index, "generation", None) != generation
-                or self.session._index_behind()):
-            self._facts_behind = True
         self.factsChanged.emit(None)
+        # Lo editado mientras se construían (brocha, deshacer, otra sala) se aplicó a los hechos de antes: se aplica
+        # ahora a estos, en el acto, en vez de rehacerlos enteros otra vez (eso, con la brocha, no acababa nunca).
+        pids, self._replay_pids = self._replay_pids, set()
+        kinds, self._replay_groups = self._replay_groups, set()
+        if pids:
+            self.refresh_facts(pids)
+        if kinds:
+            self.resync_groups(kinds)
         self._catch_up_facts()
 
     def _catch_up_facts(self) -> None:
@@ -686,9 +698,11 @@ class MapSession(QObject):
         self._facts = None
         self._terrain = self._terrain_types = None
         self._forget_rules()
-        self._facts_source = (None, None)
+        self._facts_source = None
         self._facts_rules = None
         self._facts_behind = False
+        self._replay_pids.clear()
+        self._replay_groups.clear()
         self._selection = ()
         self._view_center = None
         self._wanted = False
@@ -711,7 +725,14 @@ class MapSession(QObject):
 
         # ``index_state`` es un método: compararlo sin llamarlo daba siempre False y, con el ráster listo antes que
         # el índice, los hechos no se hacían nunca.
-        if self.session.index_state() == READY and self._raster is not None and self._facts is None:
+        if self.session.index_state() != READY or self._raster is None:
+            return
+        if self._facts is None:
+            self.refresh_facts()
+        elif self.session.index is not self._facts_source:
+            # Un índice nuevo entero («Reindexar»): también las reglas (pueden haber cambiado en el disco, fuera del
+            # Studio) y los hechos, que se hicieron con el de antes.
+            self._forget_rules()
             self.refresh_facts()
 
     def _on_symbols_changed(self, kinds) -> None:
@@ -766,6 +787,9 @@ class MapSession(QObject):
         edición de los archivos de grupos, sin esperar al índice."""
         from ..core.map.facts import CODED
 
+        kinds = tuple(kinds)
+        if self._facts_runner.is_busy():
+            self._replay_groups.update(kinds)
         facts = self._facts
         if facts is None or self.session.project is None:
             return

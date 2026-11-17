@@ -163,14 +163,26 @@ def loc_text(text) -> str:
 
 
 def cp1252_name(text, fallback: str | None = None) -> str | None:
-    """Un nombre que el juego sabe escribir en su localización (``loc_text``) o, si no le queda ninguna letra ni
-    cifra (un nombre solo en otra escritura, como '東京', o un emoji), ``fallback`` limpiado igual; ``None`` si
-    tampoco. Nunca da un nombre vacío. Los nombres que vienen de fuera (JSON de Azgaar), los puestos a mano y los
-    que van a la localización pasan por aquí: antes llegaban tal cual y la exportación fallaba al escribir sus
-    textos (letras sin cp1252, o un ';' como el de 'Alta;Baja')."""
+    """Un nombre que el juego sabe escribir en su localización (``loc_text``) o, si no le queda ninguna letra (un
+    nombre solo en otra escritura, como '東京', un emoji o solo cifras), ``fallback`` limpiado igual; ``None`` si
+    tampoco. Nunca da un nombre vacío. Es para los nombres que vienen de fuera (JSON de Azgaar) y los de países y
+    culturas, que llevan gentilicio ('12' daría «12ian»): antes llegaban tal cual y la exportación fallaba al escribir
+    sus textos (letras sin cp1252, o un ';' como el de 'Alta;Baja'). Lo puesto a mano en la tabla de nombres va
+    por ``loc_name``, que respeta lo que quede."""
     for candidate in (text, fallback):
         clean = loc_text(candidate)
-        if any(ch.isalnum() for ch in clean):
+        if any(ch.isalpha() for ch in clean):
+            return clean
+    return None
+
+
+def loc_name(text, fallback: str | None = None) -> str | None:
+    """Un nombre de provincia o de estado para la localización: lo que quede de ``text`` tras ``loc_text`` (aunque
+    sean cifras o signos: lo ha escrito alguien a mano, como '12' o '...'), o ``fallback`` limpiado igual si no
+    queda nada ('大阪', 'Москва', un emoji); ``None`` si tampoco."""
+    for candidate in (text, fallback):
+        clean = loc_text(candidate)
+        if clean:
             return clean
     return None
 

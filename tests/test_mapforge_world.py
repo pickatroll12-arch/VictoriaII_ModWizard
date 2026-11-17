@@ -317,6 +317,17 @@ class WorldExportTests(unittest.TestCase):
         self.assertEqual(loc.text(f"{data['countries'][0]['tag']}_ADJ", "en"), "Alta,Bajian")
         self.assertEqual({loc.text(c["key"], "en") for c in data["cultures"]}, {"Norte,Sur", "Gente de mar"})
 
+    def test_azgaar_names_without_letters_do_not_name_countries(self):
+        """Un estado o una cultura de Azgaar sin letras ('12', '½', '2026') no da nombre a un país ni a una cultura:
+        saldrían países «12» con gentilicio «12ian». Van los nombres generados, como con otras escrituras."""
+        w = self.fmg_world(Level.WORLD, states={1: "12", 2: "½", 3: "2026"}, cultures={1: "42", 2: "7"})
+        data = w.entities["world"]
+        texts = [c["name"] for c in data["countries"]] + [c["adjective"] for c in data["countries"]] + \
+            [c["name"] for c in data["cultures"]]
+        for text in texts:
+            self.assertTrue(any(ch.isalpha() for ch in text), repr(text))
+        self.assertFalse({"12", "½", "2026", "42", "7"} & set(texts))
+
     def test_azgaar_state_names_are_transliterated_at_the_map_level(self):
         """En «Solo mapa» no fallaba, pero los nombres perdían letras sin avisar: 'Ősz' salía como '?sz'."""
         w = self.fmg_world(Level.MAP)
@@ -334,7 +345,7 @@ class WorldExportTests(unittest.TestCase):
         estados."""
         w = world_of(3, countries=3, install_profile=self.profile)
         names = list(w.entities["province_names"])
-        names[:4] = ["Łódź東京;", "大阪", "Ŝkolo", "Москва"]
+        names[:6] = ["Łódź東京;", "大阪", "Ŝkolo", "Москва", "12", "..."]
         w = pipeline.run_raster(w.evolve(entities=dict(w.entities, province_names=names)), scale=1,
                                 with_textures=False)
         self.assertIn("Łódź東京;", w.raster.names)
@@ -348,6 +359,9 @@ class WorldExportTests(unittest.TestCase):
         self.assertTrue(all(r.split(b";")[1] for r in rows), "ninguna provincia sin nombre")
         self.assertIn(";Lódz,;".encode("cp1252"), loc)
         self.assertIn(b";Skolo;", loc)
+        # Lo que el juego sí sabe escribir se respeta aunque no tenga letras: lo ha puesto alguien a mano.
+        self.assertIn(b";12;12;12;;12;", loc)
+        self.assertIn(b";...;...;...;;...;", loc)
         for name in ("大阪", "Москва"):
             pid = list(w.raster.names).index(name)
             self.assertIn(f"PROV{pid};PROV{pid};PROV{pid};PROV{pid};;PROV{pid};;;;;;;;;x".encode(), rows)

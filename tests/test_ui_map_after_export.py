@@ -180,6 +180,110 @@ class MapRulesEditedByHandTests(MapCase):
         self.assertEqual(facts_sea(ms), OLD_SEA)
 
 
+class MapFactsWhileTheyRebuildTests(MapCase):
+    """Lo que se edita mientras los hechos se construyen enteros (en segundo plano, con una copia del índice)."""
+
+    def slow_builds(self, seconds: float) -> list:
+        """Hace lenta cada construcción entera de los hechos y apunta cuántas hay."""
+        import time
+        from unittest import mock
+
+        from vic2studio.core.map.facts import ProvinceFacts
+
+        builds = []
+        real = ProvinceFacts.build.__func__
+
+        def slow(cls, *args, **kwargs):
+            builds.append(1)
+            time.sleep(seconds)
+            return real(cls, *args, **kwargs)
+
+        patcher = mock.patch.object(ProvinceFacts, "build", classmethod(slow))
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        return builds
+
+    def owners(self, ms, pids) -> dict[int, str]:
+        facts = ms.facts
+        return {pid: facts.name("tags", int(facts.owner[pid])) for pid in pids}
+
+    def test_a_brush_stroke_while_the_facts_rebuild_is_kept(self):
+        """Regresión: un trazo de brocha mientras los hechos se rehacían enteros (al cambiar la fecha de trabajo) se
+        aplicaba a los de antes y se perdía al llegar los nuevos, hechos con el índice de antes del trazo."""
+        from test_ui_map import D1861
+
+        self.open_map()
+        session = self.window.session
+        ms = map_ready(self)
+        builds = self.slow_builds(0.8)
+        session.set_working_date(D1861)
+        _qt.process_events(150)
+        self.assertTrue(ms._facts_runner.is_busy())
+        ms.paint([1, 2, 3], "owner", "CCC")
+        ms = map_ready(self)
+        self.assertEqual(self.owners(ms, (1, 2, 3)), {1: "CCC", 2: "CCC", 3: "CCC"})
+        self.assertEqual(len(builds), 1, "sin construcciones de más")
+
+    def test_moving_a_province_to_another_region_while_the_facts_rebuild_is_kept(self):
+        """Como el trazo de brocha, pero con un grupo (la región): se aplica a los hechos nuevos al llegar."""
+        from test_ui_map import D1861
+
+        self.open_map()
+        session = self.window.session
+        ms = map_ready(self)
+        facts = ms.facts
+        self.assertEqual(facts.name("regions", int(facts.region[4])), "BBB_4")
+        builds = self.slow_builds(0.8)
+        session.set_working_date(D1861)
+        _qt.process_events(150)
+        self.assertTrue(ms._facts_runner.is_busy())
+        self.assertEqual(ms.move_to_group("region", [4], "AAA_1"), 1)
+        ms = map_ready(self)
+        facts = ms.facts
+        self.assertEqual(facts.name("regions", int(facts.region[4])), "AAA_1")
+        self.assertEqual(len(builds), 1)
+
+    def test_painting_while_the_facts_rebuild_does_not_rebuild_them_again_and_again(self):
+        """Regresión (revisión): cada trazo durante una construcción entera provocaba otra al terminar, y con la
+        brocha en marcha no acababa (cada una repinta el mapa entero en el hilo de la interfaz)."""
+        from test_ui_map import D1861
+
+        self.open_map()
+        session = self.window.session
+        ms = map_ready(self)
+        builds = self.slow_builds(0.4)
+        session.set_working_date(D1861)
+        _qt.process_events(100)
+        tags = ["AAA", "BBB", "CCC"]
+        for i in range(12):
+            ms.paint([1, 2, 3], "owner", tags[i % 3])
+            _qt.process_events(350)
+        ms = map_ready(self)
+        last = tags[11 % 3]
+        self.assertEqual(self.owners(ms, (1, 2, 3)), {1: last, 2: last, 3: last})
+        self.assertLessEqual(len(builds), 2, builds)
+
+    def test_reindexing_rereads_the_map_rules_changed_outside(self):
+        """«Reindexar» rehace también las reglas del mapa (guardadas para no leerlas en cada uso) y los hechos: un
+        ``default.map`` cambiado en el disco fuera del Studio se ve al reindexar, como en el índice."""
+        self.open_map()
+        session = self.window.session
+        ms = map_ready(self)
+        self.assertEqual(ms.rules().sea, frozenset(OLD_SEA))
+        path = session.project.vfs.resolve("map/default.map")
+        path = Path(getattr(path, "path", path))
+        old = path.read_bytes()
+        new = old.replace(b"sea_starts = {\r\n\t9 ", b"sea_starts = {\r\n\t8 9 ")
+        self.assertNotEqual(new, old)
+        path.write_bytes(new)
+        session.rebuild_index()
+        self.assertTrue(_qt.wait_until(lambda: session.index_state() == "ready", WAIT_MS))
+        ms = map_ready(self)
+        self.assertEqual(ms.rules().sea, frozenset(OLD_SEA | {8}))
+        self.assertTrue(ms.provinces.is_sea(8))
+        self.assertEqual(facts_sea(ms), OLD_SEA | {8})
+
+
 class MapBeforeTheIndexTests(ForgeCase):
     def test_the_facts_are_built_when_the_index_arrives_after_the_raster(self):
         """Regresión: con el ráster listo antes que el índice (la sala Mapa abierta nada más abrir un proyecto

@@ -20,7 +20,7 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
-from .names import cp1252_name
+from .names import loc_text
 from .world import CAT_INDEX, SEA_LEVEL, ForgeWorld
 
 STEP_OF_KIND = {"relief_stroke": "relief", "landsea_stroke": "relief", "river_cells": "hydro",
@@ -192,8 +192,8 @@ def apply_owner_edits(world: ForgeWorld, owner: np.ndarray, owners: list) -> np.
 
 def apply_name_edits(world: ForgeWorld) -> ForgeWorld:
     """Los nombres puestos a mano sobre los generados. Un nombre a mano se queda tal cual (la tabla lo enseña con su
-    aviso de cp1252), pero si no le queda ninguna letra ni cifra que el juego sepa escribir ('大阪', 'Москва'), el
-    generado al que tapa va a ``NAME_FALLBACKS`` para que la localización no escriba un nombre vacío."""
+    aviso de cp1252), pero si no le queda nada que el juego sepa escribir ('大阪', 'Москва'), el generado al que
+    tapa va a ``NAME_FALLBACKS`` para que la localización no escriba un nombre vacío."""
     prov0 = world.cells.province0
     t = world.provisional
     ent = world.entities
@@ -221,7 +221,7 @@ def apply_name_edits(world: ForgeWorld) -> ForgeWorld:
     ent["province_names"] = pn
     ent["state_names"] = sn
     kept = {kind: {str(i): old for i, (old, new) in enumerate(zip(generated[kind], now))
-                   if new != old and cp1252_name(new) is None and cp1252_name(old) is not None}
+                   if new != old and not loc_text(new) and loc_text(old)}
             for kind, now in (("province", pn), ("state", sn))}
     if any(kept.values()):
         ent[NAME_FALLBACKS] = kept
